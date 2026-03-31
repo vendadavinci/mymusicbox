@@ -342,27 +342,24 @@ app.get('/callback', async (req, res) => {
     const data = await r.json();
     console.log('OAuth token response:', data);
 
-    if (!data.refresh_token) {
-      // Sometimes refresh_token is not returned if the app was previously authorized.
-      // If so, log a helpful message.
-      console.warn('No refresh_token returned. If you previously authorized, check SPOTIFY_REFRESH_TOKEN env.');
-    } else {
-      // Persist refresh token into in-memory tokens and log it so you can copy to your environment
-      tokens.refresh_token = data.refresh_token;
+    if (data.refresh_token) {
       console.log('*** COPY THIS REFRESH TOKEN TO YOUR RENDER ENV:');
-      console.log(tokens.refresh_token);
+      console.log(data.refresh_token);
       console.log('*** End refresh token');
     }
 
+    tokens.refresh_token = data.refresh_token || tokens.refresh_token;
     tokens.access_token = data.access_token;
     tokens.expires_at = Date.now() + (data.expires_in || 3600) * 1000;
 
-    res.send('Spotify authorization complete. If a refresh token was returned it was printed to server logs.');
+    // Respond immediately so browser doesn’t hang
+    res.send('Authorization complete. Check Render logs for your refresh token.');
   } catch (err) {
     console.error('/callback error', err);
-    res.status(500).send('Token exchange failed');
+    res.status(500).send('Token exchange failed. Check server logs.');
   }
 });
+
 
 /* -------------------------
    Start server
