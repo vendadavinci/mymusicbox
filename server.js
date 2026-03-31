@@ -246,6 +246,42 @@ app.post('/api/search', async (req, res) => {
   }
 });
 
+// Spotify OAuth callback
+app.get('/callback', async (req, res) => {
+  const code = req.query.code;
+  if (!code) return res.status(400).send('Missing code');
+
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: process.env.SPOTIFY_REDIRECT_URI
+  });
+
+  const r = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: {
+      Authorization:
+        'Basic ' +
+        Buffer.from(
+          process.env.SPOTIFY_CLIENT_ID + ':' + process.env.SPOTIFY_CLIENT_SECRET
+        ).toString('base64'),
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: body.toString()
+  });
+
+  const data = await r.json();
+  console.log('OAuth token response:', data);
+
+  // Save refresh token for future use
+  tokens.refresh_token = data.refresh_token;
+  tokens.access_token = data.access_token;
+  tokens.expires_at = Date.now() + data.expires_in * 1000;
+
+  res.send('Spotify authorization complete. Refresh token stored.');
+});
+
+
 // Start server
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
