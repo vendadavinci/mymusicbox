@@ -241,23 +241,6 @@
   <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
 
   <script>
-    /************************************************************************
-     * Behavior changes implemented:
-     * - "Skip" removed. Replaced with "Mute" button that toggles audio output.
-     * - Mute only affects audio output (backend should mute device) while default playlist continues playing.
-     * - Advert previews remain automatic and play only during DEFAULT mode every 4 minutes for 15s.
-     * - Paid sessions pause adverts and default playback; after paid session ends, default and adverts resume.
-     *
-     * Backend endpoints expected (implement server-side):
-     * - POST /api/play   { uris: [...] }
-     * - POST /api/pause
-     * - POST /api/resume
-     * - POST /api/mute
-     * - POST /api/unmute
-     * - POST /api/toggle
-     * - GET  /api/status
-     ************************************************************************/
-
     const DAILY_PLAYLISTS = {
       sunday:  ["spotify:track:4uLU6hMCjMI75M1A2tKUQC","spotify:track:3n3Ppam7vgaVa1iaRUc9Lp"],
       monday:  ["spotify:track:0eGsygTp906u18L0Oimnem","spotify:track:7ouMYWpwJ422jRcDASZB7P"],

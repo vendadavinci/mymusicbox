@@ -1,7 +1,8 @@
 // server.js
 import dotenv from 'dotenv';
 dotenv.config();
-
+import crypto from 'crypto';
+import axios from 'axios';
 import express from 'express';
 import fetch from 'node-fetch';
 import path from 'path';
@@ -10,6 +11,16 @@ import { fileURLToPath } from 'url';
 // Express setup
 const app = express();
 app.use(express.json());
+
+
+// near top of server.js
+const checkoutStore = new Map(); // { checkoutId -> { tracks, expiresAt } }
+function storeCheckout(checkoutId, payload, ttlMs = 1000 * 60 * 30) {
+  checkoutStore.set(checkoutId, { payload, expiresAt: Date.now() + ttlMs });
+  // schedule cleanup
+  setTimeout(() => checkoutStore.delete(checkoutId), ttlMs + 1000);
+}
+
 
 // Static frontend serving
 const __filename = fileURLToPath(import.meta.url);
@@ -358,6 +369,59 @@ app.get('/callback', async (req, res) => {
     res.status(500).send('Token exchange failed. Check server logs.');
   }
 });
+
+
+
+
+
+// create checkout route (adapted)
+app.post("/api/yoco/create-checkout", async (req, res) => {
+  const { amount, currency = "ZAR", description = "Musicbox Paid Session", tracks = [] } = req.body;
+  const idempotencyKey = crypto.randomUUID();
+  const checkoutId = crypto.randomUUID();
+
+  try {
+    const response = await axios.post(
+      "https://payments.yoco.com/api/checkouts",
+      {
+        amount,
+        currency,
+        description,
+        successUrl: `https://mymusicbox.onrender.com/jukebox.html?checkoutId=${checkoutId}`,
+        cancelUrl: `https://mymusicbox.onrender.com/index.html`
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey
+        }
+      }
+    );
+
+    // persist tracks server-side keyed by checkoutId
+    storeCheckout(checkoutId, { tracks, amount, createdAt: Date.now() });
+
+    res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId });
+  } catch (err) {
+    console.error("Yoco Checkout API error:", err.response?.data || err.message);
+    res.status(500).json({
+      success: false,
+      error: err.response?.data?.error || "Checkout creation failed"
+    });
+  }
+});
+
+// endpoint to fetch stored tracks by checkoutId
+app.get('/api/checkout-tracks', (req, res) => {
+  const id = req.query.checkoutId;
+  if (!id) return res.status(400).json({ error: 'checkoutId required' });
+  const entry = checkoutStore.get(id);
+  if (!entry) return res.status(404).json({ error: 'checkout not found or expired' });
+  return res.json({ success: true, tracks: entry.payload.tracks || [] });
+});
+
+
 
 /* -------------------------
    Start server

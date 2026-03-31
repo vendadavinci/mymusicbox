@@ -570,5 +570,61 @@
     renderQueue();
     pollStatusOnce();
   </script>
+// jukebox.html
+<script>
+  // Retrieve tracks from sessionStorage or query params
+  const tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+
+  fetch('/webhook/payment-success', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tracks })
+  }).then(() => {
+    alert('Payment successful! Your tracks are now playing.');
+  });
+</script>
+<script>
+(async function handlePostPayment() {
+  try {
+    let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+
+    // If no tracks locally, try checkoutId from URL or sessionStorage
+    if ((!tracks || tracks.length === 0) && location.search) {
+      const params = new URLSearchParams(location.search);
+      const checkoutId = params.get('checkoutId') || sessionStorage.getItem('checkoutId');
+      if (checkoutId) {
+        const r = await fetch(`/api/checkout-tracks?checkoutId=${encodeURIComponent(checkoutId)}`);
+        if (r.ok) {
+          const json = await r.json();
+          tracks = json.tracks || [];
+        }
+      }
+    }
+
+    if (tracks && tracks.length > 0) {
+      await fetch('/webhook/payment-success', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tracks })
+      });
+
+      // cleanup
+      sessionStorage.removeItem('tracks');
+      sessionStorage.removeItem('checkoutId');
+
+      // optional UI feedback
+      console.log('Payment successful — tracks submitted to server.');
+    } else {
+      console.log('No paid tracks found for this checkout.');
+    }
+  } catch (err) {
+    console.error('Error handling payment success:', err);
+  }
+})();
+</script>
+
+   
+    
+
 </body>
 </html>

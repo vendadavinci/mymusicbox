@@ -267,26 +267,31 @@
   <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
 
   <script>
-    /**
-     * payment.html (updated)
-     *
-     * New behavior:
-     * - When backend reports a paid session is currently playing (mode === 'PAID'),
-     *   the normal "Pay" button is hidden/disabled and replaced by "Add to Playlist".
-     * - "Add to Playlist" allows users to reserve their selected tracks to be queued
-     *   after the current paid session finishes. It calls /api/reserve-tracks.
-     * - "Cancel" remains available at all times.
-     * - When no paid session is active, the normal "Pay" button is visible and enabled
-     *   (when selections exist).
-     *
-     * Backend endpoints expected:
-     * - POST /api/search        { q, limit } -> returns top results: [{ uri, title, artist, duration_ms, albumArt }]
-     * - POST /api/create-payment { price, packageLabel, tracks } -> returns { checkoutUrl }
-     * - POST /api/reserve-tracks { price, packageLabel, tracks } -> returns { success, message }
-     * - GET  /api/status        -> { mode: "DEFAULT"|"PAID", current, title, artist, albumArt }
-     *
-     * Copy/paste ready. Replace endpoints with your server implementation.
-     */
+      
+async function startPaidPlayback(tracks) {
+  const total = tracks.reduce((acc, t) => acc + (t.price || 50), 0) * 100; // example pricing
+
+  const checkoutPayload = {
+    amount: Math.round(total),
+    currency: 'ZAR',
+    description: 'Musicbox Paid Session',
+    tracks
+  };
+
+  const res = await fetch('/api/yoco/create-checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(checkoutPayload)
+  });
+
+  const data = await res.json();
+  if (data.success && data.checkoutUrl) {
+    window.location.href = data.checkoutUrl;
+  } else {
+    alert('Payment initialization failed.');
+  }
+}
+
 
     // Current package state
     let currentPackage = null; // { price, maxSongs, label }
@@ -663,12 +668,6 @@
       };
     }
 
-    /* -------------------------
-       Prefill and init
-       ------------------------- */
-
-    // If user lands on payment.html with query params (e.g., ?song=spotify:track:...&price=10),
-    // preselect package and prefill first slot with that song (useful for advert flow).
     (function prefillFromQuery(){
       const params = new URLSearchParams(window.location.search);
       const song = params.get('song');
@@ -688,7 +687,31 @@
         }
       }
     })();
+async function startPaidCheckout(tracks) {
+  // price calculation example: tracks have .price in ZAR
+  const total = Math.round(tracks.reduce((acc, t) => acc + (t.price || 10), 0) * 100);
 
+  const payload = { amount: total, currency: 'ZAR', description: 'Musicbox Paid Session', tracks };
+
+  const res = await fetch('/api/yoco/create-checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await res.json();
+  if (!data.success || !data.checkoutUrl) {
+    alert('Payment initialization failed.');
+    return;
+  }
+
+  // Save tracks and checkoutId as fallback
+  sessionStorage.setItem('tracks', JSON.stringify(tracks));
+  if (data.checkoutId) sessionStorage.setItem('checkoutId', data.checkoutId);
+
+  // Redirect to Yoco checkout
+  window.location.href = data.checkoutUrl;
+}
     // Start polling backend status every 6 seconds
     statusPollHandle = setInterval(pollStatus, 6000);
     // initial poll
