@@ -1,0 +1,253 @@
+// server.js
+
+import dotenv from 'dotenv';
+dotenv.config();
+
+import express from 'express';
+import fetch from 'node-fetch';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Express setup
+const app = express();
+app.use(express.json());
+
+// Static frontend serving
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Health check
+app.get('/health', (req, res) => res.json({ ok: true, time: Date.now() }));
+
+// Spotify token state
+let tokens = { access_token: null, refresh_token: null, expires_at: 0 };
+
+// Helper: refresh token if needed
+async function refreshAccessTokenIfNeeded() {
+  if (!tokens.refresh_token) throw new Error('No refresh token stored');
+  if (Date.now() < tokens.expires_at - 5000) return;
+
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: tokens.refresh_token
+  });
+
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: {
+      Authorization:
+        'Basic ' +
+        Buffer.from(
+          process.env.SPOTIFY_CLIENT_ID + ':' + process.env.SPOTIFY_CLIENT_SECRET
+        ).toString('base64'),
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: body.toString()
+  });
+
+  const data = await res.json();
+  tokens.access_token = data.access_token;
+  tokens.expires_at = Date.now() + data.expires_in * 1000;
+}
+
+// Paid session state
+let paidSessionActive = false;
+let paidSessionTimer = null;
+let paidQueue = [];
+
+// Start paid session
+async function startPaidSession(uris, estimatedTotalMs = null) {
+  if (paidSessionActive) {
+    paidQueue.push(...uris.map(u => ({ uri: u, duration_ms: 0 })));
+    return { queued: true };
+  }
+
+  paidSessionActive = true;
+  if (paidSessionTimer) {
+    clearTimeout(paidSessionTimer);
+    paidSessionTimer = null;
+  }
+
+  try {
+    await refreshAccessTokenIfNeeded();
+    const r = await fetch('https://api.spotify.com/v1/me/player/play', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ uris })
+    });
+    if (r.status !== 204) {
+      console.warn('spotify play returned', r.status, await r.text());
+    }
+  } catch (err) {
+    console.error('startPaidSession play error', err);
+  }
+
+  if (!estimatedTotalMs) {
+    const perTrackMs = 3.5 * 60 * 1000;
+    estimatedTotalMs = uris.length * perTrackMs;
+  }
+
+  paidSessionTimer = setTimeout(async () => {
+    if (paidQueue.length > 0) {
+      const queuedUris = paidQueue.map(i => i.uri);
+      paidQueue = [];
+      paidSessionTimer = null;
+      await startPaidSession(queuedUris, null);
+      return;
+    }
+
+    paidSessionActive = false;
+    paidSessionTimer = null;
+
+    try {
+      await refreshAccessTokenIfNeeded();
+      const defaultPlaylistUri = process.env.DEFAULT_PLAYLIST_URI || null;
+      if (defaultPlaylistUri) {
+        await fetch('https://api.spotify.com/v1/me/player/play', {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${tokens.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ context_uri: defaultPlaylistUri })
+        });
+      } else {
+        await fetch('https://api.spotify.com/v1/me/player/play', {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${tokens.access_token}` }
+        });
+      }
+    } catch (err) {
+      console.warn('Error resuming default playlist after paid session', err);
+    }
+  }, estimatedTotalMs + 2000);
+}
+
+// Routes
+
+// Play
+app.post('/api/play', async (req, res) => {
+  try {
+    const uris = req.body.uris;
+    const isPaid = !!req.body.isPaid;
+    if (!uris || !Array.isArray(uris) || uris.length === 0) {
+      return res.status(400).json({ error: 'uris required' });
+    }
+
+    if (isPaid) {
+      const estimatedTotalMs = req.body.estimatedTotalMs || null;
+      await startPaidSession(uris, estimatedTotalMs);
+      return res.json({ success: true, paidSessionStarted: true });
+    }
+
+    if (paidSessionActive) {
+      return res
+        .status(403)
+        .json({ error: 'A paid session is currently active. Playback cannot be replaced.' });
+    }
+
+    await refreshAccessTokenIfNeeded();
+    const deviceId = req.body.device_id;
+    const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
+    const r = await fetch(`https://api.spotify.com/v1/me/player/play${params}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ uris })
+    });
+    if (r.status === 204) return res.json({ success: true });
+    const data = await r.json();
+    res.status(r.status).json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'play failed' });
+  }
+});
+
+// Pause/Resume/Skip protection
+app.post('/api/pause', async (req, res) => {
+  if (paidSessionActive) return res.status(403).json({ error: 'Cannot pause during paid session' });
+  res.json({ ok: true });
+});
+app.post('/api/resume', async (req, res) => {
+  if (paidSessionActive) return res.status(403).json({ error: 'Cannot resume during paid session' });
+  res.json({ ok: true });
+});
+app.post('/api/skip', async (req, res) => {
+  if (paidSessionActive) return res.status(403).json({ error: 'Cannot skip during paid session' });
+  res.json({ ok: true });
+});
+
+// Reserve tracks
+app.post('/api/reserve-tracks', async (req, res) => {
+  try {
+    const tracks = req.body.tracks;
+    if (!tracks || !Array.isArray(tracks) || tracks.length === 0)
+      return res.status(400).json({ error: 'tracks required' });
+
+    paidQueue.push(...tracks.map(t => ({ uri: t.uri, duration_ms: t.duration_ms || 0 })));
+    return res.json({ success: true, queued: tracks.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'reserve failed' });
+  }
+});
+
+// Payment webhook
+app.post('/webhook/payment-success', async (req, res) => {
+  const session = req.body;
+  const tracks = session.tracks || [];
+  const uris = tracks.map(t => t.uri);
+  const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
+  if (uris.length > 0) {
+    await startPaidSession(uris, estimatedTotalMs);
+  }
+  res.json({ ok: true });
+});
+
+// Search
+app.post('/api/search', async (req, res) => {
+  try {
+    const q = req.body.q;
+    const limit = req.body.limit || 10;
+    if (!q) return res.status(400).json({ error: 'Missing query' });
+
+    await refreshAccessTokenIfNeeded();
+
+    const params = new URLSearchParams({ q, type: 'track', limit: String(limit) });
+    const r = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+    const data = await r.json();
+
+    const tracks = (data.tracks.items || []).map(t => ({
+      uri: t.uri,
+      title: t.name,
+      artist: t.artists.map(a => a.name).join(', '),
+      duration_ms: t.duration_ms,
+      albumArt: t.album?.images?.[0]?.url || null
+    }));
+
+    res.json(tracks);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Spotify search failed' });
+  }
+});
+
+// Start server
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});

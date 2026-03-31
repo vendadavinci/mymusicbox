@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Pub Jukebox — Playback</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{
+      --bg-overlay: rgba(0,0,0,0.65);
+      --card-bg: rgba(0,0,0,0.75);
+      --accent: #ffd700;
+      --muted: #d6d6d6;
+    }
+
+    html,body{
+      height:100%;
+      margin:0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: url("pictures/backg.jpeg") no-repeat center center fixed;
+      background-size: cover;
+      color:#fff;
+      display:flex;
+      flex-direction:column;
+      min-height:100vh;
+    }
+
+    header{
+      background: rgba(0,0,0,0.6);
+      padding:16px 20px;
+      text-align:center;
+      font-size:20px;
+      font-weight:700;
+    }
+
+    main{
+      flex:1;
+      padding:18px;
+      display:flex;
+      gap:18px;
+      box-sizing:border-box;
+      align-items:flex-start;
+      justify-content:center;
+      flex-wrap:wrap;
+    }
+
+    /* Left column: large Now Playing (up to 1080px wide) */
+    .left-col{
+      width:100%;
+      max-width:1080px;
+      background:var(--bg-overlay);
+      border-radius:10px;
+      padding:18px;
+      box-sizing:border-box;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+
+    .player-visual{
+      width:100%;
+      height:608px;
+      max-height:608px;
+      background:linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0.75));
+      border-radius:8px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#bbb;
+      font-size:18px;
+      position:relative;
+      overflow:hidden;
+    }
+
+    .player-overlay {
+      position:absolute;
+      left:12px;
+      bottom:12px;
+      right:12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+    }
+
+    .track-info{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      min-width:0;
+    }
+    .art{
+      width:140px;
+      height:140px;
+      background:#222;
+      border-radius:6px;
+      flex-shrink:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#999;
+      font-size:12px;
+      overflow:hidden;
+    }
+    .meta{
+      min-width:0;
+    }
+    .meta .title{ font-size:20px; font-weight:700; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .meta .artist{ margin:4px 0 0 0; color:var(--muted); font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    .player-controls{
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+    .btn{
+      background:var(--accent);
+      color:#000;
+      border:none;
+      padding:10px 14px;
+      border-radius:6px;
+      cursor:pointer;
+      font-weight:700;
+    }
+    .btn.ghost{
+      background:transparent;
+      color:var(--muted);
+      border:1px solid rgba(255,255,255,0.06);
+    }
+
+    /* small "Playing Next" strip under the visual */
+    .playing-next {
+      width:100%;
+      max-width:1080px;
+      background:rgba(0,0,0,0.55);
+      border-radius:8px;
+      padding:10px 12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      box-sizing:border-box;
+      color:var(--muted);
+      font-size:14px;
+    }
+    .playing-next .label{ color:var(--accent); font-weight:700; margin-right:12px; }
+    .playing-next .next-title{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80%; }
+
+    /* Right column: search + queue */
+    .right-col{
+      width:100%;
+      max-width:420px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+
+    .card{
+      background:var(--card-bg);
+      padding:14px;
+      border-radius:10px;
+      box-sizing:border-box;
+    }
+
+    .search-row{
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+    .search-row input{
+      flex:1;
+      padding:10px;
+      border-radius:6px;
+      border:1px solid rgba(255,255,255,0.06);
+      background:transparent;
+      color:#fff;
+      outline:none;
+    }
+    .search-results{
+      margin-top:10px;
+      max-height:220px;
+      overflow:auto;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .result-item{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      padding:8px;
+      border-radius:6px;
+      background:rgba(255,255,255,0.02);
+      cursor:pointer;
+    }
+    .result-item:hover{ background:rgba(255,255,255,0.04); }
+
+    .queue-list{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      max-height:320px;
+      overflow:auto;
+      margin-top:8px;
+    }
+    .queue-item{
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      align-items:center;
+      padding:8px;
+      border-radius:6px;
+      background:rgba(255,255,255,0.02);
+      font-size:14px;
+    }
+    .queue-item .meta{ color:var(--muted); font-size:13px; }
+
+    .small{
+      font-size:12px;
+      color:var(--muted);
+    }
+
+    footer{
+      background: rgba(0,0,0,0.6);
+      text-align:center;
+      padding:10px;
+      font-size:14px;
+      color:var(--muted);
+    }
+
+    @media (max-width:1200px){
+      main{ padding:12px; gap:12px; }
+      .player-visual{ height:420px; }
+      .art{ width:96px; height:96px; }
+    }
+  </style>
+</head>
+<body>
+  <header>🎵 Pub Jukebox — Playback</header>
+
+  <main>
+    <!-- Left: Now Playing visual (up to 1080px block) -->
+    <section class="left-col card" aria-label="Now Playing">
+      <div class="player-visual" id="playerVisual">
+        <div id="playerPlaceholder">Now Playing Visual (1080p area)</div>
+
+        <div class="player-overlay">
+          <div class="track-info">
+            <div class="art" id="nowArt">ART</div>
+            <div class="meta">
+              <div class="title" id="nowTitle">Idle</div>
+              <div class="artist" id="nowArtist">Default playlist</div>
+              <div class="small" id="nowMode">Mode: DEFAULT</div>
+            </div>
+          </div>
+
+          <div class="player-controls">
+            <!-- No user controls for paid playback. Only an Add button to open search. -->
+            <button class="btn" id="openQueueBtn" onclick="focusAdd()">Add To Playlist</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Playing Next strip (small portion showing the next paid song) -->
+      <div class="playing-next" id="playingNext">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="label">Playing Next</div>
+          <div class="next-title" id="nextTitle">No paid tracks queued</div>
+        </div>
+        <div class="small" id="queueCount">Paid queue: 0</div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+        <div class="small" id="statusText">Status: idle</div>
+        <div class="small" id="queueDuration">Estimated duration: 0 min</div>
+      </div>
+    </section>
+
+    <!-- Right: Search and Paid Queue -->
+    <aside class="right-col">
+      <!-- Search / Add -->
+      <div class="card" aria-label="Add to paid playlist">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-weight:700;">Add To Paid Playlist</div>
+          <div class="small">Users add songs; queue plays FIFO</div>
+        </div>
+
+        <div class="search-row" style="margin-top:12px;">
+          <input id="searchInput" placeholder="Search Spotify (title or artist)" onkeydown="if(event.key==='Enter') searchTracks()" />
+          <button class="btn" onclick="searchTracks()">Search</button>
+        </div>
+
+        <div class="search-results" id="searchResults" aria-live="polite"></div>
+        <div class="small" style="margin-top:8px;">Tip: search calls backend Spotify search endpoint.</div>
+      </div>
+
+      <!-- Paid queue -->
+      <div class="card" aria-label="Paid queue">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-weight:700;">Paid Queue</div>
+          <div class="small" id="queueInfo">Plays in order; no jumping</div>
+        </div>
+
+        <div class="queue-list" id="paidQueue"></div>
+
+        <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+          <button class="btn ghost" onclick="clearQueue()">Clear Queue</button>
+          <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
+
+  <script>
+    /**
+     * Final jukebox playback page with automatic redirect:
+     * - No user controls that interrupt paid playback.
+     * - Paid queue plays FIFO; default playlist paused while paid queue plays.
+     * - After paid queue finishes, resume default playlist and redirect to index.html after 30 seconds.
+     * - If a new paid session starts before the redirect fires, the redirect is canceled.
+     *
+     * Backend endpoints expected (implement server-side):
+     * - POST /api/search    { q: "query" } -> returns [{ uri, title, artist, duration_ms, albumArt }]
+     * - POST /api/play      { uris: [ ... ] } -> start playback immediately on pub device
+     * - POST /api/pause
+     * - POST /api/resume
+     * - GET  /api/status    -> { mode: "DEFAULT"|"PAID", current, title, artist, albumArt }
+     *
+     * Copy/paste ready. Replace backend endpoints with your server implementation.
+     */
+
+    // Client-side paid queue (in production persist server-side)
+    const paidQueue = []; // { uri, title, artist, duration_ms, addedAt }
+
+    // Playback state
+    let paidSessionActive = false;
+    let redirectTimeoutHandle = null; // handle for redirect after paid session ends
+
+    // UI refs
+    const nowTitle = document.getElementById('nowTitle');
+    const nowArtist = document.getElementById('nowArtist');
+    const nowArt = document.getElementById('nowArt');
+    const nowMode = document.getElementById('nowMode');
+    const statusText = document.getElementById('statusText');
+    const queueCount = document.getElementById('queueCount');
+    const paidQueueEl = document.getElementById('paidQueue');
+    const queueDurationText = document.getElementById('queueDurationText');
+    const searchResultsEl = document.getElementById('searchResults');
+    const nextTitleEl = document.getElementById('nextTitle');
+
+    // Helper: update queue UI and "Playing Next"
+    function renderQueue(){
+      paidQueueEl.innerHTML = '';
+      let totalMs = 0;
+      paidQueue.forEach((item, idx) => {
+        totalMs += item.duration_ms || 0;
+        const div = document.createElement('div');
+        div.className = 'queue-item';
+        div.innerHTML = `
+          <div style="min-width:0">
+            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title)}</div>
+            <div class="meta">${escapeHtml(item.artist)}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+            <div class="small">${formatMs(item.duration_ms)}</div>
+            <button class="btn ghost" onclick="removeFromQueue(${idx})">Remove</button>
+          </div>
+        `;
+        paidQueueEl.appendChild(div);
+      });
+      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+      queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs/60000)} min`;
+
+      // Update Playing Next strip: show the first queued item (next to play)
+      if(paidQueue.length > 0){
+        nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
+      } else {
+        nextTitleEl.textContent = 'No paid tracks queued';
+      }
+    }
+
+    function removeFromQueue(index){
+      if(index >=0 && index < paidQueue.length){
+        paidQueue.splice(index,1);
+        renderQueue();
+      }
+    }
+
+    function clearQueue(){
+      if(confirm('Clear the paid queue?')) {
+        paidQueue.length = 0;
+        renderQueue();
+      }
+    }
+
+    // Search tracks (calls backend /api/search)
+    async function searchTracks(){
+      const q = document.getElementById('searchInput').value.trim();
+      searchResultsEl.innerHTML = '';
+      if(!q) return;
+      searchResultsEl.innerHTML = '<div class="small">Searching…</div>';
+      try{
+        const res = await fetch('/api/search', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ q })
+        });
+        if(!res.ok) throw new Error('search failed');
+        const results = await res.json(); // expect array of { uri, title, artist, duration_ms, albumArt }
+        renderSearchResults(results);
+      }catch(e){
+        searchResultsEl.innerHTML = '<div class="small">Search failed. Try again.</div>';
+        console.warn(e);
+      }
+    }
+
+    function renderSearchResults(results){
+      searchResultsEl.innerHTML = '';
+      if(!results || results.length === 0){
+        searchResultsEl.innerHTML = '<div class="small">No results</div>';
+        return;
+      }
+      results.forEach(r => {
+        const item = document.createElement('div');
+        item.className = 'result-item';
+        item.innerHTML = `
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(r.title)}</div>
+            <div class="small">${escapeHtml(r.artist)}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+            <div class="small">${formatMs(r.duration_ms)}</div>
+            <button class="btn" onclick='addToPaidQueue(${JSON.stringify(escapeForInline(r))})'>Add</button>
+          </div>
+        `;
+        searchResultsEl.appendChild(item);
+      });
+    }
+
+    // Add to paid queue (called when user clicks Add)
+    function addToPaidQueue(track){
+      paidQueue.push({
+        uri: track.uri,
+        title: track.title,
+        artist: track.artist,
+        duration_ms: track.duration_ms || 0,
+        addedAt: Date.now()
+      });
+      renderQueue();
+      // If not currently in a paid session, start it
+      if(!paidSessionActive){
+        startPaidQueuePlayback();
+      }
+    }
+
+    // Start playing the paid queue sequentially
+    async function startPaidQueuePlayback(){
+      if(paidQueue.length === 0) return;
+
+      // If a redirect was scheduled from a previous paid session, cancel it
+      if(redirectTimeoutHandle){
+        clearTimeout(redirectTimeoutHandle);
+        redirectTimeoutHandle = null;
+      }
+
+      paidSessionActive = true;
+      nowMode.textContent = 'Mode: PAID';
+      statusText.textContent = 'Playing paid queue';
+
+      // Pause default playlist on backend
+      await backendPause();
+
+      // Build list of URIs to play in order
+      const uris = paidQueue.map(i => i.uri);
+
+      // Update Now Playing UI to show first paid track immediately
+      const first = paidQueue[0];
+      setNowPlaying(first.title, first.artist, first.albumArt);
+
+      // Tell backend to play the list (backend should play sequentially without user controls)
+      await backendPlayUris(uris);
+
+      // Estimate total duration and set a timer to resume default after completion.
+      // In production, backend should notify via websocket when paid queue finishes.
+      const totalMs = paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0);
+
+      // Clear local queue (backend owns playback now).
+      paidQueue.length = 0;
+      renderQueue();
+
+      // After estimated time, resume default playlist and schedule redirect to index.html after 30s
+      setTimeout(async ()=>{
+        paidSessionActive = false;
+        nowMode.textContent = 'Mode: DEFAULT';
+        statusText.textContent = 'Resuming default playlist';
+        await backendResume();
+        pollStatusOnce();
+
+        // Schedule redirect to index.html after 30 seconds
+        if(redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
+        redirectTimeoutHandle = setTimeout(()=>{
+          // If a new paid session started in the meantime, cancel redirect
+          if(paidSessionActive) return;
+          window.location.href = 'index.html';
+        }, 30000);
+
+      }, totalMs + 2000);
+    }
+
+    /* -------------------------
+       Backend control helpers (placeholders)
+       ------------------------- */
+
+    async function backendPlayUris(uris){
+      try{
+        await fetch('/api/play', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ uris })
+        });
+      }catch(e){ console.warn('backendPlayUris', e); }
+    }
+
+    async function backendPause(){
+      try{ await fetch('/api/pause', { method:'POST' }); }catch(e){ console.warn('backendPause', e); }
+    }
+
+    async function backendResume(){
+      try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
+    }
+
+    // Poll backend once for current playback status and update UI
+    async function pollStatusOnce(){
+      try{
+        const res = await fetch('/api/status');
+        if(!res.ok) return;
+        const data = await res.json(); // { mode, current, title, artist, albumArt }
+        if(data.title) nowTitle.textContent = data.title;
+        if(data.artist) nowArtist.textContent = data.artist;
+        if(data.albumArt) nowArt.style.backgroundImage = `url(${data.albumArt})`;
+        nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
+        statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : 'Default playlist';
+      }catch(e){ /* ignore */ }
+    }
+
+    function setNowPlaying(title, artist, albumArt){
+      nowTitle.textContent = title || 'Unknown';
+      nowArtist.textContent = artist || '';
+      if(albumArt) nowArt.style.backgroundImage = `url(${albumArt})`;
+      else nowArt.style.backgroundImage = '';
+    }
+
+    // Utility: format ms to mm:ss
+    function formatMs(ms){
+      if(!ms || isNaN(ms)) return '--:--';
+      const s = Math.floor(ms/1000);
+      const m = Math.floor(s/60);
+      const sec = s%60;
+      return `${m}:${sec.toString().padStart(2,'0')}`;
+    }
+
+    // Escape helpers for safe inline JSON and HTML
+    function escapeHtml(str){
+      if(!str) return '';
+      return String(str).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
+    }
+    function escapeForInline(obj){
+      return {
+        uri: obj.uri || '',
+        title: obj.title || '',
+        artist: obj.artist || '',
+        duration_ms: obj.duration_ms || 0
+      };
+    }
+
+    /* -------------------------
+       Small helpers & init
+       ------------------------- */
+
+    function focusAdd(){
+      document.getElementById('searchInput').focus();
+    }
+
+    // Periodically poll backend status to keep Now Playing updated
+    setInterval(pollStatusOnce, 8000);
+
+    // Initial UI setup
+    renderQueue();
+    pollStatusOnce();
+  </script>
+</body>
+</html>

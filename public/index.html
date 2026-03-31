@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Pub Jukebox</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{
+      --overlay: rgba(0,0,0,0.7);
+      --accent: #ffd700;
+      --accent-dark: #ffae00;
+      --card-bg: rgba(0,0,0,0.75);
+      --muted: #ddd;
+    }
+
+    html,body{
+      height:100%;
+      margin:0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: url("pictures/backg.jpeg") no-repeat center center fixed;
+      background-size: cover;
+      color:#fff;
+      display:flex;
+      flex-direction:column;
+      min-height:100vh;
+    }
+
+    header{
+      background: rgba(0,0,0,0.6);
+      padding:18px 20px;
+      text-align:center;
+      font-size:22px;
+      font-weight:700;
+    }
+
+    main{
+      flex:1;
+      padding:18px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:18px;
+      box-sizing:border-box;
+    }
+
+    .top-row{
+      width:100%;
+      max-width:1200px;
+      display:flex;
+      gap:18px;
+      align-items:flex-start;
+      justify-content:space-between;
+      flex-wrap:wrap;
+    }
+
+    .pricing{
+      display:flex;
+      gap:18px;
+      flex-wrap:wrap;
+      justify-content:center;
+      align-items:stretch;
+    }
+
+    .card{
+      background:var(--card-bg);
+      padding:18px;
+      border-radius:10px;
+      width:200px;
+      cursor:pointer;
+      transition:transform .15s ease, background .15s ease;
+      box-sizing:border-box;
+      text-align:center;
+      user-select:none;
+    }
+    .card:hover{ transform:scale(1.04); background: rgba(0,0,0,0.85); }
+    .card h2{ margin:0; font-size:20px; color:var(--accent); }
+    .card p{ margin:8px 0; font-size:14px; color:#fff; }
+
+    /* Now Playing block (prominent) */
+    .now-playing {
+      width:100%;
+      max-width:1080px;
+      background:var(--overlay);
+      border-radius:10px;
+      padding:16px;
+      box-sizing:border-box;
+      display:flex;
+      gap:16px;
+      align-items:center;
+      justify-content:space-between;
+    }
+    .now-left{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      min-width:0;
+    }
+    .np-art{
+      width:96px;
+      height:96px;
+      background:linear-gradient(135deg,#222,#111);
+      border-radius:6px;
+      flex-shrink:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#999;
+      font-size:12px;
+      overflow:hidden;
+    }
+    .np-meta{
+      min-width:0;
+    }
+    .np-title{ font-weight:700; font-size:18px; margin:0 0 6px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .np-sub{ margin:0; font-size:13px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    .np-controls{
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+    .btn{
+      background:var(--accent);
+      color:#000;
+      border:none;
+      padding:8px 12px;
+      border-radius:6px;
+      cursor:pointer;
+      font-weight:700;
+    }
+    .btn.secondary{ background:transparent; color:var(--muted); border:1px solid rgba(255,255,255,0.08); }
+
+    /* Advert block sits just above footer */
+    .advert-block{
+      width:100%;
+      max-width:1080px;
+      background:var(--overlay);
+      padding:14px;
+      border-radius:10px;
+      text-align:center;
+      box-sizing:border-box;
+    }
+    .advert-block h3{ margin:0 0 8px 0; color:var(--accent); }
+    .advert-info{ color:var(--muted); font-size:14px; margin-bottom:8px; }
+    .advert-controls{ display:flex; gap:12px; align-items:center; justify-content:center; margin-top:8px; flex-wrap:wrap; }
+    .advert-controls button{ padding:8px 14px; border-radius:6px; border:none; cursor:pointer; font-weight:700; }
+    .advert-pay{ background:#ff6b6b; color:#fff; }
+
+    footer{
+      background: rgba(0,0,0,0.6);
+      text-align:center;
+      padding:10px;
+      font-size:14px;
+      color:var(--muted);
+    }
+
+    @media (max-width:900px){
+      .now-playing{ flex-direction:column; align-items:flex-start; gap:12px; }
+      .np-controls{ width:100%; justify-content:space-between; }
+      .pricing{ justify-content:center; }
+    }
+  </style>
+</head>
+<body>
+  <header>🎵 Welcome to Pub Jukebox 🎵</header>
+
+  <main>
+    <div class="top-row">
+      <!-- Pricing cards -->
+      <div class="pricing" id="pricing">
+        <div class="card" onclick="selectPackage(10,2)">
+          <h2>R10</h2>
+          <p>Play 1–2 songs</p>
+          <p>Max 10 minutes</p>
+        </div>
+        <div class="card" onclick="selectPackage(20,4)">
+          <h2>R20</h2>
+          <p>Play 3–4 songs</p>
+          <p>Max 20 minutes</p>
+        </div>
+        <div class="card" onclick="selectPackage(40,6)">
+          <h2>R40</h2>
+          <p>Play 4–6 songs</p>
+          <p>Max 30 minutes</p>
+        </div>
+        <div class="card" onclick="selectPackage(50,8)">
+          <h2>R50</h2>
+          <p>Play 6–8 songs</p>
+          <p>Max ~40 minutes</p>
+        </div>
+        <div class="card" onclick="selectPackage(100,12)">
+          <h2>R100</h2>
+          <p>Play 9–12 songs</p>
+          <p>Max ~50 minutes</p>
+        </div>
+        <div class="card" onclick="selectPackage(150,15)">
+          <h2>R150</h2>
+          <p>Play 10–15 songs</p>
+          <p>Max ~60 minutes</p>
+        </div>
+        <div class="card" onclick="selectPackage(200,20)">
+          <h2>R200</h2>
+          <p>Play 15–20 songs</p>
+          <p>Max ~90 minutes</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Now Playing block -->
+    <div class="now-playing" id="nowPlaying">
+      <div class="now-left">
+        <div class="np-art" id="npArt">ART</div>
+        <div class="np-meta">
+          <div class="np-title" id="npTitle">Loading...</div>
+          <div class="np-sub" id="npSub">Default playlist</div>
+        </div>
+      </div>
+
+      <div class="np-controls">
+        <div id="npState" style="color:var(--muted);font-size:13px;">Mode: <strong id="modeLabel">DEFAULT</strong></div>
+        <!-- Mute button replaces Skip. Users can mute/unmute audio output while default playlist continues playing in background -->
+        <button class="btn secondary" id="muteBtn" onclick="toggleMute()" title="Mute/unmute audio">Mute</button>
+        <button class="btn" id="pauseResumeBtn" onclick="togglePlayback()">Pause</button>
+      </div>
+    </div>
+
+    <!-- Advert Block (automatic previews only during DEFAULT mode) -->
+    <div class="advert-block" id="advertBlock">
+      <h3>🔥 Featured Song Preview 🔥</h3>
+      <div id="advertInfo" class="advert-info">Loading advert...</div>
+
+      <!-- local preview player used for 15s teaser only (autoplayed by script during DEFAULT mode) -->
+      <audio id="advertPlayer" preload="auto"></audio>
+
+      <div class="advert-controls">
+        <button class="advert-pay" id="advertPayBtn" onclick="advertProceedToPayment()">Play Full (Pay)</button>
+      </div>
+    </div>
+  </main>
+
+  <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
+
+  <script>
+    /************************************************************************
+     * Behavior changes implemented:
+     * - "Skip" removed. Replaced with "Mute" button that toggles audio output.
+     * - Mute only affects audio output (backend should mute device) while default playlist continues playing.
+     * - Advert previews remain automatic and play only during DEFAULT mode every 4 minutes for 15s.
+     * - Paid sessions pause adverts and default playback; after paid session ends, default and adverts resume.
+     *
+     * Backend endpoints expected (implement server-side):
+     * - POST /api/play   { uris: [...] }
+     * - POST /api/pause
+     * - POST /api/resume
+     * - POST /api/mute
+     * - POST /api/unmute
+     * - POST /api/toggle
+     * - GET  /api/status
+     ************************************************************************/
+
+    const DAILY_PLAYLISTS = {
+      sunday:  ["spotify:track:4uLU6hMCjMI75M1A2tKUQC","spotify:track:3n3Ppam7vgaVa1iaRUc9Lp"],
+      monday:  ["spotify:track:0eGsygTp906u18L0Oimnem","spotify:track:7ouMYWpwJ422jRcDASZB7P"],
+      tuesday: ["spotify:track:1lDWb6b6ieDQ2xT7ewTC3G","spotify:track:6habFhsOp2NvshLv26DqMb"],
+      wednesday:["spotify:track:3AJwUDP919kvQ9QcozQPxg","spotify:track:2takcwOaAZWiXQijPHIx7B"],
+      thursday:["spotify:track:6rqhFgbbKwnb9MLmUQDhG6","spotify:track:0VjIjW4GlUZAMYd2vXMi3b"],
+      friday:  ["spotify:track:7ouMYWpwJ422jRcDASZB7P","spotify:track:3n3Ppam7vgaVa1iaRUc9Lp"],
+      saturday:["spotify:track:0eGsygTp906u18L0Oimnem","spotify:track:4uLU6hMCjMI75M1A2tKUQC"]
+    };
+
+    const ADVERTS = [
+      { preview: "adverts/sample1.mp3", full: "spotify:track:1234567890", title: "Advert Track A", artist: "Artist A", price: 10 },
+      { preview: "adverts/sample2.mp3", full: "spotify:track:0987654321", title: "Advert Track B", artist: "Artist B", price: 10 },
+      { preview: "adverts/sample3.mp3", full: "spotify:track:1122334455", title: "Advert Track C", artist: "Artist C", price: 15 }
+    ];
+
+    let MODE = "DEFAULT"; // DEFAULT or PAID
+    let defaultPlaylist = [];
+    let currentDefaultIndex = 0;
+    let defaultTimer = null;
+    let advertIndex = -1;
+    let advertIntervalHandle = null;
+    let advertPreviewTimeout = null;
+    let paidSessionActive = false;
+    let isMuted = false;
+
+    // Backend hooks (placeholders)
+    async function backendPlayUris(uris){
+      try{
+        await fetch('/api/play', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ uris })
+        });
+      }catch(e){ console.warn('backendPlayUris error', e); }
+    }
+    async function backendPause(){
+      try{ await fetch('/api/pause', { method:'POST' }); }catch(e){ console.warn('backendPause error', e); }
+    }
+    async function backendResume(){
+      try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume error', e); }
+    }
+    async function backendMute(){
+      try{ await fetch('/api/mute', { method:'POST' }); }catch(e){ console.warn('backendMute error', e); }
+    }
+    async function backendUnmute(){
+      try{ await fetch('/api/unmute', { method:'POST' }); }catch(e){ console.warn('backendUnmute error', e); }
+    }
+    async function backendToggle(){
+      try{ await fetch('/api/toggle', { method:'POST' }); }catch(e){ console.warn('backendToggle error', e); }
+    }
+
+    /* Default playlist control */
+    function loadPlaylistForToday(){
+      const d = new Date();
+      const day = d.toLocaleString('en-US',{weekday:'long'}).toLowerCase();
+      defaultPlaylist = DAILY_PLAYLISTS[day] || [];
+      currentDefaultIndex = 0;
+    }
+
+    async function startDefaultPlaylist(){
+      MODE = "DEFAULT";
+      updateModeLabel();
+      if(defaultPlaylist.length === 0){
+        setNowPlayingText("No default playlist configured", "—");
+        return;
+      }
+      const first = defaultPlaylist[currentDefaultIndex];
+      setNowPlayingFromUri(first, "Default mix");
+      await backendPlayUris([first]);
+      scheduleDefaultAdvance();
+      startAdvertSchedule();
+    }
+
+    function scheduleDefaultAdvance(){
+      if(defaultTimer) clearTimeout(defaultTimer);
+      const EST_MS = 3.5 * 60 * 1000;
+      defaultTimer = setTimeout(async ()=>{
+        currentDefaultIndex = (currentDefaultIndex + 1) % defaultPlaylist.length;
+        const next = defaultPlaylist[currentDefaultIndex];
+        setNowPlayingFromUri(next, "Default mix");
+        await backendPlayUris([next]);
+        scheduleDefaultAdvance();
+      }, EST_MS);
+    }
+
+    async function pauseDefaultPlaylist(){
+      if(defaultTimer){ clearTimeout(defaultTimer); defaultTimer = null; }
+      await backendPause();
+    }
+
+    async function resumeDefaultPlaylist(){
+      await backendResume();
+      scheduleDefaultAdvance();
+    }
+
+    /* Paid session control */
+    async function startPaidSession(trackUris){
+      if(paidSessionActive) return;
+      paidSessionActive = true;
+      MODE = "PAID";
+      updateModeLabel();
+
+      stopAdvertSchedule();
+      stopAdvertPreview();
+
+      if(defaultTimer){ clearTimeout(defaultTimer); defaultTimer = null; }
+      await backendPause();
+
+      await backendPlayUris(trackUris);
+
+      const EST_TOTAL_MS = estimateTotalDurationMs(trackUris);
+      setTimeout(async ()=>{
+        paidSessionActive = false;
+        MODE = "DEFAULT";
+        updateModeLabel();
+        loadPlaylistForToday();
+        await startDefaultPlaylist();
+      }, EST_TOTAL_MS + 2000);
+    }
+
+    function estimateTotalDurationMs(uris){
+      const per = 3.5 * 60 * 1000;
+      return uris.length * per;
+    }
+
+    /* Now Playing UI helpers */
+    function setNowPlayingText(title, sub){
+      document.getElementById('npTitle').textContent = title;
+      document.getElementById('npSub').textContent = sub;
+    }
+
+    function setNowPlayingFromUri(uri, sub){
+      const title = uri.split(':').pop() || uri;
+      setNowPlayingText(title, sub);
+      document.getElementById('npArt').textContent = '';
+      document.getElementById('npArt').style.backgroundImage = '';
+    }
+
+    function updateModeLabel(){
+      document.getElementById('modeLabel').textContent = MODE;
+      document.getElementById('pauseResumeBtn').textContent = (MODE === 'DEFAULT') ? 'Pause' : 'Pause';
+      document.getElementById('muteBtn').textContent = isMuted ? 'Unmute' : 'Mute';
+    }
+
+    /* Advert automatic previews (no user preview button) */
+    function pickRandomAdvert(){
+      advertIndex = Math.floor(Math.random() * ADVERTS.length);
+      const ad = ADVERTS[advertIndex];
+      document.getElementById('advertInfo').textContent = `${ad.title} — ${ad.artist} • R${ad.price}`;
+      const player = document.getElementById('advertPlayer');
+      player.src = ad.preview;
+      player.dataset.fullSong = ad.full;
+      player.dataset.price = ad.price;
+      player.dataset.title = ad.title;
+      player.dataset.artist = ad.artist;
+    }
+
+    function startAdvertSchedule(){
+      stopAdvertSchedule();
+      pickRandomAdvert();
+      // First advert after 4 minutes, then every 4 minutes
+      advertIntervalHandle = setInterval(()=>{
+        if(MODE !== 'DEFAULT' || paidSessionActive) return;
+        playAdvertPreviewAutomatically();
+      }, 4 * 60 * 1000);
+    }
+
+    function stopAdvertSchedule(){
+      if(advertIntervalHandle){ clearInterval(advertIntervalHandle); advertIntervalHandle = null; }
+    }
+
+    async function playAdvertPreviewAutomatically(){
+      if(MODE !== 'DEFAULT' || paidSessionActive) return;
+      const player = document.getElementById('advertPlayer');
+      if(!player.src) pickRandomAdvert();
+
+      // Pause backend playback while local preview plays
+      await backendPause();
+
+      try{
+        player.currentTime = 0;
+        await player.play();
+      }catch(e){
+        // autoplay may be blocked; still resume after timeout
+      }
+
+      if(advertPreviewTimeout) clearTimeout(advertPreviewTimeout);
+      advertPreviewTimeout = setTimeout(async ()=>{
+        try{ player.pause(); player.currentTime = 0; }catch(e){}
+        await backendResume();
+        pickRandomAdvert();
+      }, 15000);
+    }
+
+    function stopAdvertPreview(){
+      const player = document.getElementById('advertPlayer');
+      if(advertPreviewTimeout){ clearTimeout(advertPreviewTimeout); advertPreviewTimeout = null; }
+      try{ player.pause(); player.currentTime = 0; }catch(e){}
+    }
+
+    function advertProceedToPayment(){
+      const player = document.getElementById('advertPlayer');
+      const full = player.dataset.fullSong;
+      const price = player.dataset.price || 10;
+      const title = player.dataset.title || '';
+      const params = new URLSearchParams({ song: full, price: price, title: title });
+      window.location.href = `payment.html?${params.toString()}`;
+    }
+
+    /* Mute control (replaces skip) */
+    async function toggleMute(){
+      isMuted = !isMuted;
+      updateModeLabel();
+      if(isMuted){
+        // Tell backend to mute system audio (device output)
+        await backendMute();
+      } else {
+        await backendUnmute();
+      }
+    }
+
+    /* User actions: package selection */
+    function selectPackage(price, songs){
+      const params = new URLSearchParams({ price: price, songs: songs });
+      window.location.href = `payment.html?${params.toString()}`;
+    }
+
+    /* Pause/resume (keeps behavior simple) */
+    async function togglePlayback(){
+      try{ await backendToggle(); }catch(e){ console.warn('toggle failed', e); }
+    }
+
+    /* Initialization */
+    async function init(){
+      loadPlaylistForToday();
+      await startDefaultPlaylist();
+      startAdvertSchedule();
+
+      // Poll backend status occasionally to update Now Playing (optional)
+      setInterval(async ()=>{
+        try{
+          const res = await fetch('/api/status');
+          if(res.ok){
+            const data = await res.json();
+            if(data.current) setNowPlayingFromUri(data.current, data.context || 'Live');
+            if(data.mode && data.mode !== MODE){
+              MODE = data.mode;
+              updateModeLabel();
+            }
+            if(typeof data.muted !== 'undefined' && data.muted !== isMuted){
+              isMuted = !!data.muted;
+              updateModeLabel();
+            }
+          }
+        }catch(e){}
+      }, 8000);
+    }
+
+    window.addEventListener('load', init);
+  </script>
+</body>
+</html>
