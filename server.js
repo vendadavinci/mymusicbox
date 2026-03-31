@@ -352,7 +352,6 @@ app.get('/callback', async (req, res) => {
     tokens.access_token = data.access_token;
     tokens.expires_at = Date.now() + (data.expires_in || 3600) * 1000;
 
-    // Respond immediately so browser doesn’t hang
     res.send('Authorization complete. Check Render logs for your refresh token.');
   } catch (err) {
     console.error('/callback error', err);
