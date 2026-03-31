@@ -524,44 +524,60 @@ async function startPaidPlayback(tracks) {
       if(info) info.remove();
     }
 
-    // Start payment: send selected tracks and package info to backend
-    async function startPayment(){
-      if(!currentPackage) return;
-      const selected = slots.filter(s => s.selected).map(s => s.selected);
-      if(selected.length === 0) return alert('Please select at least one track.');
+async function startPayment(){
+  if(!currentPackage) return;
+  const selected = slots.filter(s => s.selected).map(s => s.selected);
+  if(selected.length === 0) return alert('Please select at least one track.');
 
-      // Build payload
-      const payload = {
-        price: currentPackage.price,
-        packageLabel: currentPackage.label,
-        tracks: selected
-      };
+  // Build payload: amount must be integer cents (e.g., R10 => 1000)
+  const amountInCents = Math.round((currentPackage.price || 0) * 100);
 
-      // Disable pay button to prevent double clicks
-      payBtn.disabled = true;
-      payBtn.textContent = 'Processing…';
+  const payload = {
+    amount: amountInCents,
+    currency: 'ZAR',
+    description: currentPackage.label || 'Musicbox Paid Session',
+    tracks: selected
+  };
 
-      try{
-        const res = await fetch('/api/create-payment', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify(payload)
-        });
-        if(!res.ok) throw new Error('payment creation failed');
-        const data = await res.json(); // expect { checkoutUrl }
-        if(data.checkoutUrl){
-          // Redirect user to checkout (backend handles payment and post-payment enqueue)
-          window.location.href = data.checkoutUrl;
-        } else {
-          throw new Error('no checkout url returned');
-        }
-      }catch(err){
-        console.error(err);
-        alert('Payment initialization failed. Try again.');
-        payBtn.disabled = false;
-        payBtn.textContent = 'Pay';
-      }
+  payBtn.disabled = true;
+  payBtn.textContent = 'Processing…';
+
+  try{
+    const res = await fetch('/api/create-payment', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+
+    const text = await res.text();
+    console.log('Raw /api/create-payment response text:', text);
+
+    let data;
+    try { data = JSON.parse(text); } catch(e) {
+      throw new Error('Invalid JSON from backend: ' + text);
     }
+
+    if(data && data.checkoutUrl){
+      // Save tracks and checkoutId for jukebox fallback
+      sessionStorage.setItem('tracks', JSON.stringify(selected));
+      if(data.checkoutId) sessionStorage.setItem('checkoutId', data.checkoutId);
+
+      // Redirect to Yoco checkout
+      window.location.href = data.checkoutUrl;
+      return;
+    }
+
+    console.error('create-payment returned:', data);
+    throw new Error(data.error || 'No checkout URL returned');
+
+  }catch(err){
+    console.error('startPayment error:', err);
+    alert('Payment initialization failed. Try again.');
+    payBtn.disabled = false;
+    payBtn.textContent = 'Pay';
+  }
+}
+
 
     // Add to Playlist while a paid session is active (reserve tracks server-side)
     async function addToPlaylistWhilePaid(){
@@ -602,9 +618,6 @@ async function startPaidPlayback(tracks) {
       }
     }
 
-    /* -------------------------
-       Poll backend status and update UI
-       ------------------------- */
 
     async function pollStatus(){
       try{
@@ -641,10 +654,6 @@ async function startPaidPlayback(tracks) {
         instructionNote.textContent = 'Choose tracks and press Pay to proceed to payment.';
       }
     }
-
-    /* -------------------------
-       Utilities
-       ------------------------- */
 
     function formatMs(ms){
       if(!ms || isNaN(ms)) return '--:--';

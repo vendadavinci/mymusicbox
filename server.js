@@ -8,12 +8,10 @@ import fetch from 'node-fetch';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Express setup
 const app = express();
 app.use(express.json());
 
 
-// near top of server.js
 const checkoutStore = new Map(); // { checkoutId -> { tracks, expiresAt } }
 function storeCheckout(checkoutId, payload, ttlMs = 1000 * 60 * 30) {
   checkoutStore.set(checkoutId, { payload, expiresAt: Date.now() + ttlMs });
@@ -21,8 +19,6 @@ function storeCheckout(checkoutId, payload, ttlMs = 1000 * 60 * 30) {
   setTimeout(() => checkoutStore.delete(checkoutId), ttlMs + 1000);
 }
 
-
-// Static frontend serving
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -34,11 +30,6 @@ app.get('/', (req, res) => {
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true, time: Date.now() }));
 
-/* -------------------------
-   Spotify token state
-   - Load refresh token from environment so it survives redeploys
-   - Access token is refreshed automatically when needed
-   ------------------------- */
 let tokens = {
   access_token: null,
   refresh_token: process.env.SPOTIFY_REFRESH_TOKEN || null,
@@ -49,12 +40,6 @@ if (!tokens.refresh_token) {
   console.warn('Warning: SPOTIFY_REFRESH_TOKEN not set in environment. Visit /auth to obtain one.');
 }
 
-/* -------------------------
-   Helper: refresh access token if needed
-   - Uses refresh token from tokens.refresh_token
-   - Updates tokens.access_token and tokens.expires_at
-   - Throws a descriptive error if refresh fails
-   ------------------------- */
 async function refreshAccessTokenIfNeeded() {
   if (!tokens.refresh_token) throw new Error('No refresh token stored (set SPOTIFY_REFRESH_TOKEN env or call /auth and save it).');
   // If token still valid for >5s, skip refresh
@@ -96,9 +81,6 @@ async function refreshAccessTokenIfNeeded() {
   }
 }
 
-/* -------------------------
-   Paid session state & playback helpers
-   ------------------------- */
 let paidSessionActive = false;
 let paidSessionTimer = null;
 let paidQueue = [];
@@ -173,11 +155,6 @@ async function startPaidSession(uris, estimatedTotalMs = null) {
   }, estimatedTotalMs + 2000);
 }
 
-/* -------------------------
-   Routes
-   ------------------------- */
-
-// Play
 app.post('/api/play', async (req, res) => {
   try {
     const uris = req.body.uris;
@@ -302,11 +279,6 @@ app.post('/api/search', async (req, res) => {
   }
 });
 
-/* -------------------------
-   Spotify OAuth helper routes
-   - /auth redirects user to Spotify authorize page (useful to obtain a refresh token)
-   - /callback exchanges code for tokens and prints the refresh token to logs
-   ------------------------- */
 app.get('/auth', (req, res) => {
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const redirectUri = process.env.SPOTIFY_REDIRECT_URI;
@@ -370,7 +342,54 @@ app.get('/callback', async (req, res) => {
   }
 });
 
+app.post('/api/create-payment', async (req, res) => {
+  try {
+    console.log('/api/create-payment payload:', JSON.stringify(req.body));
+    const { amount, currency = 'ZAR', description = 'Musicbox Paid Session', tracks = [] } = req.body;
 
+    if (!process.env.YOCO_SECRET_KEY) {
+      console.error('YOCO_SECRET_KEY missing in env');
+      return res.status(500).json({ success: false, error: 'Payment provider not configured' });
+    }
+
+    if (!amount || typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid amount' });
+    }
+
+    const checkoutId = crypto.randomUUID();
+    const idempotencyKey = crypto.randomUUID();
+
+    const body = {
+      amount,
+      currency,
+      description,
+      successUrl: `https://mymusicbox.onrender.com/jukebox.html?checkoutId=${checkoutId}`,
+      cancelUrl: `https://mymusicbox.onrender.com/index.html`
+    };
+
+    console.log('Creating Yoco checkout with body:', body);
+
+    const response = await axios.post('https://payments.yoco.com/api/checkouts', body, {
+      headers: {
+        Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey
+      },
+      timeout: 15000
+    });
+
+    console.log('Yoco response data:', response.data);
+
+    // store tracks server-side for fallback
+    storeCheckout(checkoutId, { tracks, amount, createdAt: Date.now() });
+
+    return res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId });
+  } catch (err) {
+    console.error('/api/create-payment error:', err.response?.status, err.response?.data || err.message);
+    const message = err.response?.data || err.message || 'Checkout creation failed';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
 
 
 
