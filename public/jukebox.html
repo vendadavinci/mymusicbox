@@ -312,24 +312,7 @@
   <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
 
   <script>
-    /**
-     * Final jukebox playback page with automatic redirect:
-     * - No user controls that interrupt paid playback.
-     * - Paid queue plays FIFO; default playlist paused while paid queue plays.
-     * - After paid queue finishes, resume default playlist and redirect to index.html after 30 seconds.
-     * - If a new paid session starts before the redirect fires, the redirect is canceled.
-     *
-     * Backend endpoints expected (implement server-side):
-     * - POST /api/search    { q: "query" } -> returns [{ uri, title, artist, duration_ms, albumArt }]
-     * - POST /api/play      { uris: [ ... ] } -> start playback immediately on pub device
-     * - POST /api/pause
-     * - POST /api/resume
-     * - GET  /api/status    -> { mode: "DEFAULT"|"PAID", current, title, artist, albumArt }
-     *
-     * Copy/paste ready. Replace backend endpoints with your server implementation.
-     */
 
-    // Client-side paid queue (in production persist server-side)
     const paidQueue = []; // { uri, title, artist, duration_ms, addedAt }
 
     // Playback state

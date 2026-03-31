@@ -1,5 +1,4 @@
 // server.js
-
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -24,12 +23,30 @@ app.get('/', (req, res) => {
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true, time: Date.now() }));
 
-// Spotify token state
-let tokens = { access_token: null, refresh_token: null, expires_at: 0 };
+/* -------------------------
+   Spotify token state
+   - Load refresh token from environment so it survives redeploys
+   - Access token is refreshed automatically when needed
+   ------------------------- */
+let tokens = {
+  access_token: null,
+  refresh_token: process.env.SPOTIFY_REFRESH_TOKEN || null,
+  expires_at: 0
+};
 
-// Helper: refresh token if needed
+if (!tokens.refresh_token) {
+  console.warn('Warning: SPOTIFY_REFRESH_TOKEN not set in environment. Visit /auth to obtain one.');
+}
+
+/* -------------------------
+   Helper: refresh access token if needed
+   - Uses refresh token from tokens.refresh_token
+   - Updates tokens.access_token and tokens.expires_at
+   - Throws a descriptive error if refresh fails
+   ------------------------- */
 async function refreshAccessTokenIfNeeded() {
-  if (!tokens.refresh_token) throw new Error('No refresh token stored');
+  if (!tokens.refresh_token) throw new Error('No refresh token stored (set SPOTIFY_REFRESH_TOKEN env or call /auth and save it).');
+  // If token still valid for >5s, skip refresh
   if (Date.now() < tokens.expires_at - 5000) return;
 
   const body = new URLSearchParams({
@@ -43,24 +60,38 @@ async function refreshAccessTokenIfNeeded() {
       Authorization:
         'Basic ' +
         Buffer.from(
-          process.env.SPOTIFY_CLIENT_ID + ':' + process.env.SPOTIFY_CLIENT_SECRET
+          `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
         ).toString('base64'),
       'Content-Type': 'application/x-www-form-urlencoded'
     },
     body: body.toString()
   });
 
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Failed to refresh Spotify token: ${res.status} ${txt}`);
+  }
+
   const data = await res.json();
+  if (!data.access_token) throw new Error('Spotify refresh response missing access_token');
+
   tokens.access_token = data.access_token;
-  tokens.expires_at = Date.now() + data.expires_in * 1000;
+  tokens.expires_at = Date.now() + (data.expires_in || 3600) * 1000;
+
+  // If Spotify returned a new refresh_token (rare on refresh), persist it to tokens and log it
+  if (data.refresh_token) {
+    tokens.refresh_token = data.refresh_token;
+    console.log('Spotify returned a new refresh token. Consider updating SPOTIFY_REFRESH_TOKEN in your environment.');
+  }
 }
 
-// Paid session state
+/* -------------------------
+   Paid session state & playback helpers
+   ------------------------- */
 let paidSessionActive = false;
 let paidSessionTimer = null;
 let paidQueue = [];
 
-// Start paid session
 async function startPaidSession(uris, estimatedTotalMs = null) {
   if (paidSessionActive) {
     paidQueue.push(...uris.map(u => ({ uri: u, duration_ms: 0 })));
@@ -131,7 +162,9 @@ async function startPaidSession(uris, estimatedTotalMs = null) {
   }, estimatedTotalMs + 2000);
 }
 
-// Routes
+/* -------------------------
+   Routes
+   ------------------------- */
 
 // Play
 app.post('/api/play', async (req, res) => {
@@ -169,8 +202,8 @@ app.post('/api/play', async (req, res) => {
     const data = await r.json();
     res.status(r.status).json(data);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'play failed' });
+    console.error('/api/play error', err);
+    res.status(500).json({ error: 'play failed', message: err.message });
   }
 });
 
@@ -198,21 +231,26 @@ app.post('/api/reserve-tracks', async (req, res) => {
     paidQueue.push(...tracks.map(t => ({ uri: t.uri, duration_ms: t.duration_ms || 0 })));
     return res.json({ success: true, queued: tracks.length });
   } catch (err) {
-    console.error(err);
+    console.error('/api/reserve-tracks error', err);
     res.status(500).json({ error: 'reserve failed' });
   }
 });
 
 // Payment webhook
 app.post('/webhook/payment-success', async (req, res) => {
-  const session = req.body;
-  const tracks = session.tracks || [];
-  const uris = tracks.map(t => t.uri);
-  const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
-  if (uris.length > 0) {
-    await startPaidSession(uris, estimatedTotalMs);
+  try {
+    const session = req.body;
+    const tracks = session.tracks || [];
+    const uris = tracks.map(t => t.uri);
+    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
+    if (uris.length > 0) {
+      await startPaidSession(uris, estimatedTotalMs);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('/webhook/payment-success error', err);
+    res.status(500).json({ error: 'webhook handling failed' });
   }
-  res.json({ ok: true });
 });
 
 // Search
@@ -229,9 +267,16 @@ app.post('/api/search', async (req, res) => {
       method: 'GET',
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
+
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      console.warn('/api/search spotify returned', r.status, txt);
+      return res.status(502).json({ error: 'Spotify search failed', status: r.status, body: txt });
+    }
+
     const data = await r.json();
 
-    const tracks = (data.tracks.items || []).map(t => ({
+    const tracks = (data.tracks?.items || []).map(t => ({
       uri: t.uri,
       title: t.name,
       artist: t.artists.map(a => a.name).join(', '),
@@ -241,12 +286,35 @@ app.post('/api/search', async (req, res) => {
 
     res.json(tracks);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Spotify search failed' });
+    console.error('/api/search error', err);
+    res.status(500).json({ error: 'Spotify search failed', message: err.message });
   }
 });
 
-// Spotify OAuth callback
+/* -------------------------
+   Spotify OAuth helper routes
+   - /auth redirects user to Spotify authorize page (useful to obtain a refresh token)
+   - /callback exchanges code for tokens and prints the refresh token to logs
+   ------------------------- */
+app.get('/auth', (req, res) => {
+  const clientId = process.env.SPOTIFY_CLIENT_ID;
+  const redirectUri = process.env.SPOTIFY_REDIRECT_URI;
+  const scopes = [
+    'user-read-playback-state',
+    'user-modify-playback-state',
+    'user-read-currently-playing',
+    'playlist-read-private',
+    'streaming'
+  ].join(' ');
+  const params = new URLSearchParams({
+    client_id: clientId,
+    response_type: 'code',
+    redirect_uri: redirectUri,
+    scope: scopes
+  });
+  res.redirect(`https://accounts.spotify.com/authorize?${params.toString()}`);
+});
+
 app.get('/callback', async (req, res) => {
   const code = req.query.code;
   if (!code) return res.status(400).send('Missing code');
@@ -257,32 +325,48 @@ app.get('/callback', async (req, res) => {
     redirect_uri: process.env.SPOTIFY_REDIRECT_URI
   });
 
-  const r = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: {
-      Authorization:
-        'Basic ' +
-        Buffer.from(
-          process.env.SPOTIFY_CLIENT_ID + ':' + process.env.SPOTIFY_CLIENT_SECRET
-        ).toString('base64'),
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: body.toString()
-  });
+  try {
+    const r = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        Authorization:
+          'Basic ' +
+          Buffer.from(
+            `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
+          ).toString('base64'),
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: body.toString()
+    });
 
-  const data = await r.json();
-  console.log('OAuth token response:', data);
+    const data = await r.json();
+    console.log('OAuth token response:', data);
 
-  // Save refresh token for future use
-  tokens.refresh_token = data.refresh_token;
-  tokens.access_token = data.access_token;
-  tokens.expires_at = Date.now() + data.expires_in * 1000;
+    if (!data.refresh_token) {
+      // Sometimes refresh_token is not returned if the app was previously authorized.
+      // If so, log a helpful message.
+      console.warn('No refresh_token returned. If you previously authorized, check SPOTIFY_REFRESH_TOKEN env.');
+    } else {
+      // Persist refresh token into in-memory tokens and log it so you can copy to your environment
+      tokens.refresh_token = data.refresh_token;
+      console.log('*** COPY THIS REFRESH TOKEN TO YOUR RENDER ENV:');
+      console.log(tokens.refresh_token);
+      console.log('*** End refresh token');
+    }
 
-  res.send('Spotify authorization complete. Refresh token stored.');
+    tokens.access_token = data.access_token;
+    tokens.expires_at = Date.now() + (data.expires_in || 3600) * 1000;
+
+    res.send('Spotify authorization complete. If a refresh token was returned it was printed to server logs.');
+  } catch (err) {
+    console.error('/callback error', err);
+    res.status(500).send('Token exchange failed');
+  }
 });
 
-
-// Start server
+/* -------------------------
+   Start server
+   ------------------------- */
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
