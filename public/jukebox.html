@@ -622,6 +622,51 @@
   }
 })();
 </script>
+<script>
+(async function loadPaidTracks() {
+  try {
+    // Try to get tracks from sessionStorage first
+    let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+
+    // If not found, fall back to checkoutId in URL
+    if ((!tracks || tracks.length === 0) && location.search) {
+      const params = new URLSearchParams(location.search);
+      const checkoutId = params.get('checkoutId');
+      if (checkoutId) {
+        const r = await fetch(`/api/checkout-tracks?checkoutId=${encodeURIComponent(checkoutId)}`);
+        if (r.ok) {
+          const json = await r.json();
+          tracks = json.tracks || [];
+        }
+      }
+    }
+
+    if (tracks && tracks.length > 0) {
+      // Fill local paidQueue for UI
+      paidQueue.push(...tracks.map(t => ({
+        uri: t.uri,
+        title: t.title || 'Unknown',
+        artist: t.artist || '',
+        duration_ms: t.duration_ms || 0,
+        addedAt: Date.now()
+      })));
+
+      renderQueue();
+
+      // Also notify backend to start playback
+      await fetch('/webhook/payment-success', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tracks })
+      });
+
+      statusText.textContent = 'Payment successful! Your tracks are now playing.';
+    }
+  } catch (err) {
+    console.error('Error loading paid tracks:', err);
+  }
+})();
+</script>
 
    
     
