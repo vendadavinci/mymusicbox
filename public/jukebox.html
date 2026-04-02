@@ -640,7 +640,7 @@
     }
 
     if (tracks && tracks.length > 0) {
-      // Fill local paidQueue
+      // Fill local paidQueue for UI only
       paidQueue.push(...tracks.map(t => ({
         uri: t.uri,
         title: t.title || 'Unknown',
@@ -651,22 +651,23 @@
 
       renderQueue();
 
-      // Notify backend
+      // Notify backend to start playback
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tracks })
       });
 
-      // 🔹 Start playback locally
-      startPaidQueuePlayback();
-
       statusText.textContent = 'Payment successful! Your tracks are now playing.';
+
+      // Start polling backend for status updates
+      pollStatusOnce();
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
   }
 })();
+
 
 </script>
 
