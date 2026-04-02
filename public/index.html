@@ -268,13 +268,20 @@
     let isMuted = false;
 
     // Backend hooks (placeholders)
-    async function backendPlayUris(uris){
-      try{
-        await fetch('/api/play', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ uris })
-        });
+async function backendPlayUris(uris){
+  try{
+    await fetch('/api/play', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        uris,
+        isPaid: true, // 🔹 mark this as a paid session
+        estimatedTotalMs: uris.length * 210000 // optional: estimate duration
+      })
+    });
+  }catch(e){ console.warn('backendPlayUris', e); }
+}
+
       }catch(e){ console.warn('backendPlayUris error', e); }
     }
     async function backendPause(){
