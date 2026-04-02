@@ -625,10 +625,8 @@
 <script>
 (async function loadPaidTracks() {
   try {
-    // Try to get tracks from sessionStorage first
     let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
-    // If not found, fall back to checkoutId in URL
     if ((!tracks || tracks.length === 0) && location.search) {
       const params = new URLSearchParams(location.search);
       const checkoutId = params.get('checkoutId');
@@ -642,7 +640,7 @@
     }
 
     if (tracks && tracks.length > 0) {
-      // Fill local paidQueue for UI
+      // Fill local paidQueue
       paidQueue.push(...tracks.map(t => ({
         uri: t.uri,
         title: t.title || 'Unknown',
@@ -653,12 +651,15 @@
 
       renderQueue();
 
-      // Also notify backend to start playback
+      // Notify backend
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tracks })
       });
+
+      // 🔹 Start playback locally
+      startPaidQueuePlayback();
 
       statusText.textContent = 'Payment successful! Your tracks are now playing.';
     }
@@ -666,6 +667,7 @@
     console.error('Error loading paid tracks:', err);
   }
 })();
+
 </script>
 
    
