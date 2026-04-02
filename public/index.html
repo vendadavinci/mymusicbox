@@ -270,21 +270,32 @@
     // Backend hooks (placeholders)
 async function backendPlayUris(uris){
   try {
-    const res = await fetch('/api/play', {
+    if (!uris || uris.length === 0) return;
+
+    // 🔹 Play the first track directly
+    await fetch('/api/play', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        uris,
-        isPaid: true,                     // 🔹 mark as paid
-        estimatedTotalMs: uris.length * 210000
+        uris: [uris[0]],
+        isPaid: true
       })
     });
-    const data = await res.json().catch(()=>({}));
-    console.log('/api/play response:', data);
+
+    // 🔹 Queue the rest of the tracks sequentially
+    for (let i = 1; i < uris.length; i++) {
+      await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'}
+      });
+    }
+
   } catch(e) {
-    console.warn('backendPlayUris error', e);
+    console.error('backendPlayUris error', e);
+    statusText.textContent = 'Playback error';
   }
 }
+
 
 async function pollStatusOnce(){
   try{

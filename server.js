@@ -446,7 +446,14 @@ app.get('/api/status', async (req, res) => {
     const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
+
+    if (r.status === 204) {
+      // 204 = no content (nothing playing)
+      return res.json({ mode: paidSessionActive ? 'PAID' : 'DEFAULT' });
+    }
+
     if (!r.ok) return res.status(r.status).json({ error: 'Spotify status failed' });
+
     const data = await r.json();
     res.json({
       mode: paidSessionActive ? 'PAID' : 'DEFAULT',
@@ -459,6 +466,26 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ error: 'status failed' });
   }
 });
+
+app.post('/api/queue', async (req, res) => {
+  try {
+    await refreshAccessTokenIfNeeded();
+    const uri = req.query.uri;
+    const r = await fetch(`https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      return res.status(r.status).send(text);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('/api/queue error', err);
+    res.status(500).json({ error: 'queue failed' });
+  }
+});
+
 
 
 /* -------------------------
