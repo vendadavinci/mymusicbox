@@ -435,59 +435,60 @@
       }
     }
 
-    // Start playing the paid queue sequentially
-    async function startPaidQueuePlayback(){
-      if(paidQueue.length === 0) return;
+// Start playing the paid queue sequentially
+async function startPaidQueuePlayback(){
+  if(paidQueue.length === 0) return;
 
-      // If a redirect was scheduled from a previous paid session, cancel it
-      if(redirectTimeoutHandle){
-        clearTimeout(redirectTimeoutHandle);
-        redirectTimeoutHandle = null;
-      }
+  // If a redirect was scheduled from a previous paid session, cancel it
+  if(redirectTimeoutHandle){
+    clearTimeout(redirectTimeoutHandle);
+    redirectTimeoutHandle = null;
+  }
 
-      paidSessionActive = true;
-      nowMode.textContent = 'Mode: PAID';
-      statusText.textContent = 'Playing paid queue';
+  paidSessionActive = true;
+  nowMode.textContent = 'Mode: PAID';
+  statusText.textContent = 'Playing paid queue';
 
-      // Pause default playlist on backend
-      await backendPause();
+  // Pause default playlist on backend
+  await backendPause();
 
-      // Build list of URIs to play in order
-      const uris = paidQueue.map(i => i.uri);
+  // Build list of URIs to play in order
+  const uris = paidQueue.map(i => i.uri);
 
-      // Update Now Playing UI to show first paid track immediately
-      const first = paidQueue[0];
-      setNowPlaying(first.title, first.artist, first.albumArt);
+  // Update Now Playing UI to show first paid track immediately
+  const first = paidQueue[0];
+  setNowPlaying(first.title, first.artist, first.albumArt);
 
-      // Tell backend to play the list (backend should play sequentially without user controls)
-      await backendPlayUris(uris);
+  // Tell backend to play the list (backend should play sequentially without user controls)
+  await backendPlayUris(uris);
 
-      // Estimate total duration and set a timer to resume default after completion.
-      // In production, backend should notify via websocket when paid queue finishes.
-      const totalMs = paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0);
+  // 🔹 Immediately poll backend for current playback status
+  await pollStatusOnce();
 
-      // Clear local queue (backend owns playback now).
-      paidQueue.length = 0;
-      renderQueue();
+  // Estimate total duration and set a timer to resume default after completion.
+  const totalMs = paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0);
 
-      // After estimated time, resume default playlist and schedule redirect to index.html after 30s
-      setTimeout(async ()=>{
-        paidSessionActive = false;
-        nowMode.textContent = 'Mode: DEFAULT';
-        statusText.textContent = 'Resuming default playlist';
-        await backendResume();
-        pollStatusOnce();
+  // Clear local queue (backend owns playback now).
+  paidQueue.length = 0;
+  renderQueue();
 
-        // Schedule redirect to index.html after 30 seconds
-        if(redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
-        redirectTimeoutHandle = setTimeout(()=>{
-          // If a new paid session started in the meantime, cancel redirect
-          if(paidSessionActive) return;
-          window.location.href = 'index.html';
-        }, 30000);
+  // After estimated time, resume default playlist and schedule redirect to index.html after 30s
+  setTimeout(async ()=>{
+    paidSessionActive = false;
+    nowMode.textContent = 'Mode: DEFAULT';
+    statusText.textContent = 'Resuming default playlist';
+    await backendResume();
+    pollStatusOnce();
 
-      }, totalMs + 2000);
-    }
+    // Schedule redirect to index.html after 30 seconds
+    if(redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
+    redirectTimeoutHandle = setTimeout(()=>{
+      if(paidSessionActive) return;
+      window.location.href = 'index.html';
+    }, 30000);
+
+  }, totalMs + 2000);
+}
 
     /* -------------------------
        Backend control helpers (placeholders)
@@ -500,19 +501,14 @@ async function backendPlayUris(uris){
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         uris,
-        isPaid: true,                     // 🔹 tell backend this is a paid session
-        estimatedTotalMs: uris.length * 210000 // optional duration estimate
+        isPaid: true,                     // 🔹 mark as paid
+        estimatedTotalMs: uris.length * 210000
       })
     });
-
-    if (!res.ok) {
-      const text = await res.text();
-      console.error('/api/play failed:', res.status, text);
-      statusText.textContent = 'Playback failed';
-    }
+    const data = await res.json().catch(()=>({}));
+    console.log('/api/play response:', data);
   } catch(e) {
     console.warn('backendPlayUris error', e);
-    statusText.textContent = 'Playback error';
   }
 }
 
