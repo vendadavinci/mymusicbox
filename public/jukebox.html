@@ -436,6 +436,7 @@
     }
 
 // Start playing the paid queue sequentially
+// Start playing the paid queue sequentially
 async function startPaidQueuePlayback(){
   if(paidQueue.length === 0) return;
 
@@ -459,20 +460,20 @@ async function startPaidQueuePlayback(){
   const first = paidQueue[0];
   setNowPlaying(first.title, first.artist, first.albumArt);
 
-  // Tell backend to play the list (backend should play sequentially without user controls)
+  // Tell backend to play the list
   await backendPlayUris(uris);
 
   // 🔹 Immediately poll backend for current playback status
   await pollStatusOnce();
 
-  // Estimate total duration and set a timer to resume default after completion.
+  // Estimate total duration and set a timer to resume default after completion
   const totalMs = paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0);
 
-  // Clear local queue (backend owns playback now).
+  // Clear local queue (backend owns playback now)
   paidQueue.length = 0;
   renderQueue();
 
-  // After estimated time, resume default playlist and schedule redirect to index.html after 30s
+  // After estimated time, resume default playlist and schedule redirect
   setTimeout(async ()=>{
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
@@ -480,7 +481,6 @@ async function startPaidQueuePlayback(){
     await backendResume();
     pollStatusOnce();
 
-    // Schedule redirect to index.html after 30 seconds
     if(redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
     redirectTimeoutHandle = setTimeout(()=>{
       if(paidSessionActive) return;
@@ -523,18 +523,18 @@ async function backendPlayUris(uris){
     }
 
     // Poll backend once for current playback status and update UI
-    async function pollStatusOnce(){
-      try{
-        const res = await fetch('/api/status');
-        if(!res.ok) return;
-        const data = await res.json(); // { mode, current, title, artist, albumArt }
-        if(data.title) nowTitle.textContent = data.title;
-        if(data.artist) nowArtist.textContent = data.artist;
-        if(data.albumArt) nowArt.style.backgroundImage = `url(${data.albumArt})`;
-        nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
-        statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : 'Default playlist';
-      }catch(e){ /* ignore */ }
-    }
+async function pollStatusOnce(){
+  try{
+    const res = await fetch('/api/status');
+    if(!res.ok) return;
+    const data = await res.json();
+    if(data.title) nowTitle.textContent = data.title;
+    if(data.artist) nowArtist.textContent = data.artist;
+    if(data.albumArt) nowArt.style.backgroundImage = `url(${data.albumArt})`;
+    nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
+    statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : 'Default playlist';
+  }catch(e){ console.warn(e); }
+}
 
     function setNowPlaying(title, artist, albumArt){
       nowTitle.textContent = title || 'Unknown';
