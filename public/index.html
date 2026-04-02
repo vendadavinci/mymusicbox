@@ -275,7 +275,7 @@ async function backendPlayUris(uris){
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         uris,
-        isPaid: true,              // tell backend this is a paid session
+        isPaid: true,                     // 🔹 tell backend this is a paid session
         estimatedTotalMs: uris.length * 210000 // optional duration estimate
       })
     });
@@ -283,16 +283,14 @@ async function backendPlayUris(uris){
     if (!res.ok) {
       const text = await res.text();
       console.error('/api/play failed:', res.status, text);
-      statusText.textContent = 'Playback failed — check logs';
-    } else {
-      const data = await res.json().catch(()=>({}));
-      console.log('/api/play response:', data);
+      statusText.textContent = 'Playback failed';
     }
   } catch(e) {
     console.warn('backendPlayUris error', e);
     statusText.textContent = 'Playback error';
   }
 }
+
 
     async function backendPause(){
       try{ await fetch('/api/pause', { method:'POST' }); }catch(e){ console.warn('backendPause error', e); }

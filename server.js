@@ -440,6 +440,25 @@ app.get('/api/checkout-tracks', (req, res) => {
   return res.json({ success: true, tracks: entry.payload.tracks || [] });
 });
 
+app.get('/api/status', async (req, res) => {
+  try {
+    await refreshAccessTokenIfNeeded();
+    const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+    if (!r.ok) return res.status(r.status).json({ error: 'Spotify status failed' });
+    const data = await r.json();
+    res.json({
+      mode: paidSessionActive ? 'PAID' : 'DEFAULT',
+      title: data.item?.name,
+      artist: data.item?.artists?.map(a => a.name).join(', '),
+      albumArt: data.item?.album?.images?.[0]?.url
+    });
+  } catch (err) {
+    console.error('/api/status error', err);
+    res.status(500).json({ error: 'status failed' });
+  }
+});
 
 
 /* -------------------------
