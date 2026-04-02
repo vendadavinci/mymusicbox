@@ -470,19 +470,48 @@ app.get('/api/status', async (req, res) => {
 app.post('/api/queue', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
+
     const uri = req.query.uri;
-    const r = await fetch(`https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`, {
-      method: 'POST',
+    if (!uri) {
+      return res.status(400).json({ error: 'Missing track URI' });
+    }
+
+    // 🔹 Ensure shuffle is off before adding to queue
+    await fetch('https://api.spotify.com/v1/me/player/shuffle?state=false', {
+      method: 'PUT',
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
+
+    // 🔹 Queue the track
+    const r = await fetch(
+      `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokens.access_token}` }
+      }
+    );
+
     if (!r.ok) {
       const text = await r.text();
-      return res.status(r.status).send(text);
+      console.error('/api/queue failed', r.status, text);
+
+      if (r.status === 404 && text.includes('NO_ACTIVE_DEVICE')) {
+        return res.status(404).json({
+          error: 'No active Spotify device found. Please open the Spotify app and start playback once.',
+          details: text
+        });
+      }
+
+      return res.status(r.status).json({
+        error: 'Spotify queue request failed',
+        details: text
+      });
     }
+
     res.json({ ok: true });
   } catch (err) {
     console.error('/api/queue error', err);
-    res.status(500).json({ error: 'queue failed' });
+    res.status(500).json({ error: 'Queue request failed', details: err.message });
   }
 });
 
