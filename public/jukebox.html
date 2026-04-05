@@ -302,7 +302,6 @@
         <div class="queue-list" id="paidQueue"></div>
 
         <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-          <button class="btn ghost" onclick="clearQueue()">Clear Queue</button>
           <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
         </div>
       </div>
@@ -328,9 +327,15 @@
     const searchResultsEl = document.getElementById('searchResults');
     const nextTitleEl = document.getElementById('nextTitle');
 
-// Render the paid queue (no Remove buttons) and show a Start Play control
+// Render the paid queue (no Remove buttons) and show a stable Start Play control
 function renderQueue(){
+  // Ensure paidQueueEl exists
+  if (!paidQueueEl) return;
+
+  // Clear the list
   paidQueueEl.innerHTML = '';
+
+  // Build items
   let totalMs = 0;
   paidQueue.forEach((item, idx) => {
     totalMs += item.duration_ms || 0;
@@ -348,66 +353,70 @@ function renderQueue(){
     paidQueueEl.appendChild(div);
   });
 
+  // Summary info
   queueCount.textContent = `Paid queue: ${paidQueue.length}`;
   queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs/60000)} min`;
 
-  if(paidQueue.length > 0){
+  if (paidQueue.length > 0) {
     nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
   } else {
     nextTitleEl.textContent = 'No paid tracks queued';
   }
 
-  // Render Start Play button (replaces Clear Queue)
-  // If a Start Play container already exists, remove it first to avoid duplicates
-  const existing = document.getElementById('startPlayContainer');
-  if (existing) existing.remove();
+  // Ensure a stable controls container exists (so re-renders don't duplicate/remove it)
+  let controls = document.getElementById('paidQueueControls');
+  if (!controls) {
+    controls = document.createElement('div');
+    controls.id = 'paidQueueControls';
+    controls.style = 'margin-top:12px;display:flex;gap:8px;align-items:center;';
+    // Insert controls immediately after the paidQueue element
+    if (paidQueueEl.parentNode) {
+      paidQueueEl.parentNode.insertBefore(controls, paidQueueEl.nextSibling);
+    } else {
+      document.body.appendChild(controls);
+    }
+  }
+  // Clear existing controls content
+  controls.innerHTML = '';
 
-  const container = document.createElement('div');
-  container.id = 'startPlayContainer';
-  container.style = 'margin-top:12px;display:flex;gap:8px;align-items:center;';
-
+  // Start Play button
   const startBtn = document.createElement('button');
   startBtn.className = 'btn';
   startBtn.id = 'startPlayBtn';
   startBtn.textContent = paidSessionActive ? 'Playing' : 'Start Play';
   startBtn.disabled = paidSessionActive || paidQueue.length === 0;
   startBtn.onclick = () => {
-    // Force start playback of the paid queue immediately
     if (paidQueue.length === 0) return;
+    // Start playback; startPaidQueuePlayback will handle backend queuing.
     startPaidQueuePlayback();
   };
 
-  const note = document.createElement('div');
-  note.style.flex = '1';
+  // Optional Cancel/Info area (keeps layout consistent)
+  const spacer = document.createElement('div');
+  spacer.style.flex = '1';
 
-  container.appendChild(startBtn);
-  container.appendChild(note);
-
-  // Append the control container after the queue element
-  paidQueueEl.parentNode.insertBefore(container, paidQueueEl.nextSibling);
+  // Append controls
+  controls.appendChild(startBtn);
+  controls.appendChild(spacer);
 }
 
 // Prevent users from removing paid tracks once added
 function removeFromQueue(index){
   // No-op: paid queue items cannot be removed by users
-  // Provide a gentle message so the UI doesn't silently fail
   alert('Paid tracks cannot be removed once queued.');
 }
 
-// Replaced Clear Queue with Start Play behavior
+// Replace Clear Queue with Start Play behavior (keeps API compatibility)
 function clearQueue(){
-  // Keep function name for compatibility but change behavior:
-  // Start playback immediately instead of clearing the queue.
   if (paidQueue.length === 0) {
     alert('No paid tracks queued.');
     return;
   }
-  // If a paid session is already active, do nothing
   if (paidSessionActive) {
     alert('Paid session already active.');
     return;
   }
-  // Trigger playback of the queued paid tracks
+  // Start playback of the queued paid tracks
   startPaidQueuePlayback();
 }
 
