@@ -158,40 +158,106 @@ async function startPaidSession(uris, estimatedTotalMs = null) {
 app.post('/api/play', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
+
     const { uris, device_id, isPaid } = req.body || {};
 
-    // turn shuffle off on the active device
-    await fetch(`https://api.spotify.com/v1/me/player/shuffle?state=false${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`, {
+    // Validate input
+    if (!Array.isArray(uris) || uris.length === 0) {
+      return res.status(400).json({ error: 'Missing uris array' });
+    }
+
+    const authHeader = { Authorization: `Bearer ${tokens.access_token}` };
+
+    // 1) Turn shuffle off on the target device (or active device if none provided)
+    const shuffleUrl = `https://api.spotify.com/v1/me/player/shuffle?state=false${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+    const shuffleR = await fetch(shuffleUrl, { method: 'PUT', headers: authHeader });
+    if (!shuffleR.ok) {
+      const txt = await shuffleR.text().catch(()=>'<no body>');
+      console.warn('/api/play: shuffle off returned', shuffleR.status, txt);
+      // continue — not fatal for play, but log for debugging
+    }
+
+    // 2) Turn repeat off on the target device (prevents repeat-one sticking)
+    const repeatUrl = `https://api.spotify.com/v1/me/player/repeat?state=off${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+    const repeatR = await fetch(repeatUrl, { method: 'PUT', headers: authHeader });
+    if (!repeatR.ok) {
+      const txt = await repeatR.text().catch(()=>'<no body>');
+      console.warn('/api/play: repeat off returned', repeatR.status, txt);
+      // continue
+    }
+
+    // 3) Start playback with the provided URIs
+    const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
+    const playR = await fetch(playUrl, {
       method: 'PUT',
+      headers: Object.assign({}, authHeader, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ uris })
+    });
+
+    if (!playR.ok) {
+      const text = await playR.text().catch(()=>'<no body>');
+      console.error('/api/play failed', playR.status, text);
+      return res.status(playR.status).json({ error: 'play failed', details: text });
+    }
+
+    // Successful start
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('/api/play error', err);
+    return res.status(500).json({ error: 'play failed', details: err.message });
+  }
+});
+
+
+app.post('/api/player/check-and-next', async (req, res) => {
+  try {
+    await refreshAccessTokenIfNeeded();
+
+    // Get current playback
+    const statusR = await fetch('https://api.spotify.com/v1/me/player', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // play the first track(s)
-    const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
-    const r = await fetch(playUrl, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${tokens.access_token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ uris: uris || [] })
-    });
-
-    if (!r.ok) {
-      const text = await r.text();
-      console.error('/api/play failed', r.status, text);
-      return res.status(r.status).json({ error: 'play failed', details: text });
+    if (!statusR.ok) {
+      const t = await statusR.text();
+      return res.status(statusR.status).json({ error: 'status fetch failed', details: t });
     }
 
-    // mark paid session server-side if needed
-    if (isPaid) paidSessionActive = true;
+    const status = await statusR.json();
 
-    res.json({ ok: true });
+    // If nothing playing, nothing to do
+    if (!status || !status.item) return res.json({ ok: true, advanced: false, reason: 'no item' });
+
+    // If repeat_one is on or progress_ms is not advancing, force a next
+    // (Spotify doesn't expose repeat_one in this endpoint; we already turned repeat off on play)
+    // Check if progress is near end or stuck: if progress_ms > duration_ms - 2000 then it's near end
+    const progress = status.progress_ms || 0;
+    const duration = status.item.duration_ms || 0;
+
+    // If progress is stuck (very small change) or we detect the same track for > 3s, call next
+    // For simplicity: if progress > duration - 2000 (near end) do nothing; if progress < 1000 and device is paused, call next
+    if (status.is_playing === false && progress > 0 && progress < 1000) {
+      // attempt to skip to next
+      const nextR = await fetch('https://api.spotify.com/v1/me/player/next', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokens.access_token}` }
+      });
+      if (!nextR.ok) {
+        const t = await nextR.text();
+        console.error('/api/player/next failed', nextR.status, t);
+        return res.status(nextR.status).json({ ok: false, error: 'next failed', details: t });
+      }
+      return res.json({ ok: true, advanced: true });
+    }
+
+    // No action needed
+    res.json({ ok: true, advanced: false });
   } catch (err) {
-    console.error('/api/play error', err);
-    res.status(500).json({ error: 'play failed', details: err.message });
+    console.error('/api/player/check-and-next error', err);
+    res.status(500).json({ error: 'check-and-next failed', details: err.message });
   }
 });
+
 
 // Pause/Resume/Skip protection
 app.post('/api/pause', async (req, res) => {

@@ -599,26 +599,25 @@ async function startPaidQueuePlayback(){
 }
 
 
-// Robust backendPlayUris that returns a success object for the caller
+// frontend: play first track, disable shuffle/repeat, queue rest, and return {ok:true} on success
 async function backendPlayUris(uris){
   try {
     if (!uris || uris.length === 0) return { ok: false, error: 'no uris' };
 
-    // 1) Play first track (server will disable shuffle in /api/play)
+    // 1) Ask backend to disable shuffle and repeat and play the first track
     let res = await fetch('/api/play', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ uris: [uris[0]], isPaid: true })
     });
-
     const playData = await res.json().catch(()=>({}));
     console.log('/api/play response:', res.status, playData);
     if (!res.ok) {
       return { ok: false, error: 'play failed', details: playData };
     }
 
-    // small delay so device registers playback
-    await new Promise(r => setTimeout(r, 300));
+    // small delay so device registers playback context
+    await new Promise(r => setTimeout(r, 350));
 
     // 2) Queue the rest sequentially and ensure each succeeded
     for (let i = 1; i < uris.length; i++) {
@@ -628,16 +627,29 @@ async function backendPlayUris(uris){
       if (!qRes.ok) {
         return { ok: false, error: 'queue failed', uri: uris[i], details: qData };
       }
+      // tiny delay to avoid device race conditions
       await new Promise(r => setTimeout(r, 150));
     }
 
-    // All queued successfully
+    // 3) Safety: after a short delay, ask backend to check if Spotify advanced; if not, call next
+    // (backend should expose /api/player/check-and-next or we call /api/next directly)
+    setTimeout(async () => {
+      try {
+        const check = await fetch('/api/player/check-and-next', { method: 'POST' });
+        // backend will return { advanced: true } if Spotify moved on, or will call next if stuck
+        console.log('/api/player/check-and-next', await check.json().catch(()=>({})));
+      } catch (e) {
+        console.warn('check-and-next failed', e);
+      }
+    }, 2000);
+
     return { ok: true };
   } catch (e) {
     console.error('backendPlayUris error', e);
     return { ok: false, error: e.message };
   }
 }
+
 
 
     async function backendPause(){
@@ -647,18 +659,36 @@ async function backendPlayUris(uris){
     async function backendResume(){
       try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
     }
+// frontend: poll status and update UI; when paidSessionActive show next paid track if available
 async function pollStatusOnce(){
   try{
     const res = await fetch('/api/status');
     if(!res.ok) return;
     const data = await res.json();
+
+    // Update now playing
     if(data.title) nowTitle.textContent = data.title;
     if(data.artist) nowArtist.textContent = data.artist;
-    if(data.albumArt) nowArt.style.backgroundImage = `url(${data.albumArt})`;
+    if(data.albumArt) nowArt.style.backgroundImage = data.albumArt ? `url(${data.albumArt})` : '';
+
+    // Mode and status
     nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
-    statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : 'Default playlist';
-  }catch(e){ console.warn(e); }
+    statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : (data.is_playing ? 'Playing' : 'Paused');
+
+    // If we are in a paid session and the local paidQueue still has items,
+    // show the next paid track in the UI (authoritative source is Spotify, but this helps UX)
+    if (paidSessionActive && paidQueue.length > 0) {
+      nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
+      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+      queueDurationText.textContent = `Estimated duration: ${Math.round(paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0)/60000)} min`;
+    } else {
+      // If no local paid queue, fall back to server-provided next info if available
+      if (data.next_title) nextTitleEl.textContent = data.next_title;
+      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+    }
+  }catch(e){ console.warn('pollStatusOnce', e); }
 }
+
 
     function setNowPlaying(title, artist, albumArt){
       nowTitle.textContent = title || 'Unknown';
