@@ -82,30 +82,25 @@
       gap:12px;
     }
 
-.track-info {
-  display: flex;
-  flex-direction: column; /* stack text below the art */
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.art {
-  width: 304px;   /* half of player-visual height */
-  height: 304px;  /* half of player-visual height */
-  background: #222;
-  border-radius: 12px; /* slightly larger radius for bigger tile */
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #999;
-  font-size: 14px;
-  overflow: hidden;
-  background-size: cover;
-  background-position: center;
-}
-
+    .track-info{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      min-width:0;
+    }
+    .art{
+      width:140px;
+      height:140px;
+      background:#222;
+      border-radius:6px;
+      flex-shrink:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#999;
+      font-size:12px;
+      overflow:hidden;
+    }
     .meta{
       min-width:0;
     }
@@ -273,9 +268,10 @@
     <!-- Left: Now Playing visual (up to 1080px block) -->
     <section class="left-col card" aria-label="Now Playing">
 <div class="player-visual" id="playerVisual">
+  <!-- This placeholder can be removed or left as a fallback -->
+  <div id="playerPlaceholder">Now Playing Visual (1080p area)</div>
 
-
-  <div class="playerPlaceholde">
+  <div class="player-overlay">
     <div class="track-info">
       <!-- Keep the small art tile if you want a crisp thumbnail -->
       <div class="art" id="nowArt"></div>
