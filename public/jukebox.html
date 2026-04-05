@@ -261,6 +261,10 @@
 
       <!-- Playing Next strip (small portion showing the next paid song) -->
       <div class="playing-next" id="playingNext">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="label">Playing Next</div>
+          <div class="next-title" id="nextTitle">No paid tracks queued</div>
+        </div>
         <div class="small" id="queueCount">Paid queue: 0</div>
       </div>
 
@@ -655,6 +659,7 @@ async function backendPlayUris(uris){
     async function backendResume(){
       try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
     }
+// frontend: poll status and update UI; when paidSessionActive show next paid track if available
 // frontend: poll status and update UI; when paidSessionActive show next paid track if available
 async function pollStatusOnce(){
   try{
