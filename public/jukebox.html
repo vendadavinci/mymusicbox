@@ -328,48 +328,89 @@
     const searchResultsEl = document.getElementById('searchResults');
     const nextTitleEl = document.getElementById('nextTitle');
 
-    function renderQueue(){
-      paidQueueEl.innerHTML = '';
-      let totalMs = 0;
-      paidQueue.forEach((item, idx) => {
-        totalMs += item.duration_ms || 0;
-        const div = document.createElement('div');
-        div.className = 'queue-item';
-        div.innerHTML = `
-          <div style="min-width:0">
-            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title)}</div>
-            <div class="meta">${escapeHtml(item.artist)}</div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
-            <div class="small">${formatMs(item.duration_ms)}</div>
-            <button class="btn ghost" onclick="removeFromQueue(${idx})">Remove</button>
-          </div>
-        `;
-        paidQueueEl.appendChild(div);
-      });
-      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
-      queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs/60000)} min`;
+// Render the paid queue (no Remove buttons) and show a Start Play control
+function renderQueue(){
+  paidQueueEl.innerHTML = '';
+  let totalMs = 0;
+  paidQueue.forEach((item, idx) => {
+    totalMs += item.duration_ms || 0;
+    const div = document.createElement('div');
+    div.className = 'queue-item';
+    div.innerHTML = `
+      <div style="min-width:0">
+        <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title)}</div>
+        <div class="meta">${escapeHtml(item.artist)}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+        <div class="small">${formatMs(item.duration_ms)}</div>
+      </div>
+    `;
+    paidQueueEl.appendChild(div);
+  });
 
-      if(paidQueue.length > 0){
-        nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
-      } else {
-        nextTitleEl.textContent = 'No paid tracks queued';
-      }
-    }
+  queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+  queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs/60000)} min`;
 
-    function removeFromQueue(index){
-      if(index >=0 && index < paidQueue.length){
-        paidQueue.splice(index,1);
-        renderQueue();
-      }
-    }
+  if(paidQueue.length > 0){
+    nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
+  } else {
+    nextTitleEl.textContent = 'No paid tracks queued';
+  }
 
-    function clearQueue(){
-      if(confirm('Clear the paid queue?')) {
-        paidQueue.length = 0;
-        renderQueue();
-      }
-    }
+  // Render Start Play button (replaces Clear Queue)
+  // If a Start Play container already exists, remove it first to avoid duplicates
+  const existing = document.getElementById('startPlayContainer');
+  if (existing) existing.remove();
+
+  const container = document.createElement('div');
+  container.id = 'startPlayContainer';
+  container.style = 'margin-top:12px;display:flex;gap:8px;align-items:center;';
+
+  const startBtn = document.createElement('button');
+  startBtn.className = 'btn';
+  startBtn.id = 'startPlayBtn';
+  startBtn.textContent = paidSessionActive ? 'Playing' : 'Start Play';
+  startBtn.disabled = paidSessionActive || paidQueue.length === 0;
+  startBtn.onclick = () => {
+    // Force start playback of the paid queue immediately
+    if (paidQueue.length === 0) return;
+    startPaidQueuePlayback();
+  };
+
+  const note = document.createElement('div');
+  note.style.flex = '1';
+
+  container.appendChild(startBtn);
+  container.appendChild(note);
+
+  // Append the control container after the queue element
+  paidQueueEl.parentNode.insertBefore(container, paidQueueEl.nextSibling);
+}
+
+// Prevent users from removing paid tracks once added
+function removeFromQueue(index){
+  // No-op: paid queue items cannot be removed by users
+  // Provide a gentle message so the UI doesn't silently fail
+  alert('Paid tracks cannot be removed once queued.');
+}
+
+// Replaced Clear Queue with Start Play behavior
+function clearQueue(){
+  // Keep function name for compatibility but change behavior:
+  // Start playback immediately instead of clearing the queue.
+  if (paidQueue.length === 0) {
+    alert('No paid tracks queued.');
+    return;
+  }
+  // If a paid session is already active, do nothing
+  if (paidSessionActive) {
+    alert('Paid session already active.');
+    return;
+  }
+  // Trigger playback of the queued paid tracks
+  startPaidQueuePlayback();
+}
+
     async function searchTracks(){
       const q = document.getElementById('searchInput').value.trim();
       searchResultsEl.innerHTML = '';
