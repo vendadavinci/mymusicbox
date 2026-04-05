@@ -244,18 +244,15 @@
           <div class="selected-list" id="selectedList"></div>
         </div>
 
-        <!-- payment controls -->
-        <div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
-          <!-- Pay button (normal) -->
-          <button class="btn" id="payBtn" onclick="startPayment()" disabled>Pay</button>
+<!-- payment controls -->
+<div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
+  <!-- Pay button (normal) -->
+  <button class="btn" id="payBtn" onclick="startPayment()" disabled>Pay</button>
+  <button class="btn ghost" onclick="cancelSelection()">Cancel</button>
+  <div style="flex:1"></div>
+  <div class="note" id="priceNote"></div>
+</div>
 
-          <!-- Add to Playlist button (shown only while a paid session is active) -->
-          <button class="btn" id="addBtn" onclick="addToPlaylistWhilePaid()" style="display:none;">Add to Playlist</button>
-
-          <button class="btn ghost" onclick="cancelSelection()">Cancel</button>
-          <div style="flex:1"></div>
-          <div class="note" id="priceNote"></div>
-        </div>
 
         <div class="note" style="margin-top:12px;">
           Payment flow: this page sends selected tracks and package info to your backend endpoint <code>/api/create-payment</code>. Your server should create the payment session and redirect the user to the payment gateway. After successful payment the backend should enqueue the paid tracks to the pub playback queue.
@@ -266,18 +263,15 @@
 
   <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
 
-  <script>
-      
+<script>     
 async function startPaidPlayback(tracks) {
   const total = tracks.reduce((acc, t) => acc + (t.price || 50), 0) * 100; // example pricing
-
   const checkoutPayload = {
     amount: Math.round(total),
     currency: 'ZAR',
     description: 'Musicbox Paid Session',
     tracks
   };
-
   const res = await fetch('/api/yoco/create-checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -291,13 +285,8 @@ async function startPaidPlayback(tracks) {
     alert('Payment initialization failed.');
   }
 }
-
-
-    // Current package state
-    let currentPackage = null; // { price, maxSongs, label }
-    const slots = []; // each slot: { index, selected: null | track }
-
-    // DOM refs
+    let currentPackage = null; 
+    const slots = []; 
     const formPanel = document.getElementById('formPanel');
     const slotsContainer = document.getElementById('slotsContainer');
     const selectedContainer = document.getElementById('selectedContainer');
@@ -308,15 +297,11 @@ async function startPaidPlayback(tracks) {
     const packageSummary = document.getElementById('packageSummary');
     const priceNote = document.getElementById('priceNote');
     const instructionNote = document.getElementById('instructionNote');
-
-    // Polling state
-    let currentMode = 'DEFAULT'; // updated from backend
+    let currentMode = 'DEFAULT'; 
     let statusPollHandle = null;
 
-    // Called when user clicks a package card
     function selectPackage(price, maxSongs){
       currentPackage = { price: price, maxSongs: maxSongs, label: `R${price} — up to ${maxSongs} songs` };
-      // reset slots and UI
       slots.length = 0;
       slotsContainer.innerHTML = '';
       selectedList.innerHTML = '';
@@ -333,7 +318,6 @@ async function startPaidPlayback(tracks) {
         slotsContainer.appendChild(createSlotElement(slot));
       }
 
-      // show instruction
       const info = document.createElement('div');
       info.className = 'note';
       info.style.marginTop = '6px';
@@ -341,11 +325,9 @@ async function startPaidPlayback(tracks) {
       info.textContent = `Search and pick up to ${maxSongs} tracks. You may leave some slots empty if package allows a range.`;
       slotsContainer.appendChild(info);
 
-      // Immediately update UI based on current playback mode
       updateButtonsForMode(currentMode);
     }
 
-    // Create DOM for a single search slot
     function createSlotElement(slot){
       const wrapper = document.createElement('div');
       wrapper.className = 'search-slot';
@@ -389,7 +371,6 @@ async function startPaidPlayback(tracks) {
       return wrapper;
     }
 
-    // Perform search for a specific slot (calls backend /api/search)
     async function doSearch(slotIndex){
       const q = document.getElementById(`input-${slotIndex}`).value.trim();
       const resultsEl = document.getElementById(`results-${slotIndex}`);
@@ -414,7 +395,6 @@ async function startPaidPlayback(tracks) {
       }
     }
 
-    // Render up to 10 results for a slot
     function renderSearchResults(slotIndex, results){
       const resultsEl = document.getElementById(`results-${slotIndex}`);
       resultsEl.innerHTML = '';
@@ -436,13 +416,12 @@ async function startPaidPlayback(tracks) {
             <button class="btn ghost">Select</button>
           </div>
         `;
-        // clicking anywhere selects
+   
         div.addEventListener('click', ()=> selectTrackForSlot(slotIndex, r));
         resultsEl.appendChild(div);
       });
     }
 
-    // Select a track into a slot
     function selectTrackForSlot(slotIndex, track){
       const slot = slots[slotIndex];
       slot.selected = {
@@ -452,13 +431,12 @@ async function startPaidPlayback(tracks) {
         duration_ms: track.duration_ms || 0,
         albumArt: track.albumArt || ''
       };
-      // update selected info text
+
       const info = document.getElementById(`selectedInfo-${slotIndex}`);
       info.textContent = `${track.title} — ${track.artist}`;
       updateSelectedList();
     }
 
-    // Build selected list UI and enable Pay if at least one track selected (and no paid session)
     function updateSelectedList(){
       const selected = slots.filter(s => s.selected).map(s => s.selected);
       if(selected.length === 0){
@@ -485,20 +463,16 @@ async function startPaidPlayback(tracks) {
         selectedList.appendChild(div);
       });
 
-      // Enable appropriate action depending on current mode
       if(currentMode === 'PAID'){
-        // Pay is disabled while paid session is active; Add to Playlist should be enabled
         payBtn.disabled = true;
         addBtn.style.display = 'inline-block';
         addBtn.disabled = false;
       } else {
-        // Normal flow: Pay visible and enabled
         payBtn.disabled = false;
         addBtn.style.display = 'none';
       }
     }
 
-    // Remove a selected track by URI (clears the slot that had it)
     function removeSelected(uri){
       const slot = slots.find(s => s.selected && s.selected.uri === uri);
       if(!slot) return;
@@ -508,7 +482,6 @@ async function startPaidPlayback(tracks) {
       updateSelectedList();
     }
 
-    // Cancel selection and reset UI
     function cancelSelection(){
       currentPackage = null;
       slots.length = 0;
@@ -529,7 +502,6 @@ async function startPayment(){
   const selected = slots.filter(s => s.selected).map(s => s.selected);
   if(selected.length === 0) return alert('Please select at least one track.');
 
-  // Build payload: amount must be integer cents (e.g., R10 => 1000)
   const amountInCents = Math.round((currentPackage.price || 0) * 100);
 
   const payload = {
@@ -558,11 +530,9 @@ async function startPayment(){
     }
 
     if(data && data.checkoutUrl){
-      // Save tracks and checkoutId for jukebox fallback
       sessionStorage.setItem('tracks', JSON.stringify(selected));
       if(data.checkoutId) sessionStorage.setItem('checkoutId', data.checkoutId);
 
-      // Redirect to Yoco checkout
       window.location.href = data.checkoutUrl;
       return;
     }
@@ -578,73 +548,34 @@ async function startPayment(){
   }
 }
 
-    // Add to Playlist while a paid session is active (reserve tracks server-side)
-    async function addToPlaylistWhilePaid(){
-      if(!currentPackage) return;
-      const selected = slots.filter(s => s.selected).map(s => s.selected);
-      if(selected.length === 0) return alert('Please select at least one track to add.');
 
-      addBtn.disabled = true;
-      addBtn.textContent = 'Adding…';
-
-      try{
-        const payload = {
-          price: currentPackage.price,
-          packageLabel: currentPackage.label,
-          tracks: selected
-        };
-        const res = await fetch('/api/reserve-tracks', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify(payload)
-        });
-        if(!res.ok) throw new Error('reserve failed');
-        const data = await res.json(); // { success, message }
-        if(data && data.success){
-          alert('Your tracks were added to the paid queue and will play after the current session.');
-          // Clear selection UI but keep package visible so user can add more if desired
-          slots.forEach(s => { s.selected = null; const info = document.getElementById(`selectedInfo-${s.index}`); if(info) info.textContent = 'No track selected'; });
-          updateSelectedList();
-        } else {
-          throw new Error(data && data.message ? data.message : 'reserve failed');
-        }
-      }catch(err){
-        console.error(err);
-        alert('Could not add tracks. Try again.');
-      }finally{
-        addBtn.disabled = false;
-        addBtn.textContent = 'Add to Playlist';
-      }
-    }
 
 
     async function pollStatus(){
       try{
         const res = await fetch('/api/status');
         if(!res.ok) return;
-        const data = await res.json(); // { mode: "DEFAULT"|"PAID", current, title, artist, albumArt }
+        const data = await res.json();
         const newMode = data.mode || 'DEFAULT';
         if(newMode !== currentMode){
           currentMode = newMode;
           updateButtonsForMode(currentMode);
         }
       }catch(e){
-        // ignore polling errors
+    
       }
     }
 
     function updateButtonsForMode(mode){
       currentMode = mode;
-      // If a paid session is active, Pay must be hidden/disabled and Add visible
+
       if(mode === 'PAID'){
         payBtn.style.display = 'none';
         addBtn.style.display = 'inline-block';
-        // enable add only if there are selected tracks
         const hasSelected = slots.some(s => s.selected);
         addBtn.disabled = !hasSelected;
         instructionNote.textContent = 'A paid session is currently playing. You can add tracks to the paid queue (they will play after the current session).';
       } else {
-        // DEFAULT mode: show Pay (enabled if selections exist), hide Add
         payBtn.style.display = 'inline-block';
         addBtn.style.display = 'none';
         const hasSelected = slots.some(s => s.selected);
@@ -653,7 +584,6 @@ async function startPayment(){
         instructionNote.textContent = 'Choose tracks and press Pay to proceed to payment.';
       }
     }
-
     function formatMs(ms){
       if(!ms || isNaN(ms)) return '--:--';
       const s = Math.floor(ms/1000);
@@ -687,7 +617,6 @@ async function startPayment(){
         const maxSongs = mapping[priceNum] || 2;
         selectPackage(priceNum, maxSongs);
         if(song){
-          // set a placeholder selected item for slot 0
           slots[0].selected = { uri: song, title: title || song, artist: '', duration_ms: 0 };
           const info = document.getElementById(`selectedInfo-0`);
           if(info) info.textContent = `${slots[0].selected.title} (preselected)`;
@@ -696,7 +625,6 @@ async function startPayment(){
       }
     })();
 async function startPaidCheckout(tracks) {
-  // price calculation example: tracks have .price in ZAR
   const total = Math.round(tracks.reduce((acc, t) => acc + (t.price || 10), 0) * 100);
 
   const payload = { amount: total, currency: 'ZAR', description: 'Musicbox Paid Session', tracks };
@@ -713,16 +641,11 @@ async function startPaidCheckout(tracks) {
     return;
   }
 
-  // Save tracks and checkoutId as fallback
   sessionStorage.setItem('tracks', JSON.stringify(tracks));
   if (data.checkoutId) sessionStorage.setItem('checkoutId', data.checkoutId);
-
-  // Redirect to Yoco checkout
   window.location.href = data.checkoutUrl;
 }
-    // Start polling backend status every 6 seconds
     statusPollHandle = setInterval(pollStatus, 6000);
-    // initial poll
     pollStatus();
   </script>
 </body>
