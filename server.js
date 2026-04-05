@@ -195,6 +195,56 @@ app.post('/api/play', async (req, res) => {
   }
 });
 
+app.post('/api/player/check-and-next', async (req, res) => {
+  try {
+    await refreshAccessTokenIfNeeded();
+
+    // Get current playback
+    const statusR = await fetch('https://api.spotify.com/v1/me/player', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+
+    if (!statusR.ok) {
+      const t = await statusR.text();
+      return res.status(statusR.status).json({ error: 'status fetch failed', details: t });
+    }
+
+    const status = await statusR.json();
+
+    // If nothing playing, nothing to do
+    if (!status || !status.item) return res.json({ ok: true, advanced: false, reason: 'no item' });
+
+    // If repeat_one is on or progress_ms is not advancing, force a next
+    // (Spotify doesn't expose repeat_one in this endpoint; we already turned repeat off on play)
+    // Check if progress is near end or stuck: if progress_ms > duration_ms - 2000 then it's near end
+    const progress = status.progress_ms || 0;
+    const duration = status.item.duration_ms || 0;
+
+    // If progress is stuck (very small change) or we detect the same track for > 3s, call next
+    // For simplicity: if progress > duration - 2000 (near end) do nothing; if progress < 1000 and device is paused, call next
+    if (status.is_playing === false && progress > 0 && progress < 1000) {
+      // attempt to skip to next
+      const nextR = await fetch('https://api.spotify.com/v1/me/player/next', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokens.access_token}` }
+      });
+      if (!nextR.ok) {
+        const t = await nextR.text();
+        console.error('/api/player/next failed', nextR.status, t);
+        return res.status(nextR.status).json({ ok: false, error: 'next failed', details: t });
+      }
+      return res.json({ ok: true, advanced: true });
+    }
+
+    // No action needed
+    res.json({ ok: true, advanced: false });
+  } catch (err) {
+    console.error('/api/player/check-and-next error', err);
+    res.status(500).json({ error: 'check-and-next failed', details: err.message });
+  }
+});
+
+
 // Pause/Resume/Skip protection
 app.post('/api/pause', async (req, res) => {
   if (paidSessionActive) return res.status(403).json({ error: 'Cannot pause during paid session' });
