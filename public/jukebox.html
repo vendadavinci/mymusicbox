@@ -727,28 +727,13 @@ async function pollStatusOnce(){
 }
 
 
-function setNowPlaying(title, artist, albumArt){
-  nowTitle.textContent = title || 'Unknown';
-  nowArtist.textContent = artist || '';
-
-  // small art tile
-  if (albumArt) {
-    nowArt.style.backgroundImage = `url(${albumArt})`;
-  } else {
-    nowArt.style.backgroundImage = '';
-  }
-
-  // full background
-  const playerVisual = document.getElementById('playerVisual');
-  if (playerVisual) {
-    if (albumArt) {
-      playerVisual.style.backgroundImage = `url(${albumArt})`;
-    } else {
-      playerVisual.style.backgroundImage = '';
+    function setNowPlaying(title, artist, albumArt){
+      nowTitle.textContent = title || 'Unknown';
+      nowArtist.textContent = artist || '';
+      if(albumArt) nowArt.style.backgroundImage = `url(${albumArt})`;
+      else nowArt.style.backgroundImage = '';
     }
-  }
-}
- 
+
     function formatMs(ms){
       if(!ms || isNaN(ms)) return '--:--';
       const s = Math.floor(ms/1000);
