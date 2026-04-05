@@ -767,7 +767,6 @@ async function pollStatusOnce(){
     pollStatusOnce();
   </script>
 <script>
-
   const tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
   fetch('/webhook/payment-success', {
@@ -775,9 +774,17 @@ async function pollStatusOnce(){
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tracks })
   }).then(() => {
-    alert('Payment successful! Your tracks are now playing.');
+    // Instead of alert, update a status element or do nothing
+    const statusText = document.getElementById('statusText');
+    if (statusText) {
+      statusText.textContent = 'Tracks queued and ready to play.';
+    }
+    // Or simply leave this block empty if you want no message at all
+  }).catch(err => {
+    console.error('Webhook call failed:', err);
   });
 </script>
+
 <script>
 (async function handlePostPayment() {
   try {
@@ -814,6 +821,7 @@ async function pollStatusOnce(){
   }
 })();
 </script>
+    
 <script>
 (async function loadPaidTracks() {
   try {
@@ -842,13 +850,15 @@ async function pollStatusOnce(){
 
       renderQueue();
 
+      // Notify backend webhook
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tracks })
       });
 
-      statusText.textContent = 'Payment successful! Your tracks are now playing.';
+      // Remove the alert message — set a neutral status or skip entirely
+      statusText.textContent = 'Tracks queued and ready to play.';
       pollStatusOnce();
     }
   } catch (err) {
@@ -856,6 +866,7 @@ async function pollStatusOnce(){
   }
 })();
 </script>
+
 
    
     
