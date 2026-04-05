@@ -127,6 +127,33 @@
       border:1px solid rgba(255,255,255,0.06);
     }
 
+/* Make the whole playerVisual show album art */
+#playerVisual {
+  position: relative;
+  background-color: #111; /* fallback */
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  transition: background-image 300ms ease-in-out;
+  overflow: hidden;
+}
+
+/* Dark overlay so text remains readable */
+#playerVisual::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.player-overlay {
+  position: relative;
+  z-index: 2; /* keep text above overlay */
+}
+
+
     /* small "Playing Next" strip under the visual */
     .playing-next {
       width:100%;
@@ -231,6 +258,7 @@
       .player-visual{ height:420px; }
       .art{ width:96px; height:96px; }
     }
+
   </style>
 </head>
 <body>
@@ -239,21 +267,23 @@
   <main>
     <!-- Left: Now Playing visual (up to 1080px block) -->
     <section class="left-col card" aria-label="Now Playing">
-      <div class="player-visual" id="playerVisual">
-        <div id="playerPlaceholder">Now Playing Visual (1080p area)</div>
+<div class="player-visual" id="playerVisual">
+  <!-- This placeholder can be removed or left as a fallback -->
+  <div id="playerPlaceholder">Now Playing Visual (1080p area)</div>
 
-        <div class="player-overlay">
-          <div class="track-info">
-            <div class="art" id="nowArt">ART</div>
-            <div class="meta">
-              <div class="title" id="nowTitle">Idle</div>
-              <div class="artist" id="nowArtist">Default playlist</div>
-              <div class="small" id="nowMode">Mode: DEFAULT</div>
-            </div>
-          </div>
-
-        </div>
+  <div class="player-overlay">
+    <div class="track-info">
+      <!-- Keep the small art tile if you want a crisp thumbnail -->
+      <div class="art" id="nowArt"></div>
+      <div class="meta">
+        <div class="title" id="nowTitle">Idle</div>
+        <div class="artist" id="nowArtist">Default playlist</div>
+        <div class="small" id="nowMode">Mode: DEFAULT</div>
       </div>
+    </div>
+  </div>
+</div>
+
 
       <!-- Playing Next strip (small portion showing the next paid song) -->
       <div class="playing-next" id="playingNext">
@@ -697,13 +727,28 @@ async function pollStatusOnce(){
 }
 
 
-    function setNowPlaying(title, artist, albumArt){
-      nowTitle.textContent = title || 'Unknown';
-      nowArtist.textContent = artist || '';
-      if(albumArt) nowArt.style.backgroundImage = `url(${albumArt})`;
-      else nowArt.style.backgroundImage = '';
-    }
+function setNowPlaying(title, artist, albumArt){
+  nowTitle.textContent = title || 'Unknown';
+  nowArtist.textContent = artist || '';
 
+  // small art tile
+  if (albumArt) {
+    nowArt.style.backgroundImage = `url(${albumArt})`;
+  } else {
+    nowArt.style.backgroundImage = '';
+  }
+
+  // full background
+  const playerVisual = document.getElementById('playerVisual');
+  if (playerVisual) {
+    if (albumArt) {
+      playerVisual.style.backgroundImage = `url(${albumArt})`;
+    } else {
+      playerVisual.style.backgroundImage = '';
+    }
+  }
+}
+ 
     function formatMs(ms){
       if(!ms || isNaN(ms)) return '--:--';
       const s = Math.floor(ms/1000);
