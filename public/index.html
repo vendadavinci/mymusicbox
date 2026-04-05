@@ -268,33 +268,56 @@
     let isMuted = false;
 
     // Backend hooks (placeholders)
+// frontend: play first track, disable shuffle/repeat, queue rest, and return {ok:true} on success
 async function backendPlayUris(uris){
   try {
-    if (!uris || uris.length === 0) return;
+    if (!uris || uris.length === 0) return { ok: false, error: 'no uris' };
 
-    // Play the first track directly
-    await fetch('/api/play', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        uris: [uris[0]],
-        isPaid: true
-      })
+    // 1) Ask backend to disable shuffle and repeat and play the first track
+    let res = await fetch('/api/play', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ uris: [uris[0]], isPaid: true })
     });
-
-    // Queue the rest sequentially
-    for (let i = 1; i < uris.length; i++) {
-      await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}`, {
-        method:'POST'
-      });
+    const playData = await res.json().catch(()=>({}));
+    console.log('/api/play response:', res.status, playData);
+    if (!res.ok) {
+      return { ok: false, error: 'play failed', details: playData };
     }
 
-  } catch(e) {
+    // small delay so device registers playback context
+    await new Promise(r => setTimeout(r, 350));
+
+    // 2) Queue the rest sequentially and ensure each succeeded
+    for (let i = 1; i < uris.length; i++) {
+      const qRes = await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}`, { method: 'POST' });
+      const qData = await qRes.json().catch(()=>({}));
+      console.log('/api/queue response:', qRes.status, qData);
+      if (!qRes.ok) {
+        return { ok: false, error: 'queue failed', uri: uris[i], details: qData };
+      }
+      // tiny delay to avoid device race conditions
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    // 3) Safety: after a short delay, ask backend to check if Spotify advanced; if not, call next
+    // (backend should expose /api/player/check-and-next or we call /api/next directly)
+    setTimeout(async () => {
+      try {
+        const check = await fetch('/api/player/check-and-next', { method: 'POST' });
+        // backend will return { advanced: true } if Spotify moved on, or will call next if stuck
+        console.log('/api/player/check-and-next', await check.json().catch(()=>({})));
+      } catch (e) {
+        console.warn('check-and-next failed', e);
+      }
+    }, 2000);
+
+    return { ok: true };
+  } catch (e) {
     console.error('backendPlayUris error', e);
-    statusText.textContent = 'Playback error';
+    return { ok: false, error: e.message };
   }
 }
-
 
 
 async function pollStatusOnce(){
