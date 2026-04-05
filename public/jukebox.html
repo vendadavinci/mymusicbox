@@ -327,15 +327,14 @@
     const searchResultsEl = document.getElementById('searchResults');
     const nextTitleEl = document.getElementById('nextTitle');
 
-// Render the paid queue (no Remove buttons) and show a stable Start Play control
+// Render the paid queue items (no Remove buttons)
 function renderQueue(){
-  // Ensure paidQueueEl exists
   if (!paidQueueEl) return;
 
-  // Clear the list
+  // Clear list
   paidQueueEl.innerHTML = '';
 
-  // Build items
+  // Build items and capture total duration
   let totalMs = 0;
   paidQueue.forEach((item, idx) => {
     totalMs += item.duration_ms || 0;
@@ -343,7 +342,9 @@ function renderQueue(){
     div.className = 'queue-item';
     div.innerHTML = `
       <div style="min-width:0">
-        <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title)}</div>
+        <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          ${escapeHtml(item.title)}
+        </div>
         <div class="meta">${escapeHtml(item.artist)}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
@@ -363,23 +364,33 @@ function renderQueue(){
     nextTitleEl.textContent = 'No paid tracks queued';
   }
 
-  // Ensure a stable controls container exists (so re-renders don't duplicate/remove it)
+  // Ensure controls are rendered and stable
+  renderPaidQueueControls();
+}
+
+// No-op removal: users cannot remove paid tracks once queued
+function removeFromQueue(index){
+  alert('Paid tracks cannot be removed once queued.');
+}
+
+// Stable controls container with Start Play button (replaces Clear Queue)
+function renderPaidQueueControls(){
+  // Create or reuse a stable container so re-renders don't duplicate it
   let controls = document.getElementById('paidQueueControls');
   if (!controls) {
     controls = document.createElement('div');
     controls.id = 'paidQueueControls';
     controls.style = 'margin-top:12px;display:flex;gap:8px;align-items:center;';
-    // Insert controls immediately after the paidQueue element
-    if (paidQueueEl.parentNode) {
+    if (paidQueueEl && paidQueueEl.parentNode) {
       paidQueueEl.parentNode.insertBefore(controls, paidQueueEl.nextSibling);
     } else {
       document.body.appendChild(controls);
     }
   }
-  // Clear existing controls content
+
+  // Rebuild controls content
   controls.innerHTML = '';
 
-  // Start Play button
   const startBtn = document.createElement('button');
   startBtn.className = 'btn';
   startBtn.id = 'startPlayBtn';
@@ -387,37 +398,89 @@ function renderQueue(){
   startBtn.disabled = paidSessionActive || paidQueue.length === 0;
   startBtn.onclick = () => {
     if (paidQueue.length === 0) return;
-    // Start playback; startPaidQueuePlayback will handle backend queuing.
+    // Force start playback of the paid queue immediately
     startPaidQueuePlayback();
   };
 
-  // Optional Cancel/Info area (keeps layout consistent)
   const spacer = document.createElement('div');
   spacer.style.flex = '1';
 
-  // Append controls
   controls.appendChild(startBtn);
   controls.appendChild(spacer);
 }
 
-// Prevent users from removing paid tracks once added
-function removeFromQueue(index){
-  // No-op: paid queue items cannot be removed by users
-  alert('Paid tracks cannot be removed once queued.');
-}
+// Full startPaidQueuePlayback replacement — only clears local queue after backend success
+async function startPaidQueuePlayback(){
+  if (paidQueue.length === 0) return;
 
-// Replace Clear Queue with Start Play behavior (keeps API compatibility)
-function clearQueue(){
-  if (paidQueue.length === 0) {
-    alert('No paid tracks queued.');
-    return;
+  // Cancel any pending redirect
+  if (redirectTimeoutHandle){
+    clearTimeout(redirectTimeoutHandle);
+    redirectTimeoutHandle = null;
   }
-  if (paidSessionActive) {
-    alert('Paid session already active.');
-    return;
+
+  // Mark session active and update UI
+  paidSessionActive = true;
+  nowMode.textContent = 'Mode: PAID';
+  statusText.textContent = 'Playing paid queue';
+
+  try {
+    // Pause default playback on backend
+    await backendPause();
+
+    // Build URIs and snapshot queue info (so we can compute totalMs even after clearing)
+    const uris = paidQueue.map(i => i.uri);
+    const snapshotQueue = paidQueue.slice(); // copy for duration calc and UI fallback
+    const totalMs = snapshotQueue.reduce((s,i)=>s+(i.duration_ms||210000),0);
+
+    // Update Now Playing UI optimistically to first paid track
+    const first = snapshotQueue[0];
+    setNowPlaying(first.title, first.artist, first.albumArt);
+
+    // Attempt to play and queue on backend
+    const result = await backendPlayUris(uris);
+
+    // Immediately poll backend for authoritative now-playing info
+    await pollStatusOnce();
+
+    // Only clear local paidQueue after backend reports success
+    if (result && result.ok) {
+      paidQueue.length = 0;
+      renderQueue();
+    } else {
+      // keep the queue visible and show an error
+      statusText.textContent = 'Playback/queue failed. Please try again.';
+      paidSessionActive = false;
+      nowMode.textContent = 'Mode: DEFAULT';
+      return;
+    }
+
+    // Schedule resume of default playlist after estimated duration
+    setTimeout(async ()=>{
+      paidSessionActive = false;
+      nowMode.textContent = 'Mode: DEFAULT';
+      statusText.textContent = 'Resuming default playlist';
+      try {
+        await backendResume();
+        await pollStatusOnce();
+      } catch(e){
+        console.warn('resume failed', e);
+      }
+
+      if (redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
+      redirectTimeoutHandle = setTimeout(()=>{
+        if(paidSessionActive) return;
+        window.location.href = 'index.html';
+      }, 30000);
+
+    }, totalMs + 2000);
+
+  } catch (err) {
+    console.error('startPaidQueuePlayback error', err);
+    statusText.textContent = 'Playback error';
+    paidSessionActive = false;
+    nowMode.textContent = 'Mode: DEFAULT';
   }
-  // Start playback of the queued paid tracks
-  startPaidQueuePlayback();
 }
 
     async function searchTracks(){
