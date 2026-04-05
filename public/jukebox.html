@@ -82,25 +82,30 @@
       gap:12px;
     }
 
-    .track-info{
-      display:flex;
-      gap:12px;
-      align-items:center;
-      min-width:0;
-    }
-    .art{
-      width:140px;
-      height:140px;
-      background:#222;
-      border-radius:6px;
-      flex-shrink:0;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      color:#999;
-      font-size:12px;
-      overflow:hidden;
-    }
+.track-info {
+  display: flex;
+  flex-direction: column; /* stack text below the art */
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.art {
+  width: 304px;   /* half of player-visual height */
+  height: 304px;  /* half of player-visual height */
+  background: #222;
+  border-radius: 12px; /* slightly larger radius for bigger tile */
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 14px;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+}
+
     .meta{
       min-width:0;
     }
