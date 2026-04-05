@@ -387,7 +387,7 @@ function removeFromQueue(index){
   alert('Paid tracks cannot be removed once queued.');
 }
 
-// Stable controls container with Start Play button (replaces Clear Queue)
+
 function renderPaidQueueControls(){
   // Create or reuse a stable container so re-renders don't duplicate it
   let controls = document.getElementById('paidQueueControls');
@@ -401,21 +401,6 @@ function renderPaidQueueControls(){
       document.body.appendChild(controls);
     }
   }
-
-  // Rebuild controls content
-  controls.innerHTML = '';
-
-  const startBtn = document.createElement('button');
-  startBtn.className = 'btn';
-  startBtn.id = 'startPlayBtn';
-  startBtn.textContent = paidSessionActive ? 'Playing' : 'Start Play';
-  startBtn.disabled = paidSessionActive || paidQueue.length === 0;
-  startBtn.onclick = () => {
-    if (paidQueue.length === 0) return;
-    // Force start playback of the paid queue immediately
-    startPaidQueuePlayback();
-  };
-
   const spacer = document.createElement('div');
   spacer.style.flex = '1';
 
