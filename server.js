@@ -157,107 +157,43 @@ async function startPaidSession(uris, estimatedTotalMs = null) {
 
 app.post('/api/play', async (req, res) => {
   try {
+    const uris = req.body.uris;
+    const isPaid = !!req.body.isPaid;
+    if (!uris || !Array.isArray(uris) || uris.length === 0) {
+      return res.status(400).json({ error: 'uris required' });
+    }
+
+    if (isPaid) {
+      const estimatedTotalMs = req.body.estimatedTotalMs || null;
+      await startPaidSession(uris, estimatedTotalMs);
+      return res.json({ success: true, paidSessionStarted: true });
+    }
+
+    if (paidSessionActive) {
+      return res
+        .status(403)
+        .json({ error: 'A paid session is currently active. Playback cannot be replaced.' });
+    }
+
     await refreshAccessTokenIfNeeded();
-
-    const { uris, device_id, isPaid } = req.body || {};
-
-    // Validate input
-    if (!Array.isArray(uris) || uris.length === 0) {
-      return res.status(400).json({ error: 'Missing uris array' });
-    }
-
-    const authHeader = { Authorization: `Bearer ${tokens.access_token}` };
-
-    // 1) Turn shuffle off on the target device (or active device if none provided)
-    const shuffleUrl = `https://api.spotify.com/v1/me/player/shuffle?state=false${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
-    const shuffleR = await fetch(shuffleUrl, { method: 'PUT', headers: authHeader });
-    if (!shuffleR.ok) {
-      const txt = await shuffleR.text().catch(()=>'<no body>');
-      console.warn('/api/play: shuffle off returned', shuffleR.status, txt);
-      // continue — not fatal for play, but log for debugging
-    }
-
-    // 2) Turn repeat off on the target device (prevents repeat-one sticking)
-    const repeatUrl = `https://api.spotify.com/v1/me/player/repeat?state=off${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
-    const repeatR = await fetch(repeatUrl, { method: 'PUT', headers: authHeader });
-    if (!repeatR.ok) {
-      const txt = await repeatR.text().catch(()=>'<no body>');
-      console.warn('/api/play: repeat off returned', repeatR.status, txt);
-      // continue
-    }
-
-    // 3) Start playback with the provided URIs
-    const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
-    const playR = await fetch(playUrl, {
+    const deviceId = req.body.device_id;
+    const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
+    const r = await fetch(`https://api.spotify.com/v1/me/player/play${params}`, {
       method: 'PUT',
-      headers: Object.assign({}, authHeader, { 'Content-Type': 'application/json' }),
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({ uris })
     });
-
-    if (!playR.ok) {
-      const text = await playR.text().catch(()=>'<no body>');
-      console.error('/api/play failed', playR.status, text);
-      return res.status(playR.status).json({ error: 'play failed', details: text });
-    }
-
-    // Successful start
-    return res.json({ ok: true });
+    if (r.status === 204) return res.json({ success: true });
+    const data = await r.json();
+    res.status(r.status).json(data);
   } catch (err) {
     console.error('/api/play error', err);
-    return res.status(500).json({ error: 'play failed', details: err.message });
+    res.status(500).json({ error: 'play failed', message: err.message });
   }
 });
-
-
-app.post('/api/player/check-and-next', async (req, res) => {
-  try {
-    await refreshAccessTokenIfNeeded();
-
-    // Get current playback
-    const statusR = await fetch('https://api.spotify.com/v1/me/player', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
-
-    if (!statusR.ok) {
-      const t = await statusR.text();
-      return res.status(statusR.status).json({ error: 'status fetch failed', details: t });
-    }
-
-    const status = await statusR.json();
-
-    // If nothing playing, nothing to do
-    if (!status || !status.item) return res.json({ ok: true, advanced: false, reason: 'no item' });
-
-    // If repeat_one is on or progress_ms is not advancing, force a next
-    // (Spotify doesn't expose repeat_one in this endpoint; we already turned repeat off on play)
-    // Check if progress is near end or stuck: if progress_ms > duration_ms - 2000 then it's near end
-    const progress = status.progress_ms || 0;
-    const duration = status.item.duration_ms || 0;
-
-    // If progress is stuck (very small change) or we detect the same track for > 3s, call next
-    // For simplicity: if progress > duration - 2000 (near end) do nothing; if progress < 1000 and device is paused, call next
-    if (status.is_playing === false && progress > 0 && progress < 1000) {
-      // attempt to skip to next
-      const nextR = await fetch('https://api.spotify.com/v1/me/player/next', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${tokens.access_token}` }
-      });
-      if (!nextR.ok) {
-        const t = await nextR.text();
-        console.error('/api/player/next failed', nextR.status, t);
-        return res.status(nextR.status).json({ ok: false, error: 'next failed', details: t });
-      }
-      return res.json({ ok: true, advanced: true });
-    }
-
-    // No action needed
-    res.json({ ok: true, advanced: false });
-  } catch (err) {
-    console.error('/api/player/check-and-next error', err);
-    res.status(500).json({ error: 'check-and-next failed', details: err.message });
-  }
-});
-
 
 // Pause/Resume/Skip protection
 app.post('/api/pause', async (req, res) => {
@@ -534,33 +470,56 @@ app.get('/api/status', async (req, res) => {
 app.post('/api/queue', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
-    const uri = req.query.uri;
-    if (!uri) return res.status(400).json({ error: 'Missing track URI' });
 
-    const r = await fetch(`https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`, {
-      method: 'POST',
+    const uri = req.query.uri;
+    if (!uri) {
+      return res.status(400).json({ error: 'Missing track URI' });
+    }
+
+    // 🔹 Ensure shuffle is off before adding to queue
+    await fetch('https://api.spotify.com/v1/me/player/shuffle?state=false', {
+      method: 'PUT',
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
+
+    // 🔹 Queue the track
+    const r = await fetch(
+      `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokens.access_token}` }
+      }
+    );
 
     if (!r.ok) {
       const text = await r.text();
       console.error('/api/queue failed', r.status, text);
+
       if (r.status === 404 && text.includes('NO_ACTIVE_DEVICE')) {
         return res.status(404).json({
-          error: 'No active Spotify device found. Open Spotify and start playback once.',
+          error: 'No active Spotify device found. Please open the Spotify app and start playback once.',
           details: text
         });
       }
-      return res.status(r.status).json({ error: 'queue failed', details: text });
+
+      return res.status(r.status).json({
+        error: 'Spotify queue request failed',
+        details: text
+      });
     }
 
     res.json({ ok: true });
   } catch (err) {
     console.error('/api/queue error', err);
-    res.status(500).json({ error: 'queue failed', details: err.message });
+    res.status(500).json({ error: 'Queue request failed', details: err.message });
   }
 });
 
+
+
+/* -------------------------
+   Start server
+   ------------------------- */
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
