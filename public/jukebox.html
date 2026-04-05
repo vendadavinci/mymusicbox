@@ -56,50 +56,31 @@
       gap:12px;
     }
 
-/* Player visual: full-area album art background */
-#playerVisual {
-  position: relative;
-  background-color: #111; /* fallback color */
-  background-position: center;
-  background-size: cover;
-  background-repeat: no-repeat;
-  transition: background-image 300ms ease-in-out, background-color 300ms ease-in-out;
-  overflow: hidden;
-}
+    .player-visual{
+      width:100%;
+      height:608px;
+      max-height:608px;
+      background:linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0.75));
+      border-radius:8px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#bbb;
+      font-size:18px;
+      position:relative;
+      overflow:hidden;
+    }
 
-/* Dark overlay so text remains readable on bright album art */
-#playerVisual::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45));
-  pointer-events: none;
-  z-index: 1;
-}
-
-/* Ensure overlayed UI sits above the background overlay */
-.player-overlay {
-  position: relative;
-  z-index: 2;
-}
-
-/* Optional: subtle blur for background (use sparingly) */
-#playerVisual.bg-blur {
-  filter: blur(0.5px);
-}
-
-/* Keep the small art visible and crisp */
-#nowArt {
-  width: 96px;
-  height: 96px;
-  background-size: cover;
-  background-position: center;
-  flex: 0 0 96px;
-  border-radius: 6px;
-  overflow: hidden;
-  color: transparent; /* hide text fallback */
-}
-
+    .player-overlay {
+      position:absolute;
+      left:12px;
+      bottom:12px;
+      right:12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+    }
 
     .track-info{
       display:flex;
@@ -692,71 +673,36 @@ async function pollStatusOnce(){
     if(!res.ok) return;
     const data = await res.json();
 
-    // Update now playing small tile and large background
-    if (data.title) nowTitle.textContent = data.title;
-    if (data.artist) nowArtist.textContent = data.artist;
+    // Update now playing
+    if(data.title) nowTitle.textContent = data.title;
+    if(data.artist) nowArtist.textContent = data.artist;
+    if(data.albumArt) nowArt.style.backgroundImage = data.albumArt ? `url(${data.albumArt})` : '';
 
-    // albumArt may be null; pass through to setNowPlaying
-    const albumArt = data.albumArt || '';
-    if (albumArt) {
-      setNowPlaying(data.title || 'Unknown', data.artist || '', albumArt);
-    } else {
-      // If nothing playing, clear the big visual
-      setNowPlaying(data.title || 'Idle', data.artist || 'Default playlist', '');
-    }
-
+    // Mode and status
     nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
     statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : (data.is_playing ? 'Playing' : 'Paused');
 
-    // existing paid-queue UI updates...
+    // If we are in a paid session and the local paidQueue still has items,
+    // show the next paid track in the UI (authoritative source is Spotify, but this helps UX)
+    if (paidSessionActive && paidQueue.length > 0) {
+      nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
+      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+      queueDurationText.textContent = `Estimated duration: ${Math.round(paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0)/60000)} min`;
+    } else {
+      // If no local paid queue, fall back to server-provided next info if available
+      if (data.next_title) nextTitleEl.textContent = data.next_title;
+      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+    }
   }catch(e){ console.warn('pollStatusOnce', e); }
 }
 
-function preloadImage(url){
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(true);
-    img.onerror = () => resolve(false);
-    img.src = url;
-  });
-}
 
-// Use before setting background
-if (albumArt) {
-  await preloadImage(albumArt);
-  setNowPlaying(title, artist, albumArt);
-}
-
-
-// Set now playing UI and the large playerVisual background
-function setNowPlaying(title, artist, albumArt){
-  nowTitle.textContent = title || 'Unknown';
-  nowArtist.textContent = artist || '';
-  // small art (keeps the existing small tile)
-  if (albumArt) {
-    nowArt.style.backgroundImage = `url(${albumArt})`;
-  } else {
-    nowArt.style.backgroundImage = '';
-  }
-
-  // full visual background
-  const playerVisual = document.getElementById('playerVisual');
-  if (playerVisual) {
-    if (albumArt) {
-      // Use a CSS-safe URL and set a smooth transition
-      playerVisual.style.backgroundImage = `url(${albumArt})`;
-      playerVisual.style.backgroundColor = ''; // remove fallback color
-      playerVisual.classList.add('bg-blur'); // optional subtle effect
-      // remove blur after a short delay to avoid persistent blur if undesired
-      setTimeout(()=>playerVisual.classList.remove('bg-blur'), 350);
-    } else {
-      // No album art: clear background and fall back to neutral color
-      playerVisual.style.backgroundImage = '';
-      playerVisual.style.backgroundColor = '#111';
+    function setNowPlaying(title, artist, albumArt){
+      nowTitle.textContent = title || 'Unknown';
+      nowArtist.textContent = artist || '';
+      if(albumArt) nowArt.style.backgroundImage = `url(${albumArt})`;
+      else nowArt.style.backgroundImage = '';
     }
-  }
-}
-
 
     function formatMs(ms){
       if(!ms || isNaN(ms)) return '--:--';
