@@ -311,21 +311,35 @@
   <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
 
   <script>
-    const paidQueue = []; 
+ const paidQueue = []; 
 
-    let paidSessionActive = false;
-    let redirectTimeoutHandle = null; 
+let paidSessionActive = false;
+let redirectTimeoutHandle = null; 
 
-    const nowTitle = document.getElementById('nowTitle');
-    const nowArtist = document.getElementById('nowArtist');
-    const nowArt = document.getElementById('nowArt');
-    const nowMode = document.getElementById('nowMode');
-    const statusText = document.getElementById('statusText');
-    const queueCount = document.getElementById('queueCount');
-    const paidQueueEl = document.getElementById('paidQueue');
-    const queueDurationText = document.getElementById('queueDurationText');
-    const searchResultsEl = document.getElementById('searchResults');
-    const nextTitleEl = document.getElementById('nextTitle');
+const nowTitle = document.getElementById('nowTitle');
+const nowArtist = document.getElementById('nowArtist');
+const nowArt = document.getElementById('nowArt');
+const nowMode = document.getElementById('nowMode');
+const statusText = document.getElementById('statusText');
+const queueCount = document.getElementById('queueCount');
+const paidQueueEl = document.getElementById('paidQueue');
+const queueDurationText = document.getElementById('queueDurationText');
+const searchResultsEl = document.getElementById('searchResults');
+const nextTitleEl = document.getElementById('nextTitle');
+
+// Run once at startup to validate DOM bindings
+(function validateDomBindings(){
+  const missing = [];
+  if (!paidQueueEl) missing.push('paidQueueEl');
+  if (!queueCount) missing.push('queueCount');
+  if (!queueDurationText) missing.push('queueDurationText');
+  if (!nextTitleEl) missing.push('nextTitleEl');
+  if (!nowTitle) missing.push('nowTitle');
+  if (missing.length) {
+    console.error('Missing DOM elements:', missing.join(', '));
+    if (statusText) statusText.textContent = 'UI initialization error: missing elements';
+  }
+})();
 
 // Render the paid queue items (no Remove buttons)
 function renderQueue(){
@@ -411,7 +425,7 @@ function renderPaidQueueControls(){
 
 // Full startPaidQueuePlayback replacement — only clears local queue after backend success
 async function startPaidQueuePlayback(){
-  if (paidQueue.length === 0) return;
+  if (!paidQueue || paidQueue.length === 0) return;
 
   // Cancel any pending redirect
   if (redirectTimeoutHandle){
@@ -423,19 +437,20 @@ async function startPaidQueuePlayback(){
   paidSessionActive = true;
   nowMode.textContent = 'Mode: PAID';
   statusText.textContent = 'Playing paid queue';
+  renderPaidQueueControls();
 
   try {
     // Pause default playback on backend
     await backendPause();
 
-    // Build URIs and snapshot queue info (so we can compute totalMs even after clearing)
-    const uris = paidQueue.map(i => i.uri);
+    // Snapshot queue and compute total duration before any mutation
     const snapshotQueue = paidQueue.slice(); // copy for duration calc and UI fallback
-    const totalMs = snapshotQueue.reduce((s,i)=>s+(i.duration_ms||210000),0);
+    const uris = snapshotQueue.map(i => i.uri);
+    const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
 
     // Update Now Playing UI optimistically to first paid track
     const first = snapshotQueue[0];
-    setNowPlaying(first.title, first.artist, first.albumArt);
+    if (first) setNowPlaying(first.title, first.artist, first.albumArt);
 
     // Attempt to play and queue on backend
     const result = await backendPlayUris(uris);
@@ -449,27 +464,31 @@ async function startPaidQueuePlayback(){
       renderQueue();
     } else {
       // keep the queue visible and show an error
+      console.warn('Playback/queue failed', result);
       statusText.textContent = 'Playback/queue failed. Please try again.';
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
+      renderPaidQueueControls();
       return;
     }
 
     // Schedule resume of default playlist after estimated duration
-    setTimeout(async ()=>{
+    setTimeout(async () => {
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       statusText.textContent = 'Resuming default playlist';
+      renderPaidQueueControls();
+
       try {
         await backendResume();
         await pollStatusOnce();
-      } catch(e){
+      } catch (e) {
         console.warn('resume failed', e);
       }
 
       if (redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
-      redirectTimeoutHandle = setTimeout(()=>{
-        if(paidSessionActive) return;
+      redirectTimeoutHandle = setTimeout(() => {
+        if (paidSessionActive) return;
         window.location.href = 'index.html';
       }, 30000);
 
@@ -480,6 +499,7 @@ async function startPaidQueuePlayback(){
     statusText.textContent = 'Playback error';
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
+    renderPaidQueueControls();
   }
 }
 
@@ -579,55 +599,45 @@ async function startPaidQueuePlayback(){
 }
 
 
+// Robust backendPlayUris that returns a success object for the caller
 async function backendPlayUris(uris){
   try {
-    if (!uris || uris.length === 0) return;
+    if (!uris || uris.length === 0) return { ok: false, error: 'no uris' };
 
-    // 1) Ensure shuffle is off and play the first track
+    // 1) Play first track (server will disable shuffle in /api/play)
     let res = await fetch('/api/play', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        uris: [uris[0]],
-        isPaid: true
-      })
+      body: JSON.stringify({ uris: [uris[0]], isPaid: true })
     });
-    const playResp = await res.json().catch(()=>({}));
-    console.log('/api/play response:', playResp);
+
+    const playData = await res.json().catch(()=>({}));
+    console.log('/api/play response:', res.status, playData);
     if (!res.ok) {
-      console.warn('Play failed', playResp);
-      return;
+      return { ok: false, error: 'play failed', details: playData };
     }
 
-    // 2) Small delay so the device registers the new playback context
+    // small delay so device registers playback
     await new Promise(r => setTimeout(r, 300));
 
-    // 3) Queue the rest sequentially, waiting for each to succeed
+    // 2) Queue the rest sequentially and ensure each succeeded
     for (let i = 1; i < uris.length; i++) {
-      const qRes = await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}`, {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'}
-      });
+      const qRes = await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}`, { method: 'POST' });
       const qData = await qRes.json().catch(()=>({}));
-      console.log('/api/queue response:', qData);
+      console.log('/api/queue response:', qRes.status, qData);
       if (!qRes.ok) {
-        console.warn('Queue failed for', uris[i], qData);
-        // stop trying further if queue fails
-        break;
+        return { ok: false, error: 'queue failed', uri: uris[i], details: qData };
       }
-      // tiny delay to avoid hitting device race conditions
       await new Promise(r => setTimeout(r, 150));
     }
 
+    // All queued successfully
     return { ok: true };
-
   } catch (e) {
     console.error('backendPlayUris error', e);
     return { ok: false, error: e.message };
   }
 }
-
-
 
 
     async function backendPause(){
