@@ -157,41 +157,39 @@ async function startPaidSession(uris, estimatedTotalMs = null) {
 
 app.post('/api/play', async (req, res) => {
   try {
-    const uris = req.body.uris;
-    const isPaid = !!req.body.isPaid;
-    if (!uris || !Array.isArray(uris) || uris.length === 0) {
-      return res.status(400).json({ error: 'uris required' });
-    }
-
-    if (isPaid) {
-      const estimatedTotalMs = req.body.estimatedTotalMs || null;
-      await startPaidSession(uris, estimatedTotalMs);
-      return res.json({ success: true, paidSessionStarted: true });
-    }
-
-    if (paidSessionActive) {
-      return res
-        .status(403)
-        .json({ error: 'A paid session is currently active. Playback cannot be replaced.' });
-    }
-
     await refreshAccessTokenIfNeeded();
-    const deviceId = req.body.device_id;
-    const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
-    const r = await fetch(`https://api.spotify.com/v1/me/player/play${params}`, {
+    const { uris, device_id, isPaid } = req.body || {};
+
+    // turn shuffle off on the active device
+    await fetch(`https://api.spotify.com/v1/me/player/shuffle?state=false${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+
+    // play the first track(s)
+    const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
+    const r = await fetch(playUrl, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${tokens.access_token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ uris })
+      body: JSON.stringify({ uris: uris || [] })
     });
-    if (r.status === 204) return res.json({ success: true });
-    const data = await r.json();
-    res.status(r.status).json(data);
+
+    if (!r.ok) {
+      const text = await r.text();
+      console.error('/api/play failed', r.status, text);
+      return res.status(r.status).json({ error: 'play failed', details: text });
+    }
+
+    // mark paid session server-side if needed
+    if (isPaid) paidSessionActive = true;
+
+    res.json({ ok: true });
   } catch (err) {
     console.error('/api/play error', err);
-    res.status(500).json({ error: 'play failed', message: err.message });
+    res.status(500).json({ error: 'play failed', details: err.message });
   }
 });
 
@@ -470,56 +468,33 @@ app.get('/api/status', async (req, res) => {
 app.post('/api/queue', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
-
     const uri = req.query.uri;
-    if (!uri) {
-      return res.status(400).json({ error: 'Missing track URI' });
-    }
+    if (!uri) return res.status(400).json({ error: 'Missing track URI' });
 
-    // 🔹 Ensure shuffle is off before adding to queue
-    await fetch('https://api.spotify.com/v1/me/player/shuffle?state=false', {
-      method: 'PUT',
+    const r = await fetch(`https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`, {
+      method: 'POST',
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
-
-    // 🔹 Queue the track
-    const r = await fetch(
-      `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${tokens.access_token}` }
-      }
-    );
 
     if (!r.ok) {
       const text = await r.text();
       console.error('/api/queue failed', r.status, text);
-
       if (r.status === 404 && text.includes('NO_ACTIVE_DEVICE')) {
         return res.status(404).json({
-          error: 'No active Spotify device found. Please open the Spotify app and start playback once.',
+          error: 'No active Spotify device found. Open Spotify and start playback once.',
           details: text
         });
       }
-
-      return res.status(r.status).json({
-        error: 'Spotify queue request failed',
-        details: text
-      });
+      return res.status(r.status).json({ error: 'queue failed', details: text });
     }
 
     res.json({ ok: true });
   } catch (err) {
     console.error('/api/queue error', err);
-    res.status(500).json({ error: 'Queue request failed', details: err.message });
+    res.status(500).json({ error: 'queue failed', details: err.message });
   }
 });
 
-
-
-/* -------------------------
-   Start server
-   ------------------------- */
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

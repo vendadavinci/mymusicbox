@@ -312,13 +312,11 @@
   <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
 
   <script>
-    const paidQueue = []; // { uri, title, artist, duration_ms, addedAt }
+    const paidQueue = []; 
 
-    // Playback state
     let paidSessionActive = false;
-    let redirectTimeoutHandle = null; // handle for redirect after paid session ends
+    let redirectTimeoutHandle = null; 
 
-    // UI refs
     const nowTitle = document.getElementById('nowTitle');
     const nowArtist = document.getElementById('nowArtist');
     const nowArt = document.getElementById('nowArt');
@@ -330,7 +328,6 @@
     const searchResultsEl = document.getElementById('searchResults');
     const nextTitleEl = document.getElementById('nextTitle');
 
-    // Helper: update queue UI and "Playing Next"
     function renderQueue(){
       paidQueueEl.innerHTML = '';
       let totalMs = 0;
@@ -353,7 +350,6 @@
       queueCount.textContent = `Paid queue: ${paidQueue.length}`;
       queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs/60000)} min`;
 
-      // Update Playing Next strip: show the first queued item (next to play)
       if(paidQueue.length > 0){
         nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
       } else {
@@ -374,8 +370,6 @@
         renderQueue();
       }
     }
-
-    // Search tracks (calls backend /api/search)
     async function searchTracks(){
       const q = document.getElementById('searchInput').value.trim();
       searchResultsEl.innerHTML = '';
@@ -418,8 +412,6 @@
         searchResultsEl.appendChild(item);
       });
     }
-
-    // Add to paid queue (called when user clicks Add)
     function addToPaidQueue(track){
       paidQueue.push({
         uri: track.uri,
@@ -429,17 +421,16 @@
         addedAt: Date.now()
       });
       renderQueue();
-      // If not currently in a paid session, start it
+     
       if(!paidSessionActive){
         startPaidQueuePlayback();
       }
     }
 
-// Start playing the paid queue sequentially
+
 async function startPaidQueuePlayback(){
   if(paidQueue.length === 0) return;
 
-  // If a redirect was scheduled from a previous paid session, cancel it
   if(redirectTimeoutHandle){
     clearTimeout(redirectTimeoutHandle);
     redirectTimeoutHandle = null;
@@ -448,31 +439,16 @@ async function startPaidQueuePlayback(){
   paidSessionActive = true;
   nowMode.textContent = 'Mode: PAID';
   statusText.textContent = 'Playing paid queue';
-
-  // Pause default playlist on backend
   await backendPause();
 
-  // Build list of URIs to play in order
   const uris = paidQueue.map(i => i.uri);
-
-  // Update Now Playing UI to show first paid track immediately
   const first = paidQueue[0];
   setNowPlaying(first.title, first.artist, first.albumArt);
-
-  // Tell backend to play the list
   await backendPlayUris(uris);
-
-  // 🔹 Immediately poll backend for current playback status
   await pollStatusOnce();
-
-  // Estimate total duration and set a timer to resume default after completion
   const totalMs = paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0);
-
-  // Clear local queue (backend owns playback now)
   paidQueue.length = 0;
   renderQueue();
-
-  // After estimated time, resume default playlist and schedule redirect
   setTimeout(async ()=>{
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
@@ -489,27 +465,55 @@ async function startPaidQueuePlayback(){
   }, totalMs + 2000);
 }
 
-    /* -------------------------
-       Backend control helpers (placeholders)
-       ------------------------- */
 
 async function backendPlayUris(uris){
   try {
-    const res = await fetch('/api/play', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+    if (!uris || uris.length === 0) return;
+
+    // 1) Ensure shuffle is off and play the first track
+    let res = await fetch('/api/play', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
-        uris,
-        isPaid: true,                     // 🔹 mark as paid
-        estimatedTotalMs: uris.length * 210000
+        uris: [uris[0]],
+        isPaid: true
       })
     });
-    const data = await res.json().catch(()=>({}));
-    console.log('/api/play response:', data);
-  } catch(e) {
-    console.warn('backendPlayUris error', e);
+    const playResp = await res.json().catch(()=>({}));
+    console.log('/api/play response:', playResp);
+    if (!res.ok) {
+      console.warn('Play failed', playResp);
+      return;
+    }
+
+    // 2) Small delay so the device registers the new playback context
+    await new Promise(r => setTimeout(r, 300));
+
+    // 3) Queue the rest sequentially, waiting for each to succeed
+    for (let i = 1; i < uris.length; i++) {
+      const qRes = await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'}
+      });
+      const qData = await qRes.json().catch(()=>({}));
+      console.log('/api/queue response:', qData);
+      if (!qRes.ok) {
+        console.warn('Queue failed for', uris[i], qData);
+        // stop trying further if queue fails
+        break;
+      }
+      // tiny delay to avoid hitting device race conditions
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    return { ok: true };
+
+  } catch (e) {
+    console.error('backendPlayUris error', e);
+    return { ok: false, error: e.message };
   }
 }
+
 
 
 
@@ -520,8 +524,6 @@ async function backendPlayUris(uris){
     async function backendResume(){
       try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
     }
-
-    // Poll backend once for current playback status and update UI
 async function pollStatusOnce(){
   try{
     const res = await fetch('/api/status');
@@ -542,7 +544,6 @@ async function pollStatusOnce(){
       else nowArt.style.backgroundImage = '';
     }
 
-    // Utility: format ms to mm:ss
     function formatMs(ms){
       if(!ms || isNaN(ms)) return '--:--';
       const s = Math.floor(ms/1000);
@@ -550,8 +551,6 @@ async function pollStatusOnce(){
       const sec = s%60;
       return `${m}:${sec.toString().padStart(2,'0')}`;
     }
-
-    // Escape helpers for safe inline JSON and HTML
     function escapeHtml(str){
       if(!str) return '';
       return String(str).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
@@ -565,24 +564,15 @@ async function pollStatusOnce(){
       };
     }
 
-    /* -------------------------
-       Small helpers & init
-       ------------------------- */
-
     function focusAdd(){
       document.getElementById('searchInput').focus();
     }
-
-    // Periodically poll backend status to keep Now Playing updated
     setInterval(pollStatusOnce, 8000);
-
-    // Initial UI setup
     renderQueue();
     pollStatusOnce();
   </script>
-// jukebox.html
 <script>
-  // Retrieve tracks from sessionStorage or query params
+
   const tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
   fetch('/webhook/payment-success', {
@@ -598,7 +588,6 @@ async function pollStatusOnce(){
   try {
     let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
-    // If no tracks locally, try checkoutId from URL or sessionStorage
     if ((!tracks || tracks.length === 0) && location.search) {
       const params = new URLSearchParams(location.search);
       const checkoutId = params.get('checkoutId') || sessionStorage.getItem('checkoutId');
@@ -618,11 +607,9 @@ async function pollStatusOnce(){
         body: JSON.stringify({ tracks })
       });
 
-      // cleanup
       sessionStorage.removeItem('tracks');
       sessionStorage.removeItem('checkoutId');
 
-      // optional UI feedback
       console.log('Payment successful — tracks submitted to server.');
     } else {
       console.log('No paid tracks found for this checkout.');
@@ -650,7 +637,6 @@ async function pollStatusOnce(){
     }
 
     if (tracks && tracks.length > 0) {
-      // Fill local paidQueue for UI only
       paidQueue.push(...tracks.map(t => ({
         uri: t.uri,
         title: t.title || 'Unknown',
@@ -661,7 +647,6 @@ async function pollStatusOnce(){
 
       renderQueue();
 
-      // Notify backend to start playback
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -669,16 +654,12 @@ async function pollStatusOnce(){
       });
 
       statusText.textContent = 'Payment successful! Your tracks are now playing.';
-
-      // Start polling backend for status updates
       pollStatusOnce();
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
   }
 })();
-
-
 </script>
 
    
