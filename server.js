@@ -157,41 +157,54 @@ async function startPaidSession(uris, estimatedTotalMs = null) {
 
 app.post('/api/play', async (req, res) => {
   try {
-    const uris = req.body.uris;
-    const isPaid = !!req.body.isPaid;
-    if (!uris || !Array.isArray(uris) || uris.length === 0) {
-      return res.status(400).json({ error: 'uris required' });
-    }
-
-    if (isPaid) {
-      const estimatedTotalMs = req.body.estimatedTotalMs || null;
-      await startPaidSession(uris, estimatedTotalMs);
-      return res.json({ success: true, paidSessionStarted: true });
-    }
-
-    if (paidSessionActive) {
-      return res
-        .status(403)
-        .json({ error: 'A paid session is currently active. Playback cannot be replaced.' });
-    }
-
     await refreshAccessTokenIfNeeded();
-    const deviceId = req.body.device_id;
-    const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
-    const r = await fetch(`https://api.spotify.com/v1/me/player/play${params}`, {
+
+    const { uris, device_id, isPaid } = req.body || {};
+
+    // Validate input
+    if (!Array.isArray(uris) || uris.length === 0) {
+      return res.status(400).json({ error: 'Missing uris array' });
+    }
+
+    const authHeader = { Authorization: `Bearer ${tokens.access_token}` };
+
+    // 1) Turn shuffle off on the target device (or active device if none provided)
+    const shuffleUrl = `https://api.spotify.com/v1/me/player/shuffle?state=false${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+    const shuffleR = await fetch(shuffleUrl, { method: 'PUT', headers: authHeader });
+    if (!shuffleR.ok) {
+      const txt = await shuffleR.text().catch(()=>'<no body>');
+      console.warn('/api/play: shuffle off returned', shuffleR.status, txt);
+      // continue — not fatal for play, but log for debugging
+    }
+
+    // 2) Turn repeat off on the target device (prevents repeat-one sticking)
+    const repeatUrl = `https://api.spotify.com/v1/me/player/repeat?state=off${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+    const repeatR = await fetch(repeatUrl, { method: 'PUT', headers: authHeader });
+    if (!repeatR.ok) {
+      const txt = await repeatR.text().catch(()=>'<no body>');
+      console.warn('/api/play: repeat off returned', repeatR.status, txt);
+      // continue
+    }
+
+    // 3) Start playback with the provided URIs
+    const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
+    const playR = await fetch(playUrl, {
       method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${tokens.access_token}`,
-        'Content-Type': 'application/json'
-      },
+      headers: Object.assign({}, authHeader, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ uris })
     });
-    if (r.status === 204) return res.json({ success: true });
-    const data = await r.json();
-    res.status(r.status).json(data);
+
+    if (!playR.ok) {
+      const text = await playR.text().catch(()=>'<no body>');
+      console.error('/api/play failed', playR.status, text);
+      return res.status(playR.status).json({ error: 'play failed', details: text });
+    }
+
+    // Successful start
+    return res.json({ ok: true });
   } catch (err) {
     console.error('/api/play error', err);
-    res.status(500).json({ error: 'play failed', message: err.message });
+    return res.status(500).json({ error: 'play failed', details: err.message });
   }
 });
 
