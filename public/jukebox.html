@@ -318,6 +318,7 @@
         <div class="small" style="margin-top:8px;">Tip: search calls backend Spotify search endpoint.</div>
       </div>
 
+
 <!-- Paid queue -->
 <div class="card" aria-label="Paid queue">
   <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -330,7 +331,7 @@
   <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
     <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
 
-    <!-- New Start Play button -->
+    <!-- This is the only button -->
     <button class="btn" id="startPlayBtn"
             onclick="startPaidQueuePlayback()"
             style="margin-left:auto;">
@@ -423,7 +424,6 @@ function removeFromQueue(index){
 }
 
 
-// Update Start Play button state
 function updateStartPlayButton(){
   const btn = document.getElementById('startPlayBtn');
   if (btn) {
@@ -432,12 +432,10 @@ function updateStartPlayButton(){
   }
 }
 
-// Render controls container — only update existing button
 function renderPaidQueueControls(){
-  updateStartPlayButton(); // just update the button already in HTML
+  updateStartPlayButton(); // just update the existing button
 }
 
-// Full startPaidQueuePlayback replacement — disables Start Play immediately
 async function startPaidQueuePlayback(){
   if (!paidQueue || paidQueue.length === 0) return;
 
@@ -449,8 +447,7 @@ async function startPaidQueuePlayback(){
   paidSessionActive = true;
   nowMode.textContent = 'Mode: PAID';
   statusText.textContent = 'Playing paid queue';
-  renderPaidQueueControls(); // updates button state
-  updateStartPlayButton();   // disables button right away
+  updateStartPlayButton(); // disable button right away
 
   try {
     await backendPause();
@@ -469,11 +466,9 @@ async function startPaidQueuePlayback(){
       paidQueue.length = 0;
       renderQueue();
     } else {
-      console.warn('Playback/queue failed', result);
       statusText.textContent = 'Playback/queue failed. Please try again.';
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
-      renderPaidQueueControls();
       updateStartPlayButton(); // re-enable if failed
       return;
     }
@@ -482,7 +477,6 @@ async function startPaidQueuePlayback(){
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       statusText.textContent = 'Resuming default playlist';
-      renderPaidQueueControls();
       updateStartPlayButton(); // re-enable after session ends
 
       try {
@@ -505,11 +499,9 @@ async function startPaidQueuePlayback(){
     statusText.textContent = 'Playback error';
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
-    renderPaidQueueControls();
     updateStartPlayButton(); // re-enable on error
   }
 }
-
 
     async function searchTracks(){
       const q = document.getElementById('searchInput').value.trim();
