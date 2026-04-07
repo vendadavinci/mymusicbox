@@ -433,7 +433,6 @@ function updateStartPlayButton(){
 
 // Render controls container with Start Play button
 function renderPaidQueueControls(){
-  // Create or reuse a stable container so re-renders don't duplicate it
   let controls = document.getElementById('paidQueueControls');
   if (!controls) {
     controls = document.createElement('div');
@@ -466,91 +465,59 @@ function renderPaidQueueControls(){
   controls.appendChild(spacer);
 }
 
-// Full startPaidQueuePlayback replacement — keeps Now Playing duration visible
+// Full startPaidQueuePlayback replacement — disables Start Play immediately
 async function startPaidQueuePlayback(){
   if (!paidQueue || paidQueue.length === 0) return;
 
-  // Cancel any pending redirect
   if (redirectTimeoutHandle){
     clearTimeout(redirectTimeoutHandle);
     redirectTimeoutHandle = null;
   }
 
-  // Mark session active and update UI
   paidSessionActive = true;
   nowMode.textContent = 'Mode: PAID';
   statusText.textContent = 'Playing paid queue';
   renderPaidQueueControls();
+  updateStartPlayButton(); // disable button right away
 
   try {
-    // Pause default playback on backend
     await backendPause();
 
-    // Snapshot queue and compute total duration before any mutation
-    const snapshotQueue = paidQueue.slice(); // copy for duration calc and UI fallback
+    const snapshotQueue = paidQueue.slice();
     const uris = snapshotQueue.map(i => i.uri);
     const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
 
-    // --- Update both duration displays BEFORE clearing the local queue ---
-    // Paid queue card (existing)
-    if (queueDurationText) {
-      queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs/60000)} min`;
-    }
-    // Now Playing strip (the small element in the left column)
-    const nowPlayingDurationEl = document.getElementById('queueDuration');
-    if (nowPlayingDurationEl) {
-      nowPlayingDurationEl.textContent = `Estimated duration: ${Math.round(totalMs/60000)} min`;
-    }
-
-    // Update Now Playing UI optimistically to first paid track
     const first = snapshotQueue[0];
     if (first) setNowPlaying(first.title, first.artist, first.albumArt);
 
-    // Attempt to play and queue on backend
     const result = await backendPlayUris(uris);
-
-    // Immediately poll backend for authoritative now-playing info
     await pollStatusOnce();
 
-    // Only clear local paidQueue after backend reports success
     if (result && result.ok) {
-      // Clear the local queue and re-render the paid-queue card
       paidQueue.length = 0;
       renderQueue();
-
-      // Keep the Now Playing strip duration until the paid session completes.
-      // (We intentionally do NOT zero out #queueDuration here.)
     } else {
-      // keep the queue visible and show an error
       console.warn('Playback/queue failed', result);
       statusText.textContent = 'Playback/queue failed. Please try again.';
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       renderPaidQueueControls();
+      updateStartPlayButton(); // re-enable if failed
       return;
     }
 
-    // Schedule resume of default playlist after estimated duration
     setTimeout(async () => {
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       statusText.textContent = 'Resuming default playlist';
       renderPaidQueueControls();
+      updateStartPlayButton(); // re-enable after session ends
 
       try {
         await backendResume();
         await pollStatusOnce();
       } catch (e) {
         console.warn('resume failed', e);
-      }
-
-      // Clear the Now Playing duration display after the paid session ends
-      if (nowPlayingDurationEl) {
-        nowPlayingDurationEl.textContent = 'Estimated duration: 0 min';
-      }
-      // Also clear the paid-queue card duration (it should already be 0 after renderQueue)
-      if (queueDurationText) {
-        queueDurationText.textContent = 'Estimated duration: 0 min';
       }
 
       if (redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
@@ -567,13 +534,10 @@ async function startPaidQueuePlayback(){
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
     renderPaidQueueControls();
-
-    // Ensure Now Playing duration is reset on error
-    const nowPlayingDurationEl = document.getElementById('queueDuration');
-    if (nowPlayingDurationEl) nowPlayingDurationEl.textContent = 'Estimated duration: 0 min';
-    if (queueDurationText) queueDurationText.textContent = 'Estimated duration: 0 min';
+    updateStartPlayButton(); // re-enable on error
   }
 }
+
 
     async function searchTracks(){
       const q = document.getElementById('searchInput').value.trim();
