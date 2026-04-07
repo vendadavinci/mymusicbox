@@ -264,27 +264,6 @@
   <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
 
 <script>     
-async function startPaidPlayback(tracks) {
-  const total = tracks.reduce((acc, t) => acc + (t.price || 50), 0) * 100; // example pricing
-  const checkoutPayload = {
-    amount: Math.round(total),
-    currency: 'ZAR',
-    description: 'Musicbox Paid Session',
-    tracks
-  };
-  const res = await fetch('/api/yoco/create-checkout', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(checkoutPayload)
-  });
-
-  const data = await res.json();
-  if (data.success && data.checkoutUrl) {
-    window.location.href = data.checkoutUrl;
-  } else {
-    alert('Payment initialization failed.');
-  }
-}
     let currentPackage = null; 
     const slots = []; 
     const formPanel = document.getElementById('formPanel');
@@ -551,20 +530,25 @@ async function startPayment(){
 
 
 
-    async function pollStatus(){
-      try{
-        const res = await fetch('/api/status');
-        if(!res.ok) return;
-        const data = await res.json();
-        const newMode = data.mode || 'DEFAULT';
-        if(newMode !== currentMode){
-          currentMode = newMode;
-          updateButtonsForMode(currentMode);
-        }
-      }catch(e){
-    
-      }
-    }
+async function pollStatus() {
+  const checkoutId = sessionStorage.getItem('checkoutId');
+  if (!checkoutId) return;
+
+  const res = await fetch(`/api/yoco/session-status?id=${checkoutId}`);
+  const data = await res.json();
+
+  if (data.status === 'successful') {
+    const tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+    tracks.forEach(t => paidQueue.push(t));
+    renderQueue();
+    if (!paidSessionActive) startPaidQueuePlayback();
+
+    clearInterval(statusPollHandle);
+    statusPollHandle = null;
+  }
+}
+
+
 
     function updateButtonsForMode(mode){
       currentMode = mode;

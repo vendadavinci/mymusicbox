@@ -297,7 +297,7 @@
     </div>
   </section>
 
-<!-- Right: Add flow and Paid Queue -->
+
 <aside class="right-col">
 
   <!-- Add flow -->
@@ -676,22 +676,57 @@ function togglePackageDropdown(){
     ? 'block' 
     : 'none';
 }
-
 function handlePackageSelect(){
   const select = document.getElementById('packageSelect');
-  if (!select || !select.value) return;
+  if (!select.value) return;
   const [price, songs] = select.value.split('-');
-  const params = new URLSearchParams({ price, songs });
-  // Redirect to payment page where your payment flow will run
-  window.location.href = `payment.html?${params.toString()}`;
+  selectPackage(parseInt(price,10), parseInt(songs,10));
 }
 
-/* ====== Payment callbacks and enforcement ====== */
-/* Call this from your payment page after successful payment to unlock search UI.
-   Example on payment.html after verifying payment:
-     window.opener && window.opener.onPaymentSuccessFromPaymentPage({ price:'20', songs:4 });
-   Or call onPaymentSuccess() in the same window if you redirect back to the main page.
-*/
+
+async function startPaidCheckout(tracks) {
+  const total = Math.round(tracks.reduce((acc, t) => acc + (t.price || 10), 0) * 100);
+
+  const payload = { amount: total, currency: 'ZAR', description: 'Musicbox Paid Session', tracks };
+
+  const res = await fetch('/api/yoco/create-checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await res.json();
+  if (!data.success || !data.checkoutUrl) {
+    alert('Payment initialization failed.');
+    return;
+  }
+
+  sessionStorage.setItem('tracks', JSON.stringify(tracks));
+  if (data.checkoutId) sessionStorage.setItem('checkoutId', data.checkoutId);
+  window.location.href = data.checkoutUrl;
+}
+    statusPollHandle = setInterval(pollStatus, 6000);
+    pollStatus();
+
+async function pollStatus() {
+  const checkoutId = sessionStorage.getItem('checkoutId');
+  if (!checkoutId) return;
+
+  const res = await fetch(`/api/yoco/session-status?id=${checkoutId}`);
+  const data = await res.json();
+
+  if (data.status === 'successful') {
+    const tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+    tracks.forEach(t => paidQueue.push(t));
+    renderQueue();
+    if (!paidSessionActive) startPaidQueuePlayback();
+
+    clearInterval(statusPollHandle);
+    statusPollHandle = null;
+  }
+}
+
+
 function onPaymentSuccess(){
   if (!currentPackage){
     // If currentPackage not set (e.g., user returned from payment page),
