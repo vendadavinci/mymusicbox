@@ -384,7 +384,7 @@ function renderQueue(){
 
   // Build items and capture total duration
   let totalMs = 0;
-  paidQueue.forEach((item, idx) => {
+  paidQueue.forEach((item) => {
     totalMs += item.duration_ms || 0;
     const div = document.createElement('div');
     div.className = 'queue-item';
@@ -414,6 +414,7 @@ function renderQueue(){
 
   // Ensure controls are rendered and stable
   renderPaidQueueControls();
+  updateStartPlayButton();
 }
 
 // No-op removal: users cannot remove paid tracks once queued
@@ -421,7 +422,16 @@ function removeFromQueue(index){
   alert('Paid tracks cannot be removed once queued.');
 }
 
+// Update Start Play button state
+function updateStartPlayButton(){
+  const btn = document.getElementById('startPlayBtn');
+  if (btn) {
+    btn.disabled = (paidQueue.length === 0 || paidSessionActive);
+    btn.textContent = paidSessionActive ? 'Playing' : 'Start Play';
+  }
+}
 
+// Render controls container with Start Play button
 function renderPaidQueueControls(){
   // Create or reuse a stable container so re-renders don't duplicate it
   let controls = document.getElementById('paidQueueControls');
@@ -435,6 +445,20 @@ function renderPaidQueueControls(){
       document.body.appendChild(controls);
     }
   }
+
+  // Clear previous content
+  controls.innerHTML = '';
+
+  // Start Play button
+  const startBtn = document.createElement('button');
+  startBtn.className = 'btn';
+  startBtn.id = 'startPlayBtn';
+  startBtn.textContent = 'Start Play';
+  startBtn.onclick = () => {
+    if (paidQueue.length === 0) return;
+    startPaidQueuePlayback();
+  };
+
   const spacer = document.createElement('div');
   spacer.style.flex = '1';
 
@@ -738,12 +762,6 @@ async function pollStatusOnce(){
   }catch(e){ console.warn('pollStatusOnce', e); }
 }
 
-function updateStartPlayButton(){
-  const btn = document.getElementById('startPlayBtn');
-  if (btn) {
-    btn.disabled = (paidQueue.length === 0 || paidSessionActive);
-  }
-}
 
 
     function setNowPlaying(title, artist, albumArt){
