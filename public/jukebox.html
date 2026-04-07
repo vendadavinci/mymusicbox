@@ -269,84 +269,132 @@
 <body>
   <header>🎵 Pub Jukebox — Playback</header>
 
-  <main>
-    <!-- Left: Now Playing visual (up to 1080px block) -->
-    <section class="left-col card" aria-label="Now Playing">
-<div class="player-visual" id="playerVisual">
-  <!-- This placeholder can be removed or left as a fallback -->
-  <div id="playerPlaceholder"></div>
+<main>
+  <!-- Left: Now Playing visual (up to 1080px block) -->
+  <section class="left-col card" aria-label="Now Playing">
+    <div class="player-visual" id="playerVisual">
+      <div id="playerPlaceholder"></div>
 
-  <div class="player-overlay">
-    <div class="track-info">
-      <!-- Keep the small art tile if you want a crisp thumbnail -->
-      <div class="art" id="nowArt"></div>
-      <div class="meta">
-        <div class="title" id="nowTitle">Idle</div>
-        <div class="artist" id="nowArtist">Default playlist</div>
-        <div class="small" id="nowMode">Mode: DEFAULT</div>
+      <div class="player-overlay">
+        <div class="track-info">
+          <div class="art" id="nowArt"></div>
+          <div class="meta">
+            <div class="title" id="nowTitle">Idle</div>
+            <div class="artist" id="nowArtist">Default playlist</div>
+            <div class="small" id="nowMode">Mode: DEFAULT</div>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
-</div>
 
+    <!-- Playing Next strip -->
+    <div class="playing-next" id="playingNext">
+      <div class="small" id="queueCount">Paid queue: 0</div>
+    </div>
 
-      <!-- Playing Next strip (small portion showing the next paid song) -->
-      <div class="playing-next" id="playingNext">
-        <div class="small" id="queueCount">Paid queue: 0</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+      <div class="small" id="statusText">Status: idle</div>
+    </div>
+  </section>
+
+  <!-- Right: Add flow and Paid Queue -->
+  <aside class="right-col">
+
+    <!-- Add flow -->
+    <div class="card" aria-label="Add to paid playlist">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-weight:700;">Add To Paid Playlist</div>
+        <div class="small">Users must select package & pay</div>
       </div>
 
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
-        <div class="small" id="statusText">Status: idle</div>
-      </div>
-    </section>
-
-    <!-- Right: Search and Paid Queue -->
-    <aside class="right-col">
-      <!-- Search / Add -->
-      <div class="card" aria-label="Add to paid playlist">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div style="font-weight:700;">Add To Paid Playlist</div>
-          <div class="small">Users add songs; queue plays FIFO</div>
+      <!-- Pricing packages -->
+      <div class="top-row" style="margin-top:12px;">
+        <div class="pricing" id="pricing">
+          <div class="card" onclick="selectPackage(10,2)">
+            <h2>R10</h2>
+            <p>Play 1–2 songs</p>
+            <p>Max 10 minutes</p>
+          </div>
+          <div class="card" onclick="selectPackage(20,4)">
+            <h2>R20</h2>
+            <p>Play 3–4 songs</p>
+            <p>Max 20 minutes</p>
+          </div>
+          <div class="card" onclick="selectPackage(40,6)">
+            <h2>R40</h2>
+            <p>Play 4–6 songs</p>
+            <p>Max 30 minutes</p>
+          </div>
+          <div class="card" onclick="selectPackage(50,8)">
+            <h2>R50</h2>
+            <p>Play 6–8 songs</p>
+            <p>Max ~40 minutes</p>
+          </div>
+          <div class="card" onclick="selectPackage(100,12)">
+            <h2>R100</h2>
+            <p>Play 9–12 songs</p>
+            <p>Max ~50 minutes</p>
+          </div>
+          <div class="card" onclick="selectPackage(150,15)">
+            <h2>R150</h2>
+            <p>Play 10–15 songs</p>
+            <p>Max ~60 minutes</p>
+          </div>
+          <div class="card" onclick="selectPackage(200,20)">
+            <h2>R200</h2>
+            <p>Play 15–20 songs</p>
+            <p>Max ~90 minutes</p>
+          </div>
         </div>
-
-        <div class="search-row" style="margin-top:12px;">
-          <input id="searchInput" placeholder="Search Spotify (title or artist)" onkeydown="if(event.key==='Enter') searchTracks()" />
-          <button class="btn" onclick="searchTracks()">Search</button>
-        </div>
-
-        <div class="search-results" id="searchResults" aria-live="polite"></div>
-        <div class="small" style="margin-top:8px;">Tip: search calls backend Spotify search endpoint.</div>
       </div>
 
+      <!-- Add Songs button -->
+      <div style="margin-top:20px;text-align:center;">
+        <button class="btn" id="addSongsBtn" onclick="startAddFlow()">
+          Add Songs
+        </button>
+      </div>
 
-<!-- Paid queue -->
-<div class="card" aria-label="Paid queue">
-  <div style="display:flex;justify-content:space-between;align-items:center;">
-    <div style="font-weight:700;">Paid Queue</div>
-    <div class="small" id="queueInfo">Plays in order; no jumping</div>
-  </div>
+      <!-- Search UI (locked until payment) -->
+      <div class="search-row" id="searchRow" style="margin-top:12px;display:none;">
+        <input id="searchInput" placeholder="Search Spotify (title or artist)" 
+               onkeydown="if(event.key==='Enter') searchTracks()" />
+        <button class="btn" onclick="searchTracks()">Search</button>
+      </div>
 
-  <div class="queue-list" id="paidQueue"></div>
+      <div class="search-results" id="searchResults" aria-live="polite"></div>
+      <div class="small" style="margin-top:8px;">Tip: search unlocks after payment.</div>
+    </div>
 
-  <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-    <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
-    <!-- JS will insert Start Play button here -->
-    <div id="paidQueueControls"></div>
-  </div>
-</div>
+    <!-- Paid queue -->
+    <div class="card" aria-label="Paid queue">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-weight:700;">Paid Queue</div>
+        <div class="small" id="queueInfo">Plays in order; no jumping</div>
+      </div>
 
+      <div class="queue-list" id="paidQueue"></div>
 
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+        <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
+        <div id="paidQueueControls"></div>
+      </div>
+    </div>
 
-    </aside>
-  </main>
+  </aside>
+</main>
+
 
   <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
 
   <script>
- const paidQueue = []; 
-
+const paidQueue = []; 
 let paidSessionActive = false;
 let redirectTimeoutHandle = null; 
+let currentPackage = null;
+let paymentComplete = false;
+let songsAddedThisSession = 0;
+
 
 const nowTitle = document.getElementById('nowTitle');
 const nowArtist = document.getElementById('nowArtist');
@@ -572,20 +620,76 @@ async function startPaidQueuePlayback(){
         searchResultsEl.appendChild(item);
       });
     }
-    function addToPaidQueue(track){
-      paidQueue.push({
-        uri: track.uri,
-        title: track.title,
-        artist: track.artist,
-        duration_ms: track.duration_ms || 0,
-        addedAt: Date.now()
-      });
-      renderQueue();
-     
-      if(!paidSessionActive){
-        startPaidQueuePlayback();
-      }
-    }
+
+
+
+// Called when user clicks a pricing card
+function selectPackage(price, maxSongs){
+  currentPackage = { price, maxSongs };
+  paymentComplete = false;
+  songsAddedThisSession = 0;
+
+  // TODO: trigger your payment UI here
+  statusText.textContent = `Selected package R${price} (max ${maxSongs} songs). Please complete payment.`;
+}
+
+// Called when payment succeeds
+function onPaymentSuccess(){
+  if (!currentPackage){
+    alert('No package selected.');
+    return;
+  }
+  paymentComplete = true;
+
+  // Unlock search UI
+  const searchRow = document.getElementById('searchRow');
+  if (searchRow) searchRow.style.display = 'flex';
+
+  statusText.textContent = `Payment complete for R${currentPackage.price}. You may now add up to ${currentPackage.maxSongs} songs.`;
+}
+
+// Called when user clicks "Add Songs"
+function startAddFlow(){
+  if (!paymentComplete){
+    alert('Please select a package and complete payment before adding songs.');
+    return;
+  }
+  const searchRow = document.getElementById('searchRow');
+  if (searchRow) searchRow.style.display = 'flex';
+}
+
+// --- Add to queue with enforcement ---
+function addToPaidQueue(track){
+  if (!paymentComplete || !currentPackage){
+    alert('You must pay for a package before adding songs.');
+    return;
+  }
+
+  if (songsAddedThisSession >= currentPackage.maxSongs){
+    alert(`You have reached the limit of ${currentPackage.maxSongs} songs for this package.`);
+    return;
+  }
+
+  paidQueue.push({
+    uri: track.uri,
+    title: track.title,
+    artist: track.artist,
+    duration_ms: track.duration_ms || 0,
+    albumArt: track.albumArt || '',
+    addedAt: Date.now()
+  });
+
+  songsAddedThisSession++;
+  renderQueue();
+
+  // Auto-start playback if idle
+  if (!paidSessionActive){
+    startPaidQueuePlayback();
+  }
+}
+
+
+
 
 
 async function startPaidQueuePlayback(){
