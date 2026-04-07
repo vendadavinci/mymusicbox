@@ -976,55 +976,6 @@ async function searchTracks(){
   }
 }
 
-function renderSearchResults(results){
-  if (!searchResultsEl) return;
-  searchResultsEl.innerHTML = '';
-  if(!results || results.length === 0){
-    searchResultsEl.innerHTML = '<div class="small">No results</div>';
-    return;
-  }
-
-  results.forEach(r => {
-    const item = document.createElement('div');
-    item.className = 'result-item';
-    item.style.display = 'flex';
-    item.style.gap = '12px';
-    item.style.alignItems = 'center';
-
-    const left = document.createElement('div');
-    left.style.flex = '1';
-    left.style.minWidth = '0';
-    left.innerHTML = `
-      <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-        ${escapeHtml(r.title)}
-      </div>
-      <div class="small">${escapeHtml(r.artist)}</div>
-    `;
-
-    const right = document.createElement('div');
-    right.style.display = 'flex';
-    right.style.flexDirection = 'column';
-    right.style.gap = '6px';
-    right.style.alignItems = 'flex-end';
-
-    const dur = document.createElement('div');
-    dur.className = 'small';
-    dur.textContent = formatMs(r.duration_ms);
-
-    const addBtn = document.createElement('button');
-    addBtn.className = 'btn';
-    addBtn.textContent = 'Add';
-    // Attach handler in JS so we pass the real object and enforce package rules
-    addBtn.onclick = () => addToPaidQueue(r);
-
-    right.appendChild(dur);
-    right.appendChild(addBtn);
-
-    item.appendChild(left);
-    item.appendChild(right);
-    searchResultsEl.appendChild(item);
-  });
-}
 
 /* ====== Package dropdown flow (Add Songs button) ====== */
 function togglePackageDropdown(){
