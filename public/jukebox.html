@@ -364,9 +364,11 @@
   <script>
 /* ====== Paid queue app (fixed) ====== */
 const paidQueue = [];
+const slots = []; 
 let paidSessionActive = false;
 let redirectTimeoutHandle = null;
-
+let currentMode = 'DEFAULT'; 
+let statusPollHandle = null;
 let currentPackage = null;          // { price: "10", maxSongs: 2 }
 let paymentComplete = false;
 let songsAddedThisSession = 0;
@@ -381,7 +383,328 @@ const queueCount = document.getElementById('queueCount');
 const paidQueueEl = document.getElementById('paidQueue');
 const queueDurationText = document.getElementById('queueDurationText');
 const searchResultsEl = document.getElementById('searchResults');
-const nextTitleEl = document.getElementById('nextTitle');
+const nextTitleEl = document.getElementById('nextTitle');     
+const formPanel = document.getElementById('formPanel');
+const slotsContainer = document.getElementById('slotsContainer');
+const selectedContainer = document.getElementById('selectedContainer');
+const selectedList = document.getElementById('selectedList');
+const payBtn = document.getElementById('payBtn');
+const addBtn = document.getElementById('addBtn');
+const pkgLabel = document.getElementById('pkgLabel');
+const packageSummary = document.getElementById('packageSummary');
+const priceNote = document.getElementById('priceNote');
+const instructionNote = document.getElementById('instructionNote');
+
+
+    function selectPackage(price, maxSongs){
+      currentPackage = { price: price, maxSongs: maxSongs, label: `R${price} — up to ${maxSongs} songs` };
+      slots.length = 0;
+      slotsContainer.innerHTML = '';
+      selectedList.innerHTML = '';
+      selectedContainer.style.display = 'none';
+      payBtn.disabled = true;
+      packageSummary.style.display = 'flex';
+      pkgLabel.textContent = currentPackage.label;
+      priceNote.textContent = `Price: R${price}`;
+
+      // create maxSongs slots
+      for(let i=0;i<maxSongs;i++){
+        const slot = { index: i, selected: null };
+        slots.push(slot);
+        slotsContainer.appendChild(createSlotElement(slot));
+      }
+
+      const info = document.createElement('div');
+      info.className = 'note';
+      info.style.marginTop = '6px';
+      info.id = 'slotsInfo';
+      info.textContent = `Search and pick up to ${maxSongs} tracks. You may leave some slots empty if package allows a range.`;
+      slotsContainer.appendChild(info);
+
+      updateButtonsForMode(currentMode);
+    }
+
+    function createSlotElement(slot){
+      const wrapper = document.createElement('div');
+      wrapper.className = 'search-slot';
+      wrapper.id = `slot-${slot.index}`;
+
+      const header = document.createElement('div');
+      header.style.display = 'flex';
+      header.style.justifyContent = 'space-between';
+      header.style.alignItems = 'center';
+      header.innerHTML = `<div style="font-weight:700">Song ${slot.index + 1}</div>
+                          <div class="small">Top 10 results</div>`;
+      wrapper.appendChild(header);
+
+      const searchRow = document.createElement('div');
+      searchRow.className = 'search-input';
+      searchRow.style.marginTop = '8px';
+      const input = document.createElement('input');
+      input.placeholder = 'Search Spotify (title or artist)';
+      input.id = `input-${slot.index}`;
+      input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') doSearch(slot.index); });
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.textContent = 'Search';
+      btn.onclick = ()=> doSearch(slot.index);
+      searchRow.appendChild(input);
+      searchRow.appendChild(btn);
+      wrapper.appendChild(searchRow);
+
+      const results = document.createElement('div');
+      results.className = 'results';
+      results.id = `results-${slot.index}`;
+      wrapper.appendChild(results);
+
+      const selectedInfo = document.createElement('div');
+      selectedInfo.className = 'note';
+      selectedInfo.id = `selectedInfo-${slot.index}`;
+      selectedInfo.textContent = 'No track selected';
+      selectedInfo.style.marginTop = '8px';
+      wrapper.appendChild(selectedInfo);
+
+      return wrapper;
+    }
+
+    async function doSearch(slotIndex){
+      const q = document.getElementById(`input-${slotIndex}`).value.trim();
+      const resultsEl = document.getElementById(`results-${slotIndex}`);
+      resultsEl.innerHTML = '<div class="small">Searching…</div>';
+      if(!q){
+        resultsEl.innerHTML = '<div class="small">Enter a search term.</div>';
+        return;
+      }
+
+      try{
+        const res = await fetch('/api/search', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ q, limit: 10 })
+        });
+        if(!res.ok) throw new Error('search failed');
+        const results = await res.json(); // expect array of { uri, title, artist, duration_ms, albumArt }
+        renderSearchResults(slotIndex, results.slice(0,10));
+      }catch(err){
+        console.warn(err);
+        resultsEl.innerHTML = '<div class="small">Search failed. Try again.</div>';
+      }
+    }
+
+    function renderSearchResults(slotIndex, results){
+      const resultsEl = document.getElementById(`results-${slotIndex}`);
+      resultsEl.innerHTML = '';
+      if(!results || results.length === 0){
+        resultsEl.innerHTML = '<div class="small">No results</div>';
+        return;
+      }
+
+      results.forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'result';
+        div.innerHTML = `
+          <div style="min-width:0">
+            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(r.title)}</div>
+            <div class="small">${escapeHtml(r.artist)}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+            <div class="small">${formatMs(r.duration_ms)}</div>
+            <button class="btn ghost">Select</button>
+          </div>
+        `;
+   
+        div.addEventListener('click', ()=> selectTrackForSlot(slotIndex, r));
+        resultsEl.appendChild(div);
+      });
+    }
+
+    function selectTrackForSlot(slotIndex, track){
+      const slot = slots[slotIndex];
+      slot.selected = {
+        uri: track.uri,
+        title: track.title,
+        artist: track.artist,
+        duration_ms: track.duration_ms || 0,
+        albumArt: track.albumArt || ''
+      };
+
+      const info = document.getElementById(`selectedInfo-${slotIndex}`);
+      info.textContent = `${track.title} — ${track.artist}`;
+      updateSelectedList();
+    }
+
+    function updateSelectedList(){
+      const selected = slots.filter(s => s.selected).map(s => s.selected);
+      if(selected.length === 0){
+        selectedContainer.style.display = 'none';
+        payBtn.disabled = true;
+        addBtn.disabled = true;
+        return;
+      }
+      selectedContainer.style.display = 'block';
+      selectedList.innerHTML = '';
+      selected.forEach((t, idx) => {
+        const div = document.createElement('div');
+        div.className = 'selected-item';
+        div.innerHTML = `
+          <div style="min-width:0">
+            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(t.title)}</div>
+            <div class="small">${escapeHtml(t.artist)}</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <div class="small">${formatMs(t.duration_ms)}</div>
+            <button class="btn ghost" onclick="removeSelected('${t.uri}')">Remove</button>
+          </div>
+        `;
+        selectedList.appendChild(div);
+      });
+
+      if(currentMode === 'PAID'){
+        payBtn.disabled = true;
+        addBtn.style.display = 'inline-block';
+        addBtn.disabled = false;
+      } else {
+        payBtn.disabled = false;
+        addBtn.style.display = 'none';
+      }
+    }
+
+    function removeSelected(uri){
+      const slot = slots.find(s => s.selected && s.selected.uri === uri);
+      if(!slot) return;
+      slot.selected = null;
+      const info = document.getElementById(`selectedInfo-${slot.index}`);
+      if(info) info.textContent = 'No track selected';
+      updateSelectedList();
+    }
+
+    function cancelSelection(){
+      currentPackage = null;
+      slots.length = 0;
+      slotsContainer.innerHTML = '';
+      selectedList.innerHTML = '';
+      selectedContainer.style.display = 'none';
+      packageSummary.style.display = 'none';
+      payBtn.disabled = true;
+      addBtn.style.display = 'none';
+      priceNote.textContent = '';
+      pkgLabel.textContent = '';
+      const info = document.getElementById('slotsInfo');
+      if(info) info.remove();
+    }
+
+    function updateButtonsForMode(mode){
+      currentMode = mode;
+
+      if(mode === 'PAID'){
+        payBtn.style.display = 'none';
+        addBtn.style.display = 'inline-block';
+        const hasSelected = slots.some(s => s.selected);
+        addBtn.disabled = !hasSelected;
+        instructionNote.textContent = 'A paid session is currently playing. You can add tracks to the paid queue (they will play after the current session).';
+      } else {
+        payBtn.style.display = 'inline-block';
+        addBtn.style.display = 'none';
+        const hasSelected = slots.some(s => s.selected);
+        payBtn.disabled = !hasSelected;
+        payBtn.textContent = 'Pay';
+        instructionNote.textContent = 'Choose tracks and press Pay to proceed to payment.';
+      }
+    }
+    function formatMs(ms){
+      if(!ms || isNaN(ms)) return '--:--';
+      const s = Math.floor(ms/1000);
+      const m = Math.floor(s/60);
+      const sec = s%60;
+      return `${m}:${sec.toString().padStart(2,'0')}`;
+    }
+
+    function escapeHtml(str){
+      if(!str) return '';
+      return String(str).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
+    }
+
+    function escapeForInline(obj){
+      return {
+        uri: obj.uri || '',
+        title: obj.title || '',
+        artist: obj.artist || '',
+        duration_ms: obj.duration_ms || 0
+      };
+    }
+
+    (function prefillFromQuery(){
+      const params = new URLSearchParams(window.location.search);
+      const song = params.get('song');
+      const price = params.get('price');
+      const title = params.get('title') || '';
+      if(price){
+        const priceNum = Number(price);
+        const mapping = {10:2,20:4,40:6,50:8,100:12,150:15,200:20};
+        const maxSongs = mapping[priceNum] || 2;
+        selectPackage(priceNum, maxSongs);
+        if(song){
+          slots[0].selected = { uri: song, title: title || song, artist: '', duration_ms: 0 };
+          const info = document.getElementById(`selectedInfo-0`);
+          if(info) info.textContent = `${slots[0].selected.title} (preselected)`;
+          updateSelectedList();
+        }
+      }
+    })();
+
+async function startPayment(){
+  if(!currentPackage) return;
+  const selected = slots.filter(s => s.selected).map(s => s.selected);
+  if(selected.length === 0) return alert('Please select at least one track.');
+
+  const amountInCents = Math.round((currentPackage.price || 0) * 100);
+
+  const payload = {
+    amount: amountInCents,
+    currency: 'ZAR',
+    description: currentPackage.label || 'Musicbox Paid Session',
+    tracks: selected
+  };
+
+  payBtn.disabled = true;
+  payBtn.textContent = 'Processing…';
+
+  try{
+    const res = await fetch('/api/create-payment', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+
+    const text = await res.text();
+    console.log('Raw /api/create-payment response text:', text);
+
+    let data;
+    try { data = JSON.parse(text); } catch(e) {
+      throw new Error('Invalid JSON from backend: ' + text);
+    }
+
+    if(data && data.checkoutUrl){
+      sessionStorage.setItem('tracks', JSON.stringify(selected));
+      if(data.checkoutId) sessionStorage.setItem('checkoutId', data.checkoutId);
+
+      window.location.href = data.checkoutUrl;
+      return;
+    }
+
+    console.error('create-payment returned:', data);
+    throw new Error(data.error || 'No checkout URL returned');
+
+  }catch(err){
+    console.error('startPayment error:', err);
+    alert('Payment initialization failed. Try again.');
+    payBtn.disabled = false;
+    payBtn.textContent = 'Pay';
+  }
+}
+
+
+
 
 /* ====== Startup validation ====== */
 (function validateDomBindings(){
