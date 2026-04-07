@@ -996,7 +996,17 @@ async function startPaidCheckout(tracks) {
     body: JSON.stringify(payload)
   });
 
+  // Defensive check before parsing JSON
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await res.text();
+    throw new Error(`Expected JSON, got: ${text.slice(0,100)}`);
+  }
+
   const data = await res.json();
+
   if (!data.success || !data.checkoutUrl) {
     alert('Payment initialization failed.');
     return;
@@ -1006,8 +1016,10 @@ async function startPaidCheckout(tracks) {
   if (data.checkoutId) sessionStorage.setItem('checkoutId', data.checkoutId);
   window.location.href = data.checkoutUrl;
 }
-    statusPollHandle = setInterval(pollStatus, 6000);
-    pollStatus();
+
+// Start polling after checkout init
+statusPollHandle = setInterval(pollStatus, 6000);
+pollStatus();
 
 async function pollStatus() {
   const checkoutId = sessionStorage.getItem('checkoutId');

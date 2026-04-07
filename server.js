@@ -407,6 +407,7 @@ app.post('/api/create-payment', async (req, res) => {
 
 
 // create checkout route (adapted)
+
 app.post("/api/yoco/create-checkout", async (req, res) => {
   const { amount, currency = "ZAR", description = "Musicbox Paid Session", tracks = [] } = req.body;
   const idempotencyKey = crypto.randomUUID();
