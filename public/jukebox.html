@@ -422,6 +422,7 @@ function removeFromQueue(index){
   alert('Paid tracks cannot be removed once queued.');
 }
 
+
 // Update Start Play button state
 function updateStartPlayButton(){
   const btn = document.getElementById('startPlayBtn');
@@ -463,6 +464,9 @@ function renderPaidQueueControls(){
 
   controls.appendChild(startBtn);
   controls.appendChild(spacer);
+
+  // Immediately update button state after rendering
+  updateStartPlayButton();
 }
 
 // Full startPaidQueuePlayback replacement — disables Start Play immediately
