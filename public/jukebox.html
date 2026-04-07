@@ -297,105 +297,81 @@
     </div>
   </section>
 
-  <!-- Right: Add flow and Paid Queue -->
-  <aside class="right-col">
+<!-- Right: Add flow and Paid Queue -->
+<aside class="right-col">
 
-    <!-- Add flow -->
-    <div class="card" aria-label="Add to paid playlist">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-weight:700;">Add To Paid Playlist</div>
-        <div class="small">Users must select package & pay</div>
-      </div>
-
-      <!-- Pricing packages -->
-      <div class="top-row" style="margin-top:12px;">
-        <div class="pricing" id="pricing">
-          <div class="card" onclick="selectPackage(10,2)">
-            <h2>R10</h2>
-            <p>Play 1–2 songs</p>
-            <p>Max 10 minutes</p>
-          </div>
-          <div class="card" onclick="selectPackage(20,4)">
-            <h2>R20</h2>
-            <p>Play 3–4 songs</p>
-            <p>Max 20 minutes</p>
-          </div>
-          <div class="card" onclick="selectPackage(40,6)">
-            <h2>R40</h2>
-            <p>Play 4–6 songs</p>
-            <p>Max 30 minutes</p>
-          </div>
-          <div class="card" onclick="selectPackage(50,8)">
-            <h2>R50</h2>
-            <p>Play 6–8 songs</p>
-            <p>Max ~40 minutes</p>
-          </div>
-          <div class="card" onclick="selectPackage(100,12)">
-            <h2>R100</h2>
-            <p>Play 9–12 songs</p>
-            <p>Max ~50 minutes</p>
-          </div>
-          <div class="card" onclick="selectPackage(150,15)">
-            <h2>R150</h2>
-            <p>Play 10–15 songs</p>
-            <p>Max ~60 minutes</p>
-          </div>
-          <div class="card" onclick="selectPackage(200,20)">
-            <h2>R200</h2>
-            <p>Play 15–20 songs</p>
-            <p>Max ~90 minutes</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Add Songs button -->
-      <div style="margin-top:20px;text-align:center;">
-        <button class="btn" id="addSongsBtn" onclick="startAddFlow()">
-          Add Songs
-        </button>
-      </div>
-
-      <!-- Search UI (locked until payment) -->
-      <div class="search-row" id="searchRow" style="margin-top:12px;display:none;">
-        <input id="searchInput" placeholder="Search Spotify (title or artist)" 
-               onkeydown="if(event.key==='Enter') searchTracks()" />
-        <button class="btn" onclick="searchTracks()">Search</button>
-      </div>
-
-      <div class="search-results" id="searchResults" aria-live="polite"></div>
-      <div class="small" style="margin-top:8px;">Tip: search unlocks after payment.</div>
+  <!-- Add flow -->
+  <div class="card" aria-label="Add to paid playlist">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:700;">Add To Paid Playlist</div>
+      <div class="small">Users must select package & pay</div>
     </div>
 
-    <!-- Paid queue -->
-    <div class="card" aria-label="Paid queue">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-weight:700;">Paid Queue</div>
-        <div class="small" id="queueInfo">Plays in order; no jumping</div>
-      </div>
-
-      <div class="queue-list" id="paidQueue"></div>
-
-      <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-        <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
-        <div id="paidQueueControls"></div>
-      </div>
+    <!-- Add Songs button -->
+    <div style="margin-top:20px;text-align:center;">
+      <button class="btn" id="addSongsBtn" onclick="togglePackageDropdown()">
+        Add Songs
+      </button>
     </div>
 
-  </aside>
+    <!-- Dropdown with package options (hidden by default) -->
+    <div id="packageDropdown" style="display:none;margin-top:12px;">
+      <select id="packageSelect" class="btn" onchange="handlePackageSelect()">
+        <option value="">-- Select Package --</option>
+        <option value="10-2">R10 (1–2 songs, max 10 min)</option>
+        <option value="20-4">R20 (3–4 songs, max 20 min)</option>
+        <option value="40-6">R40 (4–6 songs, max 30 min)</option>
+        <option value="50-8">R50 (6–8 songs, ~40 min)</option>
+        <option value="100-12">R100 (9–12 songs, ~50 min)</option>
+        <option value="150-15">R150 (10–15 songs, ~60 min)</option>
+        <option value="200-20">R200 (15–20 songs, ~90 min)</option>
+      </select>
+    </div>
+
+    <!-- Search UI (locked until payment) -->
+    <div class="search-row" id="searchRow" style="margin-top:12px;display:none;">
+      <input id="searchInput" placeholder="Search Spotify (title or artist)" 
+             onkeydown="if(event.key==='Enter') searchTracks()" />
+      <button class="btn" onclick="searchTracks()">Search</button>
+    </div>
+
+    <div class="search-results" id="searchResults" aria-live="polite"></div>
+    <div class="small" style="margin-top:8px;">Tip: search unlocks after payment.</div>
+  </div>
+
+  <!-- Paid queue -->
+  <div class="card" aria-label="Paid queue">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:700;">Paid Queue</div>
+      <div class="small" id="queueInfo">Plays in order; no jumping</div>
+    </div>
+
+    <div class="queue-list" id="paidQueue"></div>
+
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+      <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
+      <div id="paidQueueControls"></div>
+    </div>
+  </div>
+
+</aside>
+
 </main>
 
 
   <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
 
   <script>
-const paidQueue = []; 
+/* ====== Paid queue app (fixed) ====== */
+const paidQueue = [];
 let paidSessionActive = false;
-let redirectTimeoutHandle = null; 
-let currentPackage = null;
+let redirectTimeoutHandle = null;
+
+let currentPackage = null;          // { price: "10", maxSongs: 2 }
 let paymentComplete = false;
 let songsAddedThisSession = 0;
 
-
+/* DOM bindings (cached) */
 const nowTitle = document.getElementById('nowTitle');
 const nowArtist = document.getElementById('nowArtist');
 const nowArt = document.getElementById('nowArt');
@@ -407,7 +383,7 @@ const queueDurationText = document.getElementById('queueDurationText');
 const searchResultsEl = document.getElementById('searchResults');
 const nextTitleEl = document.getElementById('nextTitle');
 
-// Run once at startup to validate DOM bindings
+/* ====== Startup validation ====== */
 (function validateDomBindings(){
   const missing = [];
   if (!paidQueueEl) missing.push('paidQueueEl');
@@ -421,14 +397,31 @@ const nextTitleEl = document.getElementById('nextTitle');
   }
 })();
 
-// Render the paid queue items (no Remove buttons)
+/* ====== Helpers ====== */
+function escapeHtml(s){
+  if (!s) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatMs(ms){
+  if (!ms || isNaN(ms)) return '0:00';
+  const total = Math.round(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2,'0')}`;
+}
+
+/* ====== Queue rendering & controls ====== */
 function renderQueue(){
   if (!paidQueueEl) return;
 
-  // Clear list
   paidQueueEl.innerHTML = '';
 
-  // Build items and capture total duration
   let totalMs = 0;
   paidQueue.forEach((item) => {
     totalMs += item.duration_ms || 0;
@@ -448,7 +441,6 @@ function renderQueue(){
     paidQueueEl.appendChild(div);
   });
 
-  // Summary info
   queueCount.textContent = `Paid queue: ${paidQueue.length}`;
   queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs/60000)} min`;
 
@@ -458,18 +450,15 @@ function renderQueue(){
     nextTitleEl.textContent = 'No paid tracks queued';
   }
 
-  // Ensure controls are rendered and stable
   renderPaidQueueControls();
   updateStartPlayButton();
 }
 
-// No-op removal: users cannot remove paid tracks once queued
 function removeFromQueue(index){
   alert('Paid tracks cannot be removed once queued.');
 }
 
-
-// Update Start Play button state
+/* Start Play button state */
 function updateStartPlayButton(){
   const btn = document.getElementById('startPlayBtn');
   if (btn) {
@@ -478,15 +467,13 @@ function updateStartPlayButton(){
   }
 }
 
-// Render controls container with Start Play button
+/* Render controls area (JS-managed button) */
 function renderPaidQueueControls(){
-  let controls = document.getElementById('paidQueueControls');
+  const controls = document.getElementById('paidQueueControls');
   if (!controls) return;
 
-  // Clear previous content
   controls.innerHTML = '';
 
-  // Start Play button
   const startBtn = document.createElement('button');
   startBtn.className = 'btn';
   startBtn.id = 'startPlayBtn';
@@ -502,11 +489,10 @@ function renderPaidQueueControls(){
   controls.appendChild(startBtn);
   controls.appendChild(spacer);
 
-  // Immediately update button state after rendering
   updateStartPlayButton();
 }
 
-// Full startPaidQueuePlayback replacement — disables Start Play immediately
+/* ====== Playback orchestration (uses backend stubs) ====== */
 async function startPaidQueuePlayback(){
   if (!paidQueue || paidQueue.length === 0) return;
 
@@ -518,23 +504,30 @@ async function startPaidQueuePlayback(){
   paidSessionActive = true;
   nowMode.textContent = 'Mode: PAID';
   statusText.textContent = 'Playing paid queue';
-  renderPaidQueueControls(); // rebuild button
-  updateStartPlayButton();   // disable button right away
+  renderPaidQueueControls();
+  updateStartPlayButton();
 
   try {
-    await backendPause();
+    if (typeof backendPause === 'function') await backendPause();
 
     const snapshotQueue = paidQueue.slice();
     const uris = snapshotQueue.map(i => i.uri);
     const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
 
     const first = snapshotQueue[0];
-    if (first) setNowPlaying(first.title, first.artist, first.albumArt);
+    if (first && typeof setNowPlaying === 'function') setNowPlaying(first.title, first.artist, first.albumArt);
 
-    const result = await backendPlayUris(uris);
-    await pollStatusOnce();
+    let result = null;
+    if (typeof backendPlayUris === 'function') {
+      result = await backendPlayUris(uris);
+      if (typeof pollStatusOnce === 'function') await pollStatusOnce();
+    }
 
     if (result && result.ok) {
+      paidQueue.length = 0;
+      renderQueue();
+    } else if (!result) {
+      // If backendPlayUris not provided, still clear queue and proceed
       paidQueue.length = 0;
       renderQueue();
     } else {
@@ -542,7 +535,7 @@ async function startPaidQueuePlayback(){
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       renderPaidQueueControls();
-      updateStartPlayButton(); // re-enable if failed
+      updateStartPlayButton();
       return;
     }
 
@@ -551,11 +544,13 @@ async function startPaidQueuePlayback(){
       nowMode.textContent = 'Mode: DEFAULT';
       statusText.textContent = 'Resuming default playlist';
       renderPaidQueueControls();
-      updateStartPlayButton(); // re-enable after session ends
+      updateStartPlayButton();
 
       try {
-        await backendResume();
-        await pollStatusOnce();
+        if (typeof backendResume === 'function') {
+          await backendResume();
+          if (typeof pollStatusOnce === 'function') await pollStatusOnce();
+        }
       } catch (e) {
         console.warn('resume failed', e);
       }
@@ -574,81 +569,144 @@ async function startPaidQueuePlayback(){
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
     renderPaidQueueControls();
-    updateStartPlayButton(); // re-enable on error
+    updateStartPlayButton();
   }
 }
 
-    async function searchTracks(){
-      const q = document.getElementById('searchInput').value.trim();
-      searchResultsEl.innerHTML = '';
-      if(!q) return;
-      searchResultsEl.innerHTML = '<div class="small">Searching…</div>';
-      try{
-        const res = await fetch('/api/search', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ q })
-        });
-        if(!res.ok) throw new Error('search failed');
-        const results = await res.json(); // expect array of { uri, title, artist, duration_ms, albumArt }
-        renderSearchResults(results);
-      }catch(e){
-        searchResultsEl.innerHTML = '<div class="small">Search failed. Try again.</div>';
-        console.warn(e);
-      }
-    }
-
-    function renderSearchResults(results){
-      searchResultsEl.innerHTML = '';
-      if(!results || results.length === 0){
-        searchResultsEl.innerHTML = '<div class="small">No results</div>';
-        return;
-      }
-      results.forEach(r => {
-        const item = document.createElement('div');
-        item.className = 'result-item';
-        item.innerHTML = `
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(r.title)}</div>
-            <div class="small">${escapeHtml(r.artist)}</div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
-            <div class="small">${formatMs(r.duration_ms)}</div>
-            <button class="btn" onclick='addToPaidQueue(${JSON.stringify(escapeForInline(r))})'>Add</button>
-          </div>
-        `;
-        searchResultsEl.appendChild(item);
-      });
-    }
-
-
-
-// Called when user clicks a pricing card
-function selectPackage(price, maxSongs){
-  currentPackage = { price, maxSongs };
-  paymentComplete = false;
-  songsAddedThisSession = 0;
-
-  // TODO: trigger your payment UI here
-  statusText.textContent = `Selected package R${price} (max ${maxSongs} songs). Please complete payment.`;
+/* ====== Search + results rendering (fixed wiring) ====== */
+async function searchTracks(){
+  const qEl = document.getElementById('searchInput');
+  const q = qEl ? qEl.value.trim() : '';
+  if (!searchResultsEl) return;
+  searchResultsEl.innerHTML = '';
+  if(!q) return;
+  searchResultsEl.innerHTML = '<div class="small">Searching…</div>';
+  try{
+    const res = await fetch('/api/search', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ q })
+    });
+    if(!res.ok) throw new Error('search failed');
+    const results = await res.json(); // expect array of { uri, title, artist, duration_ms, albumArt }
+    renderSearchResults(results);
+  }catch(e){
+    searchResultsEl.innerHTML = '<div class="small">Search failed. Try again.</div>';
+    console.warn(e);
+  }
 }
 
-// Called when payment succeeds
-function onPaymentSuccess(){
-  if (!currentPackage){
-    alert('No package selected.');
+function renderSearchResults(results){
+  if (!searchResultsEl) return;
+  searchResultsEl.innerHTML = '';
+  if(!results || results.length === 0){
+    searchResultsEl.innerHTML = '<div class="small">No results</div>';
     return;
   }
-  paymentComplete = true;
 
-  // Unlock search UI
+  results.forEach(r => {
+    const item = document.createElement('div');
+    item.className = 'result-item';
+    item.style.display = 'flex';
+    item.style.gap = '12px';
+    item.style.alignItems = 'center';
+
+    const left = document.createElement('div');
+    left.style.flex = '1';
+    left.style.minWidth = '0';
+    left.innerHTML = `
+      <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+        ${escapeHtml(r.title)}
+      </div>
+      <div class="small">${escapeHtml(r.artist)}</div>
+    `;
+
+    const right = document.createElement('div');
+    right.style.display = 'flex';
+    right.style.flexDirection = 'column';
+    right.style.gap = '6px';
+    right.style.alignItems = 'flex-end';
+
+    const dur = document.createElement('div');
+    dur.className = 'small';
+    dur.textContent = formatMs(r.duration_ms);
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn';
+    addBtn.textContent = 'Add';
+    // Attach handler in JS so we pass the real object and enforce package rules
+    addBtn.onclick = () => addToPaidQueue(r);
+
+    right.appendChild(dur);
+    right.appendChild(addBtn);
+
+    item.appendChild(left);
+    item.appendChild(right);
+    searchResultsEl.appendChild(item);
+  });
+}
+
+/* ====== Package dropdown flow (Add Songs button) ====== */
+function togglePackageDropdown(){
+  const dropdown = document.getElementById('packageDropdown');
+  if (!dropdown) return;
+  dropdown.style.display = (dropdown.style.display === 'none' || dropdown.style.display === '') 
+    ? 'block' 
+    : 'none';
+}
+
+function handlePackageSelect(){
+  const select = document.getElementById('packageSelect');
+  if (!select || !select.value) return;
+  const [price, songs] = select.value.split('-');
+  const params = new URLSearchParams({ price, songs });
+  // Redirect to payment page where your payment flow will run
+  window.location.href = `payment.html?${params.toString()}`;
+}
+
+/* ====== Payment callbacks and enforcement ====== */
+/* Call this from your payment page after successful payment to unlock search UI.
+   Example on payment.html after verifying payment:
+     window.opener && window.opener.onPaymentSuccessFromPaymentPage({ price:'20', songs:4 });
+   Or call onPaymentSuccess() in the same window if you redirect back to the main page.
+*/
+function onPaymentSuccess(){
+  if (!currentPackage){
+    // If currentPackage not set (e.g., user returned from payment page),
+    // try to read from query string
+    applyPackageFromQuery({ autoMarkPaid: true });
+    if (!currentPackage){
+      alert('No package selected. Please start from Add Songs.');
+      return;
+    }
+  }
+
+  paymentComplete = true;
+  songsAddedThisSession = 0;
+
   const searchRow = document.getElementById('searchRow');
   if (searchRow) searchRow.style.display = 'flex';
 
   statusText.textContent = `Payment complete for R${currentPackage.price}. You may now add up to ${currentPackage.maxSongs} songs.`;
 }
 
-// Called when user clicks "Add Songs"
+/* Helper to parse price/songs from URL and set currentPackage.
+   If autoMarkPaid is true, it will also set paymentComplete = true.
+   Use this on payment.html or on return to main page.
+*/
+function applyPackageFromQuery({ autoMarkPaid = false } = {}){
+  const params = new URLSearchParams(window.location.search);
+  const price = params.get('price');
+  const songs = params.get('songs');
+  if (!price || !songs) return null;
+  const maxSongs = parseInt(songs, 10) || 0;
+  currentPackage = { price, maxSongs };
+  paymentComplete = !!autoMarkPaid;
+  songsAddedThisSession = 0;
+  return currentPackage;
+}
+
+/* Called when user clicks "Add Songs" (keeps behavior for legacy) */
 function startAddFlow(){
   if (!paymentComplete){
     alert('Please select a package and complete payment before adding songs.');
@@ -658,7 +716,7 @@ function startAddFlow(){
   if (searchRow) searchRow.style.display = 'flex';
 }
 
-// --- Add to queue with enforcement ---
+/* ====== Add to queue with enforcement ====== */
 function addToPaidQueue(track){
   if (!paymentComplete || !currentPackage){
     alert('You must pay for a package before adding songs.');
@@ -682,11 +740,16 @@ function addToPaidQueue(track){
   songsAddedThisSession++;
   renderQueue();
 
-  // Auto-start playback if idle
   if (!paidSessionActive){
     startPaidQueuePlayback();
   }
 }
+
+/* ====== Optional: expose some functions for payment page to call ====== */
+window.applyPackageFromQuery = applyPackageFromQuery;
+window.onPaymentSuccess = onPaymentSuccess;
+
+/* ====== End of fixed script ====== */
 
 
 
