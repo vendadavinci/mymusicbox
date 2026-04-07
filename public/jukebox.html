@@ -495,6 +495,7 @@ function renderPaidQueueControls(){
 /* ====== Playback orchestration (uses backend stubs) ====== */
 async function startPaidQueuePlayback(){
   if (!paidQueue || paidQueue.length === 0) return;
+  if (paidSessionActive) return; // already playing paid queue
 
   if (redirectTimeoutHandle){
     clearTimeout(redirectTimeoutHandle);
@@ -510,6 +511,7 @@ async function startPaidQueuePlayback(){
   try {
     if (typeof backendPause === 'function') await backendPause();
 
+    // Snapshot the queue at the moment playback starts
     const snapshotQueue = paidQueue.slice();
     const uris = snapshotQueue.map(i => i.uri);
     const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
@@ -524,13 +526,23 @@ async function startPaidQueuePlayback(){
     }
 
     if (result && result.ok) {
-      paidQueue.length = 0;
+      // Remove only the items that were in the snapshot (played items)
+      // Find how many items were in the snapshot and remove that many from the front
+      const playedCount = snapshotQueue.length;
+      if (playedCount > 0) {
+        // If paidQueue has been appended to, only remove the first playedCount items
+        paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
+      }
       renderQueue();
     } else if (!result) {
-      // If backendPlayUris not provided, still clear queue and proceed
-      paidQueue.length = 0;
+      // If backendPlayUris not provided, assume local playback and remove snapshot items
+      const playedCount = snapshotQueue.length;
+      if (playedCount > 0) {
+        paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
+      }
       renderQueue();
     } else {
+      // Playback failed; do not remove queue items
       statusText.textContent = 'Playback/queue failed. Please try again.';
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
@@ -539,6 +551,7 @@ async function startPaidQueuePlayback(){
       return;
     }
 
+    // Schedule end-of-session actions after the snapshot duration
     setTimeout(async () => {
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
@@ -728,6 +741,7 @@ function addToPaidQueue(track){
     return;
   }
 
+  // Append to the existing paidQueue (do not overwrite)
   paidQueue.push({
     uri: track.uri,
     title: track.title,
@@ -740,57 +754,19 @@ function addToPaidQueue(track){
   songsAddedThisSession++;
   renderQueue();
 
+  // If a paid session is already active, do NOT attempt to start a new one.
+  // The currently playing snapshot will finish and the newly added track will remain in the queue.
   if (!paidSessionActive){
     startPaidQueuePlayback();
   }
 }
+
 
 /* ====== Optional: expose some functions for payment page to call ====== */
 window.applyPackageFromQuery = applyPackageFromQuery;
 window.onPaymentSuccess = onPaymentSuccess;
 
 /* ====== End of fixed script ====== */
-
-
-
-
-
-async function startPaidQueuePlayback(){
-  if(paidQueue.length === 0) return;
-
-  if(redirectTimeoutHandle){
-    clearTimeout(redirectTimeoutHandle);
-    redirectTimeoutHandle = null;
-  }
-
-  paidSessionActive = true;
-  nowMode.textContent = 'Mode: PAID';
-  statusText.textContent = 'Playing paid queue';
-  await backendPause();
-
-  const uris = paidQueue.map(i => i.uri);
-  const first = paidQueue[0];
-  setNowPlaying(first.title, first.artist, first.albumArt);
-  await backendPlayUris(uris);
-  await pollStatusOnce();
-  const totalMs = paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0);
-  paidQueue.length = 0;
-  renderQueue();
-  setTimeout(async ()=>{
-    paidSessionActive = false;
-    nowMode.textContent = 'Mode: DEFAULT';
-    statusText.textContent = 'Resuming default playlist';
-    await backendResume();
-    pollStatusOnce();
-
-    if(redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
-    redirectTimeoutHandle = setTimeout(()=>{
-      if(paidSessionActive) return;
-      window.location.href = 'index.html';
-    }, 30000);
-
-  }, totalMs + 2000);
-}
 
 
 // frontend: play first track, disable shuffle/repeat, queue rest, and return {ok:true} on success
