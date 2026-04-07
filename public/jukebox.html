@@ -330,15 +330,12 @@
 
   <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
     <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
-
-    <!-- This is the only button -->
-    <button class="btn" id="startPlayBtn"
-            onclick="startPaidQueuePlayback()"
-            style="margin-left:auto;">
-      Start Play
-    </button>
+    <!-- JS will insert Start Play button here -->
+    <div id="paidQueueControls"></div>
   </div>
 </div>
+
+
 
     </aside>
   </main>
@@ -424,6 +421,7 @@ function removeFromQueue(index){
 }
 
 
+// Update Start Play button state
 function updateStartPlayButton(){
   const btn = document.getElementById('startPlayBtn');
   if (btn) {
@@ -432,10 +430,35 @@ function updateStartPlayButton(){
   }
 }
 
+// Render controls container with Start Play button
 function renderPaidQueueControls(){
-  updateStartPlayButton(); // just update the existing button
+  let controls = document.getElementById('paidQueueControls');
+  if (!controls) return;
+
+  // Clear previous content
+  controls.innerHTML = '';
+
+  // Start Play button
+  const startBtn = document.createElement('button');
+  startBtn.className = 'btn';
+  startBtn.id = 'startPlayBtn';
+  startBtn.textContent = 'Start Play';
+  startBtn.onclick = () => {
+    if (paidQueue.length === 0) return;
+    startPaidQueuePlayback();
+  };
+
+  const spacer = document.createElement('div');
+  spacer.style.flex = '1';
+
+  controls.appendChild(startBtn);
+  controls.appendChild(spacer);
+
+  // Immediately update button state after rendering
+  updateStartPlayButton();
 }
 
+// Full startPaidQueuePlayback replacement — disables Start Play immediately
 async function startPaidQueuePlayback(){
   if (!paidQueue || paidQueue.length === 0) return;
 
@@ -447,7 +470,8 @@ async function startPaidQueuePlayback(){
   paidSessionActive = true;
   nowMode.textContent = 'Mode: PAID';
   statusText.textContent = 'Playing paid queue';
-  updateStartPlayButton(); // disable button right away
+  renderPaidQueueControls(); // rebuild button
+  updateStartPlayButton();   // disable button right away
 
   try {
     await backendPause();
@@ -469,6 +493,7 @@ async function startPaidQueuePlayback(){
       statusText.textContent = 'Playback/queue failed. Please try again.';
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
+      renderPaidQueueControls();
       updateStartPlayButton(); // re-enable if failed
       return;
     }
@@ -477,6 +502,7 @@ async function startPaidQueuePlayback(){
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       statusText.textContent = 'Resuming default playlist';
+      renderPaidQueueControls();
       updateStartPlayButton(); // re-enable after session ends
 
       try {
@@ -499,6 +525,7 @@ async function startPaidQueuePlayback(){
     statusText.textContent = 'Playback error';
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
+    renderPaidQueueControls();
     updateStartPlayButton(); // re-enable on error
   }
 }
