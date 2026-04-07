@@ -326,7 +326,42 @@
         <option value="150-15">R150 (10–15 songs, ~60 min)</option>
         <option value="200-20">R200 (15–20 songs, ~90 min)</option>
       </select>
+      <!-- Dynamic form panel -->
+      <div class="form-panel" id="formPanel">
+        <h3>Select package to continue</h3>
+        <div class="note" id="instructionNote">Choose a package on the left. After selecting, use the search boxes to pick tracks (top 10 results shown per search box). When ready, press Pay to proceed to payment.</div>
+
+        <!-- package summary -->
+        <div class="form-row" id="packageSummary" style="display:none;">
+          <label>Package</label>
+          <div id="pkgLabel" style="font-weight:700;color:var(--accent);"></div>
+        </div>
+
+        <!-- dynamic slots container -->
+        <div id="slotsContainer" style="margin-top:12px;"></div>
+
+        <!-- selected tracks preview -->
+        <div id="selectedContainer" style="display:none;">
+          <h4 style="margin:12px 0 6px 0;color:var(--accent);">Selected tracks (will be queued after payment)</h4>
+          <div class="selected-list" id="selectedList"></div>
+        </div>
+
+<!-- payment controls -->
+<div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
+  <!-- Pay button (normal) -->
+  <button class="btn" id="payBtn" onclick="startPayment()" disabled>Pay</button>
+  <button class="btn ghost" onclick="cancelSelection()">Cancel</button>
+  <div style="flex:1"></div>
+  <div class="note" id="priceNote"></div>
+</div>
+
+
+        <div class="note" style="margin-top:12px;">
+          Payment flow: this page sends selected tracks and package info to your backend endpoint <code>/api/create-payment</code>. Your server should create the payment session and redirect the user to the payment gateway. After successful payment the backend should enqueue the paid tracks to the pub playback queue.
+        </div>
+      </div>
     </div>
+
 
     <!-- Search UI (locked until payment) -->
     <div class="search-row" id="searchRow" style="margin-top:12px;display:none;">
@@ -999,12 +1034,21 @@ function togglePackageDropdown(){
     ? 'block' 
     : 'none';
 }
+      
 function handlePackageSelect(){
   const select = document.getElementById('packageSelect');
   if (!select.value) return;
+
   const [price, songs] = select.value.split('-');
   selectPackage(parseInt(price,10), parseInt(songs,10));
+
+  // Smoothly scroll to the slots so the user sees them right away
+  const slotsEl = document.getElementById('slotsContainer');
+  if (slotsEl) {
+    slotsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
+
 
 
 async function startPaidCheckout(tracks) {
