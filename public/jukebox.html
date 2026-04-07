@@ -492,7 +492,7 @@ function renderPaidQueueControls(){
   updateStartPlayButton();
 }
 
-/* ====== Playback orchestration (uses backend stubs) ====== */
+/* ====== Playback orchestration (refined for continuous paid sessions) ====== */
 async function startPaidQueuePlayback(){
   if (!paidQueue || paidQueue.length === 0) return;
   if (paidSessionActive) return; // already playing paid queue
@@ -517,7 +517,9 @@ async function startPaidQueuePlayback(){
     const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
 
     const first = snapshotQueue[0];
-    if (first && typeof setNowPlaying === 'function') setNowPlaying(first.title, first.artist, first.albumArt);
+    if (first && typeof setNowPlaying === 'function') {
+      setNowPlaying(first.title, first.artist, first.albumArt);
+    }
 
     let result = null;
     if (typeof backendPlayUris === 'function') {
@@ -527,10 +529,8 @@ async function startPaidQueuePlayback(){
 
     if (result && result.ok) {
       // Remove only the items that were in the snapshot (played items)
-      // Find how many items were in the snapshot and remove that many from the front
       const playedCount = snapshotQueue.length;
       if (playedCount > 0) {
-        // If paidQueue has been appended to, only remove the first playedCount items
         paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
       }
       renderQueue();
@@ -554,6 +554,15 @@ async function startPaidQueuePlayback(){
     // Schedule end-of-session actions after the snapshot duration
     setTimeout(async () => {
       paidSessionActive = false;
+
+      if (paidQueue.length > 0) {
+        // If new songs were added during the last session, start them immediately
+        statusText.textContent = 'Starting next paid queue...';
+        startPaidQueuePlayback();
+        return;
+      }
+
+      // Otherwise resume default playlist
       nowMode.textContent = 'Mode: DEFAULT';
       statusText.textContent = 'Resuming default playlist';
       renderPaidQueueControls();
