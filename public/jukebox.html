@@ -318,19 +318,27 @@
         <div class="small" style="margin-top:8px;">Tip: search calls backend Spotify search endpoint.</div>
       </div>
 
-      <!-- Paid queue -->
-      <div class="card" aria-label="Paid queue">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div style="font-weight:700;">Paid Queue</div>
-          <div class="small" id="queueInfo">Plays in order; no jumping</div>
-        </div>
+<!-- Paid queue -->
+<div class="card" aria-label="Paid queue">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div style="font-weight:700;">Paid Queue</div>
+    <div class="small" id="queueInfo">Plays in order; no jumping</div>
+  </div>
 
-        <div class="queue-list" id="paidQueue"></div>
+  <div class="queue-list" id="paidQueue"></div>
 
-        <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-          <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
-        </div>
-      </div>
+  <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+    <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
+
+    <!-- New Start Play button -->
+    <button class="btn" id="startPlayBtn"
+            onclick="startPaidQueuePlayback()"
+            style="margin-left:auto;">
+      Start Play
+    </button>
+  </div>
+</div>
+
     </aside>
   </main>
 
@@ -728,6 +736,13 @@ async function pollStatusOnce(){
       queueCount.textContent = `Paid queue: ${paidQueue.length}`;
     }
   }catch(e){ console.warn('pollStatusOnce', e); }
+}
+
+function updateStartPlayButton(){
+  const btn = document.getElementById('startPlayBtn');
+  if (btn) {
+    btn.disabled = (paidQueue.length === 0 || paidSessionActive);
+  }
 }
 
 
