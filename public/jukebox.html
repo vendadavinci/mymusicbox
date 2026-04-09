@@ -1040,29 +1040,39 @@ async function pollStatus() {
 }
 
 
-function onPaymentSuccess(){
-  if (!currentPackage){
-    // If currentPackage not set (e.g., user returned from payment page),
-    // try to read from query string
-    applyPackageFromQuery({ autoMarkPaid: true });
-    if (!currentPackage){
-      alert('No package selected. Please start from Add Songs.');
+/* ====== Payment success handler ====== */
+async function onPaymentSuccess() {
+  try {
+    // Retrieve tracks stored during startPayment
+    const tracksJson = sessionStorage.getItem('tracks');
+    if (!tracksJson) {
+      console.warn('No tracks found in sessionStorage after payment.');
       return;
     }
+
+    const tracks = JSON.parse(tracksJson);
+
+    // Clear storage so it doesn’t replay on next visit
+    sessionStorage.removeItem('tracks');
+
+    // Add each track to the paid queue
+    tracks.forEach(track => addToPaidQueue(track));
+
+    // If no session is active, auto‑start playback
+    if (!paidSessionActive && paidQueue.length > 0) {
+      statusText.textContent = 'Starting paid playback...';
+      startPaidQueuePlayback();
+    } else {
+      statusText.textContent = 'Tracks added to paid queue';
+    }
+
+    console.log('Payment successful — tracks queued:', tracks.length);
+  } catch (e) {
+    console.error('onPaymentSuccess error:', e);
+    alert('Something went wrong adding your tracks after payment.');
   }
-
-  paymentComplete = true;
-  songsAddedThisSession = 0;
-
-  const searchRow = document.getElementById('searchRow');
-  if (searchRow) searchRow.style.display = 'flex';
-
-  statusText.textContent = `Payment complete for R${currentPackage.price}. You may now add up to ${currentPackage.maxSongs} songs.`;
 }
 
-/* Helper to parse price/songs from URL and set currentPackage.
-   If autoMarkPaid is true, it will also set paymentComplete = true.
-   Use this on payment.html or on return to main page.
 */
 function applyPackageFromQuery({ autoMarkPaid = false } = {}){
   const params = new URLSearchParams(window.location.search);
@@ -1087,18 +1097,17 @@ function startAddFlow(){
 }
 
 /* ====== Add to queue with enforcement ====== */
-function addToPaidQueue(track){
-  if (!paymentComplete || !currentPackage){
+function addToPaidQueue(track) {
+  if (!paymentComplete || !currentPackage) {
     alert('You must pay for a package before adding songs.');
     return;
   }
 
-  if (songsAddedThisSession >= currentPackage.maxSongs){
+  if (songsAddedThisSession >= currentPackage.maxSongs) {
     alert(`You have reached the limit of ${currentPackage.maxSongs} songs for this package.`);
     return;
   }
 
-  // Append to the existing paidQueue (do not overwrite)
   paidQueue.push({
     uri: track.uri,
     title: track.title,
@@ -1111,10 +1120,12 @@ function addToPaidQueue(track){
   songsAddedThisSession++;
   renderQueue();
 
-  // If a paid session is already active, do NOT attempt to start a new one.
-  // The currently playing snapshot will finish and the newly added track will remain in the queue.
-  if (!paidSessionActive){
+  // Auto‑start playback if idle (but don’t block if already active)
+  if (!paidSessionActive) {
+    statusText.textContent = 'Starting paid playback...';
     startPaidQueuePlayback();
+  } else {
+    statusText.textContent = 'Track added to paid queue';
   }
 }
 
