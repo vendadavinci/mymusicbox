@@ -4,6 +4,10 @@
   <meta charset="utf-8" />
   <title>Pub Jukebox — Playback</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+<script src="https://sdk.scdn.co/spotify-player.js"></script>
+
+
+
   <style>
     :root{
       --bg-overlay: rgba(0,0,0,0.65);
@@ -394,6 +398,36 @@
 
 
   <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
+
+    
+<script>
+  window.onSpotifyWebPlaybackSDKReady = () => {
+    const token = '<your access token>'; // must be a valid Spotify access token
+
+    // Create the player
+    const player = new Spotify.Player({
+      name: 'Musicbox Jukebox',
+      getOAuthToken: cb => { cb(token); },
+      volume: 0.8
+    });
+
+    // Add listeners
+    player.addListener('ready', ({ device_id }) => {
+      console.log('Ready with Device ID', device_id);
+      window.spotifyDeviceId = device_id;
+    });
+
+    player.addListener('not_ready', ({ device_id }) => {
+      console.log('Device ID has gone offline', device_id);
+    });
+
+    // Connect the player
+    player.connect();
+
+    // Expose globally if needed
+    window.player = player;
+  };
+</script>
 
   <script>
 /* ====== Paid queue app (fixed) ====== */
