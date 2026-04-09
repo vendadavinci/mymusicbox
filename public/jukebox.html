@@ -844,67 +844,112 @@ function renderPaidQueueControls(){
 }
 
 /* ====== Playback orchestration (refined for continuous paid sessions) ====== */
-async function startPaidQueuePlayback() {
-  if (paidQueue.length === 0) {
-    paidSessionActive = false;
-    nowMode.textContent = 'Mode: DEFAULT';
-    statusText.textContent = 'Idle';
-    return;
+async function startPaidQueuePlayback(){
+  if (!paidQueue || paidQueue.length === 0) return;
+  if (paidSessionActive) return; // already playing paid queue
+
+  if (redirectTimeoutHandle){
+    clearTimeout(redirectTimeoutHandle);
+    redirectTimeoutHandle = null;
   }
 
   paidSessionActive = true;
   nowMode.textContent = 'Mode: PAID';
   statusText.textContent = 'Playing paid queue';
+  renderPaidQueueControls();
+  updateStartPlayButton();
 
-  const track = paidQueue.shift(); // take first track
-  if (typeof setNowPlaying === 'function') {
-    setNowPlaying(track.title, track.artist, track.albumArt);
-  }
-  renderQueue();
+  try {
+    if (typeof backendPause === 'function') await backendPause();
 
-  let result = null;
-  if (typeof backendPlayUris === 'function') {
-    result = await backendPlayUris([track.uri]);
-    if (typeof pollStatusOnce === 'function') await pollStatusOnce();
-  }
+    // Snapshot the queue at the moment playback starts
+    const snapshotQueue = paidQueue.slice();
+    const uris = snapshotQueue.map(i => i.uri);
+    const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
 
-  if (!result || result.ok) {
-    // Schedule next track after this one finishes
-    const duration = track.duration_ms || 210000;
+    const first = snapshotQueue[0];
+    if (first && typeof setNowPlaying === 'function') {
+      setNowPlaying(first.title, first.artist, first.albumArt);
+    }
+
+    let result = null;
+    if (typeof backendPlayUris === 'function') {
+      result = await backendPlayUris(uris);
+      if (typeof pollStatusOnce === 'function') await pollStatusOnce();
+    }
+
+    if (result && result.ok) {
+      // Remove only the items that were in the snapshot (played items)
+      const playedCount = snapshotQueue.length;
+      if (playedCount > 0) {
+        paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
+      }
+      renderQueue();
+    } else if (!result) {
+      // If backendPlayUris not provided, assume local playback and remove snapshot items
+      const playedCount = snapshotQueue.length;
+      if (playedCount > 0) {
+        paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
+      }
+      renderQueue();
+    } else {
+      // Playback failed; do not remove queue items
+      statusText.textContent = 'Playback/queue failed. Please try again.';
+      paidSessionActive = false;
+      nowMode.textContent = 'Mode: DEFAULT';
+      renderPaidQueueControls();
+      updateStartPlayButton();
+      return;
+    }
+
+    // Schedule end-of-session actions after the snapshot duration
     setTimeout(async () => {
+      paidSessionActive = false;
+
       if (paidQueue.length > 0) {
-        // Play next track
+        // If new songs were added during the last session, start them immediately
+        statusText.textContent = 'Starting next paid queue...';
         startPaidQueuePlayback();
-      } else {
-        // Queue empty → resume default playlist
-        paidSessionActive = false;
-        nowMode.textContent = 'Mode: DEFAULT';
-        statusText.textContent = 'Resuming default playlist';
+        return;
+      }
+
+      // Otherwise resume default playlist
+      nowMode.textContent = 'Mode: DEFAULT';
+      statusText.textContent = 'Resuming default playlist';
+      renderPaidQueueControls();
+      updateStartPlayButton();
+
+      try {
         if (typeof backendResume === 'function') {
           await backendResume();
+          if (typeof pollStatusOnce === 'function') await pollStatusOnce();
         }
+      } catch (e) {
+        console.warn('resume failed', e);
       }
-    }, duration + 2000);
-  } else {
-    statusText.textContent = 'Playback failed';
+
+      if (redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
+      redirectTimeoutHandle = setTimeout(() => {
+        if (paidSessionActive) return;
+        window.location.href = 'index.html';
+      }, 30000);
+
+    }, totalMs + 2000);
+
+  } catch (err) {
+    console.error('startPaidQueuePlayback error', err);
+    statusText.textContent = 'Playback error';
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
+    renderPaidQueueControls();
+    updateStartPlayButton();
   }
 }
 
-const player = new Spotify.Player({
-  name: 'Musicbox Jukebox',
-  getOAuthToken: cb => { cb(tokens.access_token); },
-  volume: 0.8
-});
-
 player.addListener('ready', ({ device_id }) => {
   console.log('Ready with Device ID', device_id);
-  window.spotifyDeviceId = device_id; 
+  window.spotifyDeviceId = device_id;
 });
-
-player.connect();
-
 
 
 /* ====== Search + results rendering (fixed wiring) ====== */
@@ -1092,14 +1137,11 @@ async function backendPlayUris(uris){
   try {
     if (!uris || uris.length === 0) return { ok: false, error: 'no uris' };
 
-    const deviceId = window.spotifyDeviceId;
-    if (!deviceId) return { ok: false, error: 'no device_id available' };
-
     // 1) Ask backend to disable shuffle and repeat and play the first track
     let res = await fetch('/api/play', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ uris: [uris[0]], device_id: deviceId, isPaid: true })
+      body: JSON.stringify({ uris: [uris[0]], isPaid: true })
     });
     const playData = await res.json().catch(()=>({}));
     console.log('/api/play response:', res.status, playData);
@@ -1107,27 +1149,27 @@ async function backendPlayUris(uris){
       return { ok: false, error: 'play failed', details: playData };
     }
 
+    // small delay so device registers playback context
     await new Promise(r => setTimeout(r, 350));
 
-    // 2) Queue the rest sequentially
+    // 2) Queue the rest sequentially and ensure each succeeded
     for (let i = 1; i < uris.length; i++) {
-      const qRes = await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}&device_id=${encodeURIComponent(deviceId)}`, { method: 'POST' });
+      const qRes = await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}`, { method: 'POST' });
       const qData = await qRes.json().catch(()=>({}));
       console.log('/api/queue response:', qRes.status, qData);
       if (!qRes.ok) {
         return { ok: false, error: 'queue failed', uri: uris[i], details: qData };
       }
+      // tiny delay to avoid device race conditions
       await new Promise(r => setTimeout(r, 150));
     }
 
-    // 3) Safety check
+    // 3) Safety: after a short delay, ask backend to check if Spotify advanced; if not, call next
+    // (backend should expose /api/player/check-and-next or we call /api/next directly)
     setTimeout(async () => {
       try {
-        const check = await fetch('/api/player/check-and-next', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ device_id: deviceId })
-        });
+        const check = await fetch('/api/player/check-and-next', { method: 'POST' });
+        // backend will return { advanced: true } if Spotify moved on, or will call next if stuck
         console.log('/api/player/check-and-next', await check.json().catch(()=>({})));
       } catch (e) {
         console.warn('check-and-next failed', e);
