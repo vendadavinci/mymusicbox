@@ -1069,19 +1069,19 @@ function startAddFlow(){
   if (searchRow) searchRow.style.display = 'flex';
 }
 
-/* ====== Add to queue with enforcement ====== */
-function addToPaidQueue(track){
-  if (!paymentComplete || !currentPackage){
+/* ====== Add to queue with enforcement (auto-start) ====== */
+function addToPaidQueue(track) {
+  if (!paymentComplete || !currentPackage) {
     alert('You must pay for a package before adding songs.');
     return;
   }
 
-  if (songsAddedThisSession >= currentPackage.maxSongs){
+  if (songsAddedThisSession >= currentPackage.maxSongs) {
     alert(`You have reached the limit of ${currentPackage.maxSongs} songs for this package.`);
     return;
   }
 
-  // Append to the existing paidQueue (do not overwrite)
+  // Append to the existing paidQueue
   paidQueue.push({
     uri: track.uri,
     title: track.title,
@@ -1094,13 +1094,12 @@ function addToPaidQueue(track){
   songsAddedThisSession++;
   renderQueue();
 
-  // If a paid session is already active, do NOT attempt to start a new one.
-  // The currently playing snapshot will finish and the newly added track will remain in the queue.
-  if (!paidSessionActive){
+  // Auto‑start playback if no session is active
+  if (!paidSessionActive) {
+    statusText.textContent = 'Starting paid playback...';
     startPaidQueuePlayback();
   }
 }
-
 
 /* ====== Optional: expose some functions for payment page to call ====== */
 window.applyPackageFromQuery = applyPackageFromQuery;
