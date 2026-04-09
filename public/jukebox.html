@@ -843,12 +843,12 @@ function renderPaidQueueControls(){
   updateStartPlayButton();
 }
 
-/* ====== Playback orchestration (refined for continuous paid sessions) ====== */
-async function startPaidQueuePlayback(){
+/* ====== Playback orchestration (single-track loop for continuous sessions) ====== */
+async function startPaidQueuePlayback() {
   if (!paidQueue || paidQueue.length === 0) return;
-  if (paidSessionActive) return; // already playing paid queue
+  if (paidSessionActive) return; // already playing
 
-  if (redirectTimeoutHandle){
+  if (redirectTimeoutHandle) {
     clearTimeout(redirectTimeoutHandle);
     redirectTimeoutHandle = null;
   }
@@ -862,80 +862,58 @@ async function startPaidQueuePlayback(){
   try {
     if (typeof backendPause === 'function') await backendPause();
 
-    // Snapshot the queue at the moment playback starts
-    const snapshotQueue = paidQueue.slice();
-    const uris = snapshotQueue.map(i => i.uri);
-    const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
-
-    const first = snapshotQueue[0];
-    if (first && typeof setNowPlaying === 'function') {
-      setNowPlaying(first.title, first.artist, first.albumArt);
+    // Take the next track only
+    const track = paidQueue.shift();
+    if (track && typeof setNowPlaying === 'function') {
+      setNowPlaying(track.title, track.artist, track.albumArt);
     }
+    renderQueue();
 
     let result = null;
     if (typeof backendPlayUris === 'function') {
-      result = await backendPlayUris(uris);
+      result = await backendPlayUris([track.uri]);
       if (typeof pollStatusOnce === 'function') await pollStatusOnce();
     }
 
-    if (result && result.ok) {
-      // Remove only the items that were in the snapshot (played items)
-      const playedCount = snapshotQueue.length;
-      if (playedCount > 0) {
-        paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
-      }
-      renderQueue();
-    } else if (!result) {
-      // If backendPlayUris not provided, assume local playback and remove snapshot items
-      const playedCount = snapshotQueue.length;
-      if (playedCount > 0) {
-        paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
-      }
-      renderQueue();
-    } else {
-      // Playback failed; do not remove queue items
-      statusText.textContent = 'Playback/queue failed. Please try again.';
-      paidSessionActive = false;
-      nowMode.textContent = 'Mode: DEFAULT';
-      renderPaidQueueControls();
-      updateStartPlayButton();
-      return;
-    }
+    if (!result || result.ok) {
+      // Schedule next track after this one finishes
+      const duration = track.duration_ms || 210000;
+      setTimeout(async () => {
+        paidSessionActive = false;
 
-    // Schedule end-of-session actions after the snapshot duration
-    setTimeout(async () => {
-      paidSessionActive = false;
+        if (paidQueue.length > 0) {
+          statusText.textContent = 'Starting next paid track...';
+          startPaidQueuePlayback(); // pick up next track automatically
+        } else {
+          // Queue empty → resume default playlist
+          nowMode.textContent = 'Mode: DEFAULT';
+          statusText.textContent = 'Resuming default playlist';
+          renderPaidQueueControls();
+          updateStartPlayButton();
 
-      if (paidQueue.length > 0) {
-        // If new songs were added during the last session, start them immediately
-        statusText.textContent = 'Starting next paid queue...';
-        startPaidQueuePlayback();
-        return;
-      }
+          try {
+            if (typeof backendResume === 'function') {
+              await backendResume();
+              if (typeof pollStatusOnce === 'function') await pollStatusOnce();
+            }
+          } catch (e) {
+            console.warn('resume failed', e);
+          }
 
-      // Otherwise resume default playlist
-      nowMode.textContent = 'Mode: DEFAULT';
-      statusText.textContent = 'Resuming default playlist';
-      renderPaidQueueControls();
-      updateStartPlayButton();
-
-      try {
-        if (typeof backendResume === 'function') {
-          await backendResume();
-          if (typeof pollStatusOnce === 'function') await pollStatusOnce();
+          redirectTimeoutHandle = setTimeout(() => {
+            if (!paidSessionActive) {
+              window.location.href = 'index.html';
+            }
+          }, 30000);
         }
-      } catch (e) {
-        console.warn('resume failed', e);
-      }
-
-      if (redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
-      redirectTimeoutHandle = setTimeout(() => {
-        if (paidSessionActive) return;
-        window.location.href = 'index.html';
-      }, 30000);
-
-    }, totalMs + 2000);
-
+      }, duration + 2000);
+    } else {
+      statusText.textContent = 'Playback failed';
+      paidSessionActive = false;
+      nowMode.textContent = 'Mode: DEFAULT';
+      renderPaidQueueControls();
+      updateStartPlayButton();
+    }
   } catch (err) {
     console.error('startPaidQueuePlayback error', err);
     statusText.textContent = 'Playback error';
