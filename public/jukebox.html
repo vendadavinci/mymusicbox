@@ -883,6 +883,13 @@ async function startPaidQueuePlayback() {
           statusText.textContent = 'Starting next paid track...';
           startPaidQueuePlayback();
         } else {
+          // SAFEGUARD: if new tracks arrive while idle, restart immediately
+          if (paidQueue.length > 0) {
+            statusText.textContent = 'Starting next paid queue...';
+            startPaidQueuePlayback();
+            return;
+          }
+
           // Queue empty → resume default playlist
           paidSessionActive = false;
           nowMode.textContent = 'Mode: DEFAULT';
@@ -1081,7 +1088,6 @@ function addToPaidQueue(track) {
     return;
   }
 
-  // Append to the existing paidQueue
   paidQueue.push({
     uri: track.uri,
     title: track.title,
@@ -1094,7 +1100,7 @@ function addToPaidQueue(track) {
   songsAddedThisSession++;
   renderQueue();
 
-  // Auto‑start playback if no session is active
+  // Auto‑start playback if idle
   if (!paidSessionActive) {
     statusText.textContent = 'Starting paid playback...';
     startPaidQueuePlayback();
@@ -1106,6 +1112,7 @@ window.applyPackageFromQuery = applyPackageFromQuery;
 window.onPaymentSuccess = onPaymentSuccess;
 
 /* ====== End of fixed script ====== */
+
 
 
 // frontend: play first track, disable shuffle/repeat, queue rest, and return {ok:true} on success
