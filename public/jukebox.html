@@ -552,6 +552,57 @@ const instructionNote = document.getElementById('instructionNote');
       });
     }
 
+    function selectTrackForSlot(slotIndex, track){
+      const slot = slots[slotIndex];
+      slot.selected = {
+        uri: track.uri,
+        title: track.title,
+        artist: track.artist,
+        duration_ms: track.duration_ms || 0,
+        albumArt: track.albumArt || ''
+      };
+
+      const info = document.getElementById(`selectedInfo-${slotIndex}`);
+      info.textContent = `${track.title} — ${track.artist}`;
+      updateSelectedList();
+    }
+
+    function updateSelectedList(){
+      const selected = slots.filter(s => s.selected).map(s => s.selected);
+      if(selected.length === 0){
+        selectedContainer.style.display = 'none';
+        payBtn.disabled = true;
+        addBtn.disabled = true;
+        return;
+      }
+      selectedContainer.style.display = 'block';
+      selectedList.innerHTML = '';
+      selected.forEach((t, idx) => {
+        const div = document.createElement('div');
+        div.className = 'selected-item';
+        div.innerHTML = `
+          <div style="min-width:0">
+            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(t.title)}</div>
+            <div class="small">${escapeHtml(t.artist)}</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <div class="small">${formatMs(t.duration_ms)}</div>
+            <button class="btn ghost" onclick="removeSelected('${t.uri}')">Remove</button>
+          </div>
+        `;
+        selectedList.appendChild(div);
+      });
+
+      if(currentMode === 'PAID'){
+        payBtn.disabled = true;
+        addBtn.style.display = 'inline-block';
+        addBtn.disabled = false;
+      } else {
+        payBtn.disabled = false;
+        addBtn.style.display = 'none';
+      }
+    }
+
     function removeSelected(uri){
       const slot = slots.find(s => s.selected && s.selected.uri === uri);
       if(!slot) return;
@@ -879,80 +930,6 @@ async function startPaidQueuePlayback(){
   }
 }
 
-/* ====== Track selection for slots ====== */
-function selectTrackForSlot(slotIndex, track){
-  const slot = slots[slotIndex];
-  slot.selected = {
-    uri: track.uri,
-    title: track.title,
-    artist: track.artist,
-    duration_ms: track.duration_ms || 0,
-    albumArt: track.albumArt || ''
-  };
-
-  const info = document.getElementById(`selectedInfo-${slotIndex}`);
-  info.textContent = `${track.title} — ${track.artist}`;
-  updateSelectedList();
-}
-
-/* ====== Update selected list UI ====== */
-function updateSelectedList(){
-  const selected = slots.filter(s => s.selected).map(s => s.selected);
-  if(selected.length === 0){
-    selectedContainer.style.display = 'none';
-    payBtn.disabled = true;
-    addBtn.disabled = true;
-    return;
-  }
-  selectedContainer.style.display = 'block';
-  selectedList.innerHTML = '';
-  selected.forEach((t, idx) => {
-    const div = document.createElement('div');
-    div.className = 'selected-item';
-    div.innerHTML = `
-      <div style="min-width:0">
-        <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(t.title)}</div>
-        <div class="small">${escapeHtml(t.artist)}</div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <div class="small">${formatMs(t.duration_ms)}</div>
-        <button class="btn ghost" onclick="removeSelected('${t.uri}')">Remove</button>
-      </div>
-    `;
-    selectedList.appendChild(div);
-  });
-
-  if(currentMode === 'PAID'){
-    payBtn.disabled = true;
-    addBtn.style.display = 'inline-block';
-    addBtn.disabled = false;
-  } else {
-    payBtn.disabled = false;
-    addBtn.style.display = 'none';
-  }
-}
-
-/* ====== Commit selected tracks into live paid queue ====== */
-function commitSelectedToQueue() {
-  const selected = slots.filter(s => s.selected).map(s => s.selected);
-  if (selected.length === 0) {
-    alert('No tracks selected.');
-    return;
-  }
-
-  selected.forEach(track => addToPaidQueue(track));
-
-  // Clear selections after committing
-  slots.forEach(s => { s.selected = null; });
-  selectedList.innerHTML = '';
-  selectedContainer.style.display = 'none';
-  addBtn.disabled = true;
-}
-
-/* ====== Wire Add button to commit ====== */
-addBtn.onclick = commitSelectedToQueue;
-
-
 /* ====== Add to queue with enforcement (dynamic append) ====== */
 function addToPaidQueue(track) {
   if (!paymentComplete || !currentPackage) {
@@ -983,7 +960,7 @@ function addToPaidQueue(track) {
   } else {
     statusText.textContent = 'Track appended to paid queue';
     if (typeof backendPlayUris === 'function') {
-      backendPlayUris([track.uri], { append: true })   // <-- key change
+      backendPlayUris([track.uri])
         .then(res => console.log('Appended track to backend queue:', res))
         .catch(err => {
           console.error('Failed to append track:', err);
@@ -992,7 +969,6 @@ function addToPaidQueue(track) {
     }
   }
 }
-
 
 
 /* ====== Search + results rendering (fixed wiring) ====== */
@@ -1152,45 +1128,50 @@ window.onPaymentSuccess = onPaymentSuccess;
 
 /* ====== End of fixed script ====== */
 
-async function backendPlayUris(uris, opts = {}) {
+
+// frontend: play first track, disable shuffle/repeat, queue rest, and return {ok:true} on success
+async function backendPlayUris(uris){
   try {
     if (!uris || uris.length === 0) return { ok: false, error: 'no uris' };
 
-    if (opts.append) {
-      // Append mode: call backend with append flag
-      const res = await fetch('/api/play', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uris, append: true })
-      });
-      const data = await res.json().catch(() => ({}));
-      console.log('/api/play append response:', res.status, data);
-      return { ok: res.ok, ...data };
-    }
-
-    // Replace mode: start playback with first URI, then queue the rest
+    // 1) Ask backend to disable shuffle and repeat and play the first track
     let res = await fetch('/api/play', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ uris: [uris[0]], isPaid: true })
     });
-    const playData = await res.json().catch(() => ({}));
+    const playData = await res.json().catch(()=>({}));
     console.log('/api/play response:', res.status, playData);
     if (!res.ok) {
       return { ok: false, error: 'play failed', details: playData };
     }
 
+    // small delay so device registers playback context
     await new Promise(r => setTimeout(r, 350));
 
+    // 2) Queue the rest sequentially and ensure each succeeded
     for (let i = 1; i < uris.length; i++) {
       const qRes = await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}`, { method: 'POST' });
-      const qData = await qRes.json().catch(() => ({}));
+      const qData = await qRes.json().catch(()=>({}));
       console.log('/api/queue response:', qRes.status, qData);
       if (!qRes.ok) {
         return { ok: false, error: 'queue failed', uri: uris[i], details: qData };
       }
+      // tiny delay to avoid device race conditions
       await new Promise(r => setTimeout(r, 150));
     }
+
+    // 3) Safety: after a short delay, ask backend to check if Spotify advanced; if not, call next
+    // (backend should expose /api/player/check-and-next or we call /api/next directly)
+    setTimeout(async () => {
+      try {
+        const check = await fetch('/api/player/check-and-next', { method: 'POST' });
+        // backend will return { advanced: true } if Spotify moved on, or will call next if stuck
+        console.log('/api/player/check-and-next', await check.json().catch(()=>({})));
+      } catch (e) {
+        console.warn('check-and-next failed', e);
+      }
+    }, 2000);
 
     return { ok: true };
   } catch (e) {
