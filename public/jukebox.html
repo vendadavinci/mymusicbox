@@ -952,6 +952,7 @@ function commitSelectedToQueue() {
 /* ====== Wire Add button to commit ====== */
 addBtn.onclick = commitSelectedToQueue;
 
+
 /* ====== Add to queue with enforcement (dynamic append) ====== */
 function addToPaidQueue(track) {
   if (!paymentComplete || !currentPackage) {
@@ -982,7 +983,7 @@ function addToPaidQueue(track) {
   } else {
     statusText.textContent = 'Track appended to paid queue';
     if (typeof backendPlayUris === 'function') {
-      backendPlayUris([track.uri])
+      backendPlayUris([track.uri], { append: true })   // <-- key change
         .then(res => console.log('Appended track to backend queue:', res))
         .catch(err => {
           console.error('Failed to append track:', err);
@@ -991,6 +992,7 @@ function addToPaidQueue(track) {
     }
   }
 }
+
 
 
 /* ====== Search + results rendering (fixed wiring) ====== */
@@ -1150,50 +1152,45 @@ window.onPaymentSuccess = onPaymentSuccess;
 
 /* ====== End of fixed script ====== */
 
-
-// frontend: play first track, disable shuffle/repeat, queue rest, and return {ok:true} on success
-async function backendPlayUris(uris){
+async function backendPlayUris(uris, opts = {}) {
   try {
     if (!uris || uris.length === 0) return { ok: false, error: 'no uris' };
 
-    // 1) Ask backend to disable shuffle and repeat and play the first track
+    if (opts.append) {
+      // Append mode: call backend with append flag
+      const res = await fetch('/api/play', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uris, append: true })
+      });
+      const data = await res.json().catch(() => ({}));
+      console.log('/api/play append response:', res.status, data);
+      return { ok: res.ok, ...data };
+    }
+
+    // Replace mode: start playback with first URI, then queue the rest
     let res = await fetch('/api/play', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uris: [uris[0]], isPaid: true })
     });
-    const playData = await res.json().catch(()=>({}));
+    const playData = await res.json().catch(() => ({}));
     console.log('/api/play response:', res.status, playData);
     if (!res.ok) {
       return { ok: false, error: 'play failed', details: playData };
     }
 
-    // small delay so device registers playback context
     await new Promise(r => setTimeout(r, 350));
 
-    // 2) Queue the rest sequentially and ensure each succeeded
     for (let i = 1; i < uris.length; i++) {
       const qRes = await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}`, { method: 'POST' });
-      const qData = await qRes.json().catch(()=>({}));
+      const qData = await qRes.json().catch(() => ({}));
       console.log('/api/queue response:', qRes.status, qData);
       if (!qRes.ok) {
         return { ok: false, error: 'queue failed', uri: uris[i], details: qData };
       }
-      // tiny delay to avoid device race conditions
       await new Promise(r => setTimeout(r, 150));
     }
-
-    // 3) Safety: after a short delay, ask backend to check if Spotify advanced; if not, call next
-    // (backend should expose /api/player/check-and-next or we call /api/next directly)
-    setTimeout(async () => {
-      try {
-        const check = await fetch('/api/player/check-and-next', { method: 'POST' });
-        // backend will return { advanced: true } if Spotify moved on, or will call next if stuck
-        console.log('/api/player/check-and-next', await check.json().catch(()=>({})));
-      } catch (e) {
-        console.warn('check-and-next failed', e);
-      }
-    }, 2000);
 
     return { ok: true };
   } catch (e) {
