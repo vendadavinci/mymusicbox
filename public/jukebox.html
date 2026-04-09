@@ -4,10 +4,6 @@
   <meta charset="utf-8" />
   <title>Pub Jukebox — Playback</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-<script src="https://sdk.scdn.co/spotify-player.js"></script>
-
-
-
   <style>
     :root{
       --bg-overlay: rgba(0,0,0,0.65);
@@ -398,8 +394,6 @@
 
 
   <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
-
-    
 
   <script>
 /* ====== Paid queue app (fixed) ====== */
@@ -850,7 +844,6 @@ function renderPaidQueueControls(){
 }
 
 /* ====== Playback orchestration (refined for continuous paid sessions) ====== */
-/* ====== Playback orchestration (refined for continuous paid sessions) ====== */
 async function startPaidQueuePlayback() {
   if (!paidQueue || paidQueue.length === 0) return;
   if (paidSessionActive) return; // already playing
@@ -906,14 +899,6 @@ async function startPaidQueuePlayback() {
             console.warn('resume failed', e);
           }
 
-          // FINAL SAFEGUARD: check shortly if new tracks arrived
-          setTimeout(() => {
-            if (!paidSessionActive && paidQueue.length > 0) {
-              statusText.textContent = 'New paid tracks detected — starting playback...';
-              startPaidQueuePlayback();
-            }
-          }, 1000); // 1 second later
-
           redirectTimeoutHandle = setTimeout(() => {
             if (!paidSessionActive) {
               window.location.href = 'index.html';
@@ -938,32 +923,10 @@ async function startPaidQueuePlayback() {
   }
 }
 
-
-window.onSpotifyWebPlaybackSDKReady = () => {
-  const token = '<your access token>'; 
-  // Create the player
-  const player = new Spotify.Player({
-    name: 'Musicbox Jukebox',
-    getOAuthToken: cb => { cb(token); },
-    volume: 0.8
-  });
-
-  // Add listeners
-  player.addListener('ready', ({ device_id }) => {
-    console.log('Ready with Device ID', device_id);
-    window.spotifyDeviceId = device_id;
-  });
-
-  player.addListener('not_ready', ({ device_id }) => {
-    console.log('Device ID has gone offline', device_id);
-  });
-
-  // Connect the player
-  player.connect();
-
-  // Expose globally if needed
-  window.player = player;
-};
+player.addListener('ready', ({ device_id }) => {
+  console.log('Ready with Device ID', device_id);
+  window.spotifyDeviceId = device_id;
+});
 
 
 /* ====== Search + results rendering (fixed wiring) ====== */
@@ -1142,21 +1105,6 @@ window.applyPackageFromQuery = applyPackageFromQuery;
 window.onPaymentSuccess = onPaymentSuccess;
 
 /* ====== End of fixed script ====== */
-
-/* ====== Bulk add playlist to paid queue ====== */
-function addPlaylistToPaidQueue(tracks) {
-  if (!Array.isArray(tracks) || tracks.length === 0) return;
-
-  tracks.forEach(track => {
-    addToPaidQueue(track);
-  });
-
-  // After adding all tracks, if no session is active, auto‑start playback
-  if (!paidSessionActive && paidQueue.length > 0) {
-    statusText.textContent = 'Starting paid playback...';
-    startPaidQueuePlayback();
-  }
-}
 
 
 
