@@ -844,107 +844,55 @@ function renderPaidQueueControls(){
 }
 
 /* ====== Playback orchestration (refined for continuous paid sessions) ====== */
-async function startPaidQueuePlayback(){
-  if (!paidQueue || paidQueue.length === 0) return;
-  if (paidSessionActive) return; // already playing paid queue
-
-  if (redirectTimeoutHandle){
-    clearTimeout(redirectTimeoutHandle);
-    redirectTimeoutHandle = null;
+async function startPaidQueuePlayback() {
+  if (paidQueue.length === 0) {
+    paidSessionActive = false;
+    nowMode.textContent = 'Mode: DEFAULT';
+    statusText.textContent = 'Idle';
+    return;
   }
 
   paidSessionActive = true;
   nowMode.textContent = 'Mode: PAID';
   statusText.textContent = 'Playing paid queue';
-  renderPaidQueueControls();
-  updateStartPlayButton();
 
-  try {
-    if (typeof backendPause === 'function') await backendPause();
+  const track = paidQueue.shift(); // take first track
+  if (typeof setNowPlaying === 'function') {
+    setNowPlaying(track.title, track.artist, track.albumArt);
+  }
+  renderQueue();
 
-    // Snapshot the queue at the moment playback starts
-    const snapshotQueue = paidQueue.slice();
-    const uris = snapshotQueue.map(i => i.uri);
-    const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
+  let result = null;
+  if (typeof backendPlayUris === 'function') {
+    result = await backendPlayUris([track.uri]);
+    if (typeof pollStatusOnce === 'function') await pollStatusOnce();
+  }
 
-    const first = snapshotQueue[0];
-    if (first && typeof setNowPlaying === 'function') {
-      setNowPlaying(first.title, first.artist, first.albumArt);
-    }
-
-    let result = null;
-    if (typeof backendPlayUris === 'function') {
-      result = await backendPlayUris(uris);
-      if (typeof pollStatusOnce === 'function') await pollStatusOnce();
-    }
-
-    if (result && result.ok) {
-      // Remove only the items that were in the snapshot (played items)
-      const playedCount = snapshotQueue.length;
-      if (playedCount > 0) {
-        paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
-      }
-      renderQueue();
-    } else if (!result) {
-      // If backendPlayUris not provided, assume local playback and remove snapshot items
-      const playedCount = snapshotQueue.length;
-      if (playedCount > 0) {
-        paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
-      }
-      renderQueue();
-    } else {
-      // Playback failed; do not remove queue items
-      statusText.textContent = 'Playback/queue failed. Please try again.';
-      paidSessionActive = false;
-      nowMode.textContent = 'Mode: DEFAULT';
-      renderPaidQueueControls();
-      updateStartPlayButton();
-      return;
-    }
-
-    // Schedule end-of-session actions after the snapshot duration
+  if (!result || result.ok) {
+    // Schedule next track after this one finishes
+    const duration = track.duration_ms || 210000;
     setTimeout(async () => {
-      paidSessionActive = false;
-
       if (paidQueue.length > 0) {
-        // If new songs were added during the last session, start them immediately
-        statusText.textContent = 'Starting next paid queue...';
+        // Play next track
         startPaidQueuePlayback();
-        return;
-      }
-
-      // Otherwise resume default playlist
-      nowMode.textContent = 'Mode: DEFAULT';
-      statusText.textContent = 'Resuming default playlist';
-      renderPaidQueueControls();
-      updateStartPlayButton();
-
-      try {
+      } else {
+        // Queue empty → resume default playlist
+        paidSessionActive = false;
+        nowMode.textContent = 'Mode: DEFAULT';
+        statusText.textContent = 'Resuming default playlist';
         if (typeof backendResume === 'function') {
           await backendResume();
-          if (typeof pollStatusOnce === 'function') await pollStatusOnce();
         }
-      } catch (e) {
-        console.warn('resume failed', e);
       }
-
-      if (redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
-      redirectTimeoutHandle = setTimeout(() => {
-        if (paidSessionActive) return;
-        window.location.href = 'index.html';
-      }, 30000);
-
-    }, totalMs + 2000);
-
-  } catch (err) {
-    console.error('startPaidQueuePlayback error', err);
-    statusText.textContent = 'Playback error';
+    }, duration + 2000);
+  } else {
+    statusText.textContent = 'Playback failed';
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
-    renderPaidQueueControls();
-    updateStartPlayButton();
   }
 }
+
+
 
 /* ====== Search + results rendering (fixed wiring) ====== */
 async function searchTracks(){
