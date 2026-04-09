@@ -552,57 +552,6 @@ const instructionNote = document.getElementById('instructionNote');
       });
     }
 
-    function selectTrackForSlot(slotIndex, track){
-      const slot = slots[slotIndex];
-      slot.selected = {
-        uri: track.uri,
-        title: track.title,
-        artist: track.artist,
-        duration_ms: track.duration_ms || 0,
-        albumArt: track.albumArt || ''
-      };
-
-      const info = document.getElementById(`selectedInfo-${slotIndex}`);
-      info.textContent = `${track.title} — ${track.artist}`;
-      updateSelectedList();
-    }
-
-    function updateSelectedList(){
-      const selected = slots.filter(s => s.selected).map(s => s.selected);
-      if(selected.length === 0){
-        selectedContainer.style.display = 'none';
-        payBtn.disabled = true;
-        addBtn.disabled = true;
-        return;
-      }
-      selectedContainer.style.display = 'block';
-      selectedList.innerHTML = '';
-      selected.forEach((t, idx) => {
-        const div = document.createElement('div');
-        div.className = 'selected-item';
-        div.innerHTML = `
-          <div style="min-width:0">
-            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(t.title)}</div>
-            <div class="small">${escapeHtml(t.artist)}</div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <div class="small">${formatMs(t.duration_ms)}</div>
-            <button class="btn ghost" onclick="removeSelected('${t.uri}')">Remove</button>
-          </div>
-        `;
-        selectedList.appendChild(div);
-      });
-
-      if(currentMode === 'PAID'){
-        payBtn.disabled = true;
-        addBtn.style.display = 'inline-block';
-        addBtn.disabled = false;
-      } else {
-        payBtn.disabled = false;
-        addBtn.style.display = 'none';
-      }
-    }
-
     function removeSelected(uri){
       const slot = slots.find(s => s.selected && s.selected.uri === uri);
       if(!slot) return;
@@ -844,9 +793,10 @@ function renderPaidQueueControls(){
 }
 
 /* ====== Playback orchestration (refined for continuous paid sessions) ====== */
+/* ====== Playback orchestration (snapshot + dynamic append) ====== */
 async function startPaidQueuePlayback(){
   if (!paidQueue || paidQueue.length === 0) return;
-  if (paidSessionActive) return; // already playing paid queue
+  if (paidSessionActive) return;
 
   if (redirectTimeoutHandle){
     clearTimeout(redirectTimeoutHandle);
@@ -862,12 +812,10 @@ async function startPaidQueuePlayback(){
   try {
     if (typeof backendPause === 'function') await backendPause();
 
-    // Snapshot the queue at the moment playback starts
-    const snapshotQueue = paidQueue.slice();
-    const uris = snapshotQueue.map(i => i.uri);
-    const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
+    const uris = paidQueue.map(i => i.uri);
+    const totalMs = paidQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
 
-    const first = snapshotQueue[0];
+    const first = paidQueue[0];
     if (first && typeof setNowPlaying === 'function') {
       setNowPlaying(first.title, first.artist, first.albumArt);
     }
@@ -878,22 +826,9 @@ async function startPaidQueuePlayback(){
       if (typeof pollStatusOnce === 'function') await pollStatusOnce();
     }
 
-    if (result && result.ok) {
-      // Remove only the items that were in the snapshot (played items)
-      const playedCount = snapshotQueue.length;
-      if (playedCount > 0) {
-        paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
-      }
-      renderQueue();
-    } else if (!result) {
-      // If backendPlayUris not provided, assume local playback and remove snapshot items
-      const playedCount = snapshotQueue.length;
-      if (playedCount > 0) {
-        paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
-      }
+    if (!result || result.ok) {
       renderQueue();
     } else {
-      // Playback failed; do not remove queue items
       statusText.textContent = 'Playback/queue failed. Please try again.';
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
@@ -902,18 +837,16 @@ async function startPaidQueuePlayback(){
       return;
     }
 
-    // Schedule end-of-session actions after the snapshot duration
+    // Schedule end-of-session actions
     setTimeout(async () => {
       paidSessionActive = false;
 
       if (paidQueue.length > 0) {
-        // If new songs were added during the last session, start them immediately
         statusText.textContent = 'Starting next paid queue...';
         startPaidQueuePlayback();
         return;
       }
 
-      // Otherwise resume default playlist
       nowMode.textContent = 'Mode: DEFAULT';
       statusText.textContent = 'Resuming default playlist';
       renderPaidQueueControls();
@@ -928,10 +861,10 @@ async function startPaidQueuePlayback(){
         console.warn('resume failed', e);
       }
 
-      if (redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
       redirectTimeoutHandle = setTimeout(() => {
-        if (paidSessionActive) return;
-        window.location.href = 'index.html';
+        if (!paidSessionActive) {
+          window.location.href = 'index.html';
+        }
       }, 30000);
 
     }, totalMs + 2000);
@@ -945,6 +878,120 @@ async function startPaidQueuePlayback(){
     updateStartPlayButton();
   }
 }
+
+/* ====== Track selection for slots ====== */
+function selectTrackForSlot(slotIndex, track){
+  const slot = slots[slotIndex];
+  slot.selected = {
+    uri: track.uri,
+    title: track.title,
+    artist: track.artist,
+    duration_ms: track.duration_ms || 0,
+    albumArt: track.albumArt || ''
+  };
+
+  const info = document.getElementById(`selectedInfo-${slotIndex}`);
+  info.textContent = `${track.title} — ${track.artist}`;
+  updateSelectedList();
+}
+
+/* ====== Update selected list UI ====== */
+function updateSelectedList(){
+  const selected = slots.filter(s => s.selected).map(s => s.selected);
+  if(selected.length === 0){
+    selectedContainer.style.display = 'none';
+    payBtn.disabled = true;
+    addBtn.disabled = true;
+    return;
+  }
+  selectedContainer.style.display = 'block';
+  selectedList.innerHTML = '';
+  selected.forEach((t, idx) => {
+    const div = document.createElement('div');
+    div.className = 'selected-item';
+    div.innerHTML = `
+      <div style="min-width:0">
+        <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(t.title)}</div>
+        <div class="small">${escapeHtml(t.artist)}</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div class="small">${formatMs(t.duration_ms)}</div>
+        <button class="btn ghost" onclick="removeSelected('${t.uri}')">Remove</button>
+      </div>
+    `;
+    selectedList.appendChild(div);
+  });
+
+  if(currentMode === 'PAID'){
+    payBtn.disabled = true;
+    addBtn.style.display = 'inline-block';
+    addBtn.disabled = false;
+  } else {
+    payBtn.disabled = false;
+    addBtn.style.display = 'none';
+  }
+}
+
+/* ====== Commit selected tracks into live paid queue ====== */
+function commitSelectedToQueue() {
+  const selected = slots.filter(s => s.selected).map(s => s.selected);
+  if (selected.length === 0) {
+    alert('No tracks selected.');
+    return;
+  }
+
+  selected.forEach(track => addToPaidQueue(track));
+
+  // Clear selections after committing
+  slots.forEach(s => { s.selected = null; });
+  selectedList.innerHTML = '';
+  selectedContainer.style.display = 'none';
+  addBtn.disabled = true;
+}
+
+/* ====== Wire Add button to commit ====== */
+addBtn.onclick = commitSelectedToQueue;
+
+/* ====== Add to queue with enforcement (dynamic append) ====== */
+function addToPaidQueue(track) {
+  if (!paymentComplete || !currentPackage) {
+    alert('You must pay for a package before adding songs.');
+    return;
+  }
+
+  if (songsAddedThisSession >= currentPackage.maxSongs) {
+    alert(`You have reached the limit of ${currentPackage.maxSongs} songs for this package.`);
+    return;
+  }
+
+  paidQueue.push({
+    uri: track.uri,
+    title: track.title,
+    artist: track.artist,
+    duration_ms: track.duration_ms || 0,
+    albumArt: track.albumArt || '',
+    addedAt: Date.now()
+  });
+
+  songsAddedThisSession++;
+  renderQueue();
+
+  if (!paidSessionActive) {
+    statusText.textContent = 'Starting paid playback...';
+    startPaidQueuePlayback();
+  } else {
+    statusText.textContent = 'Track appended to paid queue';
+    if (typeof backendPlayUris === 'function') {
+      backendPlayUris([track.uri])
+        .then(res => console.log('Appended track to backend queue:', res))
+        .catch(err => {
+          console.error('Failed to append track:', err);
+          statusText.textContent = 'Append failed — track still queued locally';
+        });
+    }
+  }
+}
+
 
 /* ====== Search + results rendering (fixed wiring) ====== */
 async function searchTracks(){
@@ -1040,30 +1087,40 @@ async function pollStatus() {
 }
 
 
-function onPaymentSuccess(){
-  if (!currentPackage){
-    // If currentPackage not set (e.g., user returned from payment page),
-    // try to read from query string
-    applyPackageFromQuery({ autoMarkPaid: true });
-    if (!currentPackage){
-      alert('No package selected. Please start from Add Songs.');
+/* ====== Payment success handler ====== */
+async function onPaymentSuccess() {
+  try {
+    // Retrieve tracks stored during startPayment
+    const tracksJson = sessionStorage.getItem('tracks');
+    if (!tracksJson) {
+      console.warn('No tracks found in sessionStorage after payment.');
       return;
     }
+
+    const tracks = JSON.parse(tracksJson);
+
+    // Clear storage so it doesn’t replay on next visit
+    sessionStorage.removeItem('tracks');
+
+    // Add each track to the paid queue
+    tracks.forEach(track => addToPaidQueue(track));
+
+    // If no session is active, auto‑start playback
+    if (!paidSessionActive && paidQueue.length > 0) {
+      statusText.textContent = 'Starting paid playback...';
+      startPaidQueuePlayback();
+    } else {
+      statusText.textContent = 'Tracks added to paid queue';
+    }
+
+    console.log('Payment successful — tracks queued:', tracks.length);
+  } catch (e) {
+    console.error('onPaymentSuccess error:', e);
+    alert('Something went wrong adding your tracks after payment.');
   }
-
-  paymentComplete = true;
-  songsAddedThisSession = 0;
-
-  const searchRow = document.getElementById('searchRow');
-  if (searchRow) searchRow.style.display = 'flex';
-
-  statusText.textContent = `Payment complete for R${currentPackage.price}. You may now add up to ${currentPackage.maxSongs} songs.`;
 }
 
-/* Helper to parse price/songs from URL and set currentPackage.
-   If autoMarkPaid is true, it will also set paymentComplete = true.
-   Use this on payment.html or on return to main page.
-*/
+      
 function applyPackageFromQuery({ autoMarkPaid = false } = {}){
   const params = new URLSearchParams(window.location.search);
   const price = params.get('price');
@@ -1084,38 +1141,6 @@ function startAddFlow(){
   }
   const searchRow = document.getElementById('searchRow');
   if (searchRow) searchRow.style.display = 'flex';
-}
-
-/* ====== Add to queue with enforcement ====== */
-function addToPaidQueue(track){
-  if (!paymentComplete || !currentPackage){
-    alert('You must pay for a package before adding songs.');
-    return;
-  }
-
-  if (songsAddedThisSession >= currentPackage.maxSongs){
-    alert(`You have reached the limit of ${currentPackage.maxSongs} songs for this package.`);
-    return;
-  }
-
-  // Append to the existing paidQueue (do not overwrite)
-  paidQueue.push({
-    uri: track.uri,
-    title: track.title,
-    artist: track.artist,
-    duration_ms: track.duration_ms || 0,
-    albumArt: track.albumArt || '',
-    addedAt: Date.now()
-  });
-
-  songsAddedThisSession++;
-  renderQueue();
-
-  // If a paid session is already active, do NOT attempt to start a new one.
-  // The currently playing snapshot will finish and the newly added track will remain in the queue.
-  if (!paidSessionActive){
-    startPaidQueuePlayback();
-  }
 }
 
 
@@ -1186,8 +1211,7 @@ async function backendPlayUris(uris){
     async function backendResume(){
       try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
     }
-// frontend: poll status and update UI; when paidSessionActive show next paid track if available
-// frontend: poll status and update UI; when paidSessionActive show next paid track if available
+
 async function pollStatusOnce(){
   try{
     const res = await fetch('/api/status');
