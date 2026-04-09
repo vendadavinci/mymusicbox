@@ -400,34 +400,6 @@
   <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
 
     
-<script>
-  window.onSpotifyWebPlaybackSDKReady = () => {
-    const token = '<your access token>'; // must be a valid Spotify access token
-
-    // Create the player
-    const player = new Spotify.Player({
-      name: 'Musicbox Jukebox',
-      getOAuthToken: cb => { cb(token); },
-      volume: 0.8
-    });
-
-    // Add listeners
-    player.addListener('ready', ({ device_id }) => {
-      console.log('Ready with Device ID', device_id);
-      window.spotifyDeviceId = device_id;
-    });
-
-    player.addListener('not_ready', ({ device_id }) => {
-      console.log('Device ID has gone offline', device_id);
-    });
-
-    // Connect the player
-    player.connect();
-
-    // Expose globally if needed
-    window.player = player;
-  };
-</script>
 
   <script>
 /* ====== Paid queue app (fixed) ====== */
@@ -964,10 +936,32 @@ async function startPaidQueuePlayback() {
   }
 }
 
-player.addListener('ready', ({ device_id }) => {
-  console.log('Ready with Device ID', device_id);
-  window.spotifyDeviceId = device_id;
-});
+window.onSpotifyWebPlaybackSDKReady = () => {
+  const token = '<your access token>'; // must be valid with streaming + playback scopes
+
+  // Create the player
+  const player = new Spotify.Player({
+    name: 'Musicbox Jukebox',
+    getOAuthToken: cb => { cb(token); },
+    volume: 0.8
+  });
+
+  // Add listeners
+  player.addListener('ready', ({ device_id }) => {
+    console.log('Ready with Device ID', device_id);
+    window.spotifyDeviceId = device_id;
+  });
+
+  player.addListener('not_ready', ({ device_id }) => {
+    console.log('Device ID has gone offline', device_id);
+  });
+
+  // Connect the player
+  player.connect();
+
+  // Expose globally if needed
+  window.player = player;
+};
 
 
 /* ====== Search + results rendering (fixed wiring) ====== */
