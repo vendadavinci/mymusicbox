@@ -892,6 +892,19 @@ async function startPaidQueuePlayback() {
   }
 }
 
+const player = new Spotify.Player({
+  name: 'Musicbox Jukebox',
+  getOAuthToken: cb => { cb(tokens.access_token); },
+  volume: 0.8
+});
+
+player.addListener('ready', ({ device_id }) => {
+  console.log('Ready with Device ID', device_id);
+  window.spotifyDeviceId = device_id; 
+});
+
+player.connect();
+
 
 
 /* ====== Search + results rendering (fixed wiring) ====== */
@@ -1079,11 +1092,14 @@ async function backendPlayUris(uris){
   try {
     if (!uris || uris.length === 0) return { ok: false, error: 'no uris' };
 
+    const deviceId = window.spotifyDeviceId;
+    if (!deviceId) return { ok: false, error: 'no device_id available' };
+
     // 1) Ask backend to disable shuffle and repeat and play the first track
     let res = await fetch('/api/play', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ uris: [uris[0]], isPaid: true })
+      body: JSON.stringify({ uris: [uris[0]], device_id: deviceId, isPaid: true })
     });
     const playData = await res.json().catch(()=>({}));
     console.log('/api/play response:', res.status, playData);
@@ -1091,27 +1107,27 @@ async function backendPlayUris(uris){
       return { ok: false, error: 'play failed', details: playData };
     }
 
-    // small delay so device registers playback context
     await new Promise(r => setTimeout(r, 350));
 
-    // 2) Queue the rest sequentially and ensure each succeeded
+    // 2) Queue the rest sequentially
     for (let i = 1; i < uris.length; i++) {
-      const qRes = await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}`, { method: 'POST' });
+      const qRes = await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}&device_id=${encodeURIComponent(deviceId)}`, { method: 'POST' });
       const qData = await qRes.json().catch(()=>({}));
       console.log('/api/queue response:', qRes.status, qData);
       if (!qRes.ok) {
         return { ok: false, error: 'queue failed', uri: uris[i], details: qData };
       }
-      // tiny delay to avoid device race conditions
       await new Promise(r => setTimeout(r, 150));
     }
 
-    // 3) Safety: after a short delay, ask backend to check if Spotify advanced; if not, call next
-    // (backend should expose /api/player/check-and-next or we call /api/next directly)
+    // 3) Safety check
     setTimeout(async () => {
       try {
-        const check = await fetch('/api/player/check-and-next', { method: 'POST' });
-        // backend will return { advanced: true } if Spotify moved on, or will call next if stuck
+        const check = await fetch('/api/player/check-and-next', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ device_id: deviceId })
+        });
         console.log('/api/player/check-and-next', await check.json().catch(()=>({})));
       } catch (e) {
         console.warn('check-and-next failed', e);

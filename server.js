@@ -99,7 +99,14 @@ async function startPaidSession(uris, estimatedTotalMs = null) {
 
   try {
     await refreshAccessTokenIfNeeded();
-    const r = await fetch('https://api.spotify.com/v1/me/player/play', {
+
+    // Ensure you have set window.spotifyDeviceId when the Web Playback SDK is ready
+    const deviceId = window.spotifyDeviceId || null;
+    const playUrl = deviceId
+      ? `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`
+      : `https://api.spotify.com/v1/me/player/play`;
+
+    const r = await fetch(playUrl, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${tokens.access_token}`,
@@ -107,6 +114,7 @@ async function startPaidSession(uris, estimatedTotalMs = null) {
       },
       body: JSON.stringify({ uris })
     });
+
     if (r.status !== 204) {
       console.warn('spotify play returned', r.status, await r.text());
     }
@@ -134,8 +142,13 @@ async function startPaidSession(uris, estimatedTotalMs = null) {
     try {
       await refreshAccessTokenIfNeeded();
       const defaultPlaylistUri = process.env.DEFAULT_PLAYLIST_URI || null;
+      const deviceId = window.spotifyDeviceId || null;
+      const resumeUrl = deviceId
+        ? `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`
+        : `https://api.spotify.com/v1/me/player/play`;
+
       if (defaultPlaylistUri) {
-        await fetch('https://api.spotify.com/v1/me/player/play', {
+        await fetch(resumeUrl, {
           method: 'PUT',
           headers: {
             Authorization: `Bearer ${tokens.access_token}`,
@@ -144,7 +157,7 @@ async function startPaidSession(uris, estimatedTotalMs = null) {
           body: JSON.stringify({ context_uri: defaultPlaylistUri })
         });
       } else {
-        await fetch('https://api.spotify.com/v1/me/player/play', {
+        await fetch(resumeUrl, {
           method: 'PUT',
           headers: { Authorization: `Bearer ${tokens.access_token}` }
         });
