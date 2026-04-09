@@ -843,12 +843,13 @@ function renderPaidQueueControls(){
   updateStartPlayButton();
 }
 
-/* ====== Playback orchestration (single-track loop for continuous sessions) ====== */
-async function startPaidQueuePlayback() {
+/* ====== Playback orchestration (refined for continuous paid sessions) ====== */
+/* ====== Playback orchestration (snapshot + dynamic append) ====== */
+async function startPaidQueuePlayback(){
   if (!paidQueue || paidQueue.length === 0) return;
-  if (paidSessionActive) return; // already playing
+  if (paidSessionActive) return;
 
-  if (redirectTimeoutHandle) {
+  if (redirectTimeoutHandle){
     clearTimeout(redirectTimeoutHandle);
     redirectTimeoutHandle = null;
   }
@@ -862,58 +863,63 @@ async function startPaidQueuePlayback() {
   try {
     if (typeof backendPause === 'function') await backendPause();
 
-    // Take the next track only
-    const track = paidQueue.shift();
-    if (track && typeof setNowPlaying === 'function') {
-      setNowPlaying(track.title, track.artist, track.albumArt);
+    const uris = paidQueue.map(i => i.uri);
+    const totalMs = paidQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
+
+    const first = paidQueue[0];
+    if (first && typeof setNowPlaying === 'function') {
+      setNowPlaying(first.title, first.artist, first.albumArt);
     }
-    renderQueue();
 
     let result = null;
     if (typeof backendPlayUris === 'function') {
-      result = await backendPlayUris([track.uri]);
+      result = await backendPlayUris(uris);
       if (typeof pollStatusOnce === 'function') await pollStatusOnce();
     }
 
     if (!result || result.ok) {
-      // Schedule next track after this one finishes
-      const duration = track.duration_ms || 210000;
-      setTimeout(async () => {
-        paidSessionActive = false;
-
-        if (paidQueue.length > 0) {
-          statusText.textContent = 'Starting next paid track...';
-          startPaidQueuePlayback(); // pick up next track automatically
-        } else {
-          // Queue empty → resume default playlist
-          nowMode.textContent = 'Mode: DEFAULT';
-          statusText.textContent = 'Resuming default playlist';
-          renderPaidQueueControls();
-          updateStartPlayButton();
-
-          try {
-            if (typeof backendResume === 'function') {
-              await backendResume();
-              if (typeof pollStatusOnce === 'function') await pollStatusOnce();
-            }
-          } catch (e) {
-            console.warn('resume failed', e);
-          }
-
-          redirectTimeoutHandle = setTimeout(() => {
-            if (!paidSessionActive) {
-              window.location.href = 'index.html';
-            }
-          }, 30000);
-        }
-      }, duration + 2000);
+      renderQueue();
     } else {
-      statusText.textContent = 'Playback failed';
+      statusText.textContent = 'Playback/queue failed. Please try again.';
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       renderPaidQueueControls();
       updateStartPlayButton();
+      return;
     }
+
+    // Schedule end-of-session actions
+    setTimeout(async () => {
+      paidSessionActive = false;
+
+      if (paidQueue.length > 0) {
+        statusText.textContent = 'Starting next paid queue...';
+        startPaidQueuePlayback();
+        return;
+      }
+
+      nowMode.textContent = 'Mode: DEFAULT';
+      statusText.textContent = 'Resuming default playlist';
+      renderPaidQueueControls();
+      updateStartPlayButton();
+
+      try {
+        if (typeof backendResume === 'function') {
+          await backendResume();
+          if (typeof pollStatusOnce === 'function') await pollStatusOnce();
+        }
+      } catch (e) {
+        console.warn('resume failed', e);
+      }
+
+      redirectTimeoutHandle = setTimeout(() => {
+        if (!paidSessionActive) {
+          window.location.href = 'index.html';
+        }
+      }, 30000);
+
+    }, totalMs + 2000);
+
   } catch (err) {
     console.error('startPaidQueuePlayback error', err);
     statusText.textContent = 'Playback error';
@@ -923,6 +929,47 @@ async function startPaidQueuePlayback() {
     updateStartPlayButton();
   }
 }
+
+/* ====== Add to queue with enforcement (dynamic append) ====== */
+function addToPaidQueue(track) {
+  if (!paymentComplete || !currentPackage) {
+    alert('You must pay for a package before adding songs.');
+    return;
+  }
+
+  if (songsAddedThisSession >= currentPackage.maxSongs) {
+    alert(`You have reached the limit of ${currentPackage.maxSongs} songs for this package.`);
+    return;
+  }
+
+  paidQueue.push({
+    uri: track.uri,
+    title: track.title,
+    artist: track.artist,
+    duration_ms: track.duration_ms || 0,
+    albumArt: track.albumArt || '',
+    addedAt: Date.now()
+  });
+
+  songsAddedThisSession++;
+  renderQueue();
+
+  if (!paidSessionActive) {
+    statusText.textContent = 'Starting paid playback...';
+    startPaidQueuePlayback();
+  } else {
+    statusText.textContent = 'Track appended to paid queue';
+    if (typeof backendPlayUris === 'function') {
+      backendPlayUris([track.uri])
+        .then(res => console.log('Appended track to backend queue:', res))
+        .catch(err => {
+          console.error('Failed to append track:', err);
+          statusText.textContent = 'Append failed — track still queued locally';
+        });
+    }
+  }
+}
+
 
 /* ====== Search + results rendering (fixed wiring) ====== */
 async function searchTracks(){
@@ -1072,39 +1119,6 @@ function startAddFlow(){
   }
   const searchRow = document.getElementById('searchRow');
   if (searchRow) searchRow.style.display = 'flex';
-}
-
-/* ====== Add to queue with enforcement ====== */
-function addToPaidQueue(track) {
-  if (!paymentComplete || !currentPackage) {
-    alert('You must pay for a package before adding songs.');
-    return;
-  }
-
-  if (songsAddedThisSession >= currentPackage.maxSongs) {
-    alert(`You have reached the limit of ${currentPackage.maxSongs} songs for this package.`);
-    return;
-  }
-
-  paidQueue.push({
-    uri: track.uri,
-    title: track.title,
-    artist: track.artist,
-    duration_ms: track.duration_ms || 0,
-    albumArt: track.albumArt || '',
-    addedAt: Date.now()
-  });
-
-  songsAddedThisSession++;
-  renderQueue();
-
-  // Auto‑start playback if idle (but don’t block if already active)
-  if (!paidSessionActive) {
-    statusText.textContent = 'Starting paid playback...';
-    startPaidQueuePlayback();
-  } else {
-    statusText.textContent = 'Track added to paid queue';
-  }
 }
 
 
