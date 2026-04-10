@@ -1128,19 +1128,18 @@ function addToPaidQueue(track, sessionId){
 
   if (!paidSessionActive){
     statusText.textContent = 'Starting paid playback...';
-    startPaidQueuePlayback(sessionId); // new session
+    startPaidQueuePlayback(sessionId, false); // replace mode
   } else {
     statusText.textContent = 'Track appended to paid queue';
-    if (typeof backendPlayUris === 'function') {
-      backendPlayUris([track.uri], { sessionId, append: true }) // append mode
-        .then(res => console.log('Appended track to backend queue:', res))
-        .catch(err => {
-          console.error('Failed to append track:', err);
-          statusText.textContent = 'Append failed — track still queued locally';
-        });
-    }
+    backendPlayTracks([track], { sessionId, append: true })
+      .then(res => console.log('Appended track to backend queue:', res))
+      .catch(err => {
+        console.error('Failed to append track:', err);
+        statusText.textContent = 'Append failed — track still queued locally';
+      });
   }
 }
+
 
 /* ====== Optional: expose some functions for payment page to call ====== */
 window.applyPackageFromQuery = applyPackageFromQuery;
@@ -1150,52 +1149,33 @@ window.onPaymentSuccess = onPaymentSuccess;
 
 
 // frontend: play first track, disable shuffle/repeat, queue rest, and return {ok:true} on success
-async function backendPlayUris(uris){
+async function backendPlayTracks(tracks, { sessionId, append }) {
   try {
-    if (!uris || uris.length === 0) return { ok: false, error: 'no uris' };
+    if (!tracks || tracks.length === 0) return { ok: false, error: 'no tracks' };
 
-    // 1) Ask backend to disable shuffle and repeat and play the first track
-    let res = await fetch('/api/play', {
+    const payload = {
+      sessionId: sessionId || sessionStorage.getItem('sessionId'),
+      userId: sessionStorage.getItem('userId') || null,
+      append,
+      tracks // full track objects
+    };
+
+    const res = await fetch('/api/play', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ uris: [uris[0]], isPaid: true })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     });
-    const playData = await res.json().catch(()=>({}));
-    console.log('/api/play response:', res.status, playData);
+
+    const data = await res.json().catch(() => ({}));
+    console.log('/api/play response:', res.status, data);
+
     if (!res.ok) {
-      return { ok: false, error: 'play failed', details: playData };
+      return { ok: false, error: 'play failed', details: data };
     }
 
-    // small delay so device registers playback context
-    await new Promise(r => setTimeout(r, 350));
-
-    // 2) Queue the rest sequentially and ensure each succeeded
-    for (let i = 1; i < uris.length; i++) {
-      const qRes = await fetch(`/api/queue?uri=${encodeURIComponent(uris[i])}`, { method: 'POST' });
-      const qData = await qRes.json().catch(()=>({}));
-      console.log('/api/queue response:', qRes.status, qData);
-      if (!qRes.ok) {
-        return { ok: false, error: 'queue failed', uri: uris[i], details: qData };
-      }
-      // tiny delay to avoid device race conditions
-      await new Promise(r => setTimeout(r, 150));
-    }
-
-    // 3) Safety: after a short delay, ask backend to check if Spotify advanced; if not, call next
-    // (backend should expose /api/player/check-and-next or we call /api/next directly)
-    setTimeout(async () => {
-      try {
-        const check = await fetch('/api/player/check-and-next', { method: 'POST' });
-        // backend will return { advanced: true } if Spotify moved on, or will call next if stuck
-        console.log('/api/player/check-and-next', await check.json().catch(()=>({})));
-      } catch (e) {
-        console.warn('check-and-next failed', e);
-      }
-    }, 2000);
-
-    return { ok: true };
+    return { ok: true, details: data };
   } catch (e) {
-    console.error('backendPlayUris error', e);
+    console.error('backendPlayTracks error', e);
     return { ok: false, error: e.message };
   }
 }
