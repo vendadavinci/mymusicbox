@@ -620,13 +620,26 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
 
 
 app.get('/api/checkout-tracks', async (req, res) => {
-  const id = req.query.checkoutId;
-  if (!id) return res.status(400).json({ error: 'checkoutId required' });
+  try {
+    const id = req.query.checkoutId;
+    if (!id) {
+      return res.status(400).json({ error: 'checkoutId required' });
+    }
 
-  const entry = await Checkout.findOne({ checkoutId: id });
-  if (!entry) return res.status(404).json({ error: 'checkout not found or expired' });
+    const entry = await Checkout.findOne({ checkoutId: id });
+    if (!entry) {
+      return res.status(404).json({ error: 'checkout not found or expired' });
+    }
 
-  return res.json({ success: true, tracks: entry.tracks || [] });
+    // Always return JSON, even if tracks is empty
+    return res.json({
+      success: true,
+      tracks: entry.tracks || []
+    });
+  } catch (err) {
+    console.error('/api/checkout-tracks error', err);
+    return res.status(500).json({ error: 'server error', details: err.message });
+  }
 });
 
 
