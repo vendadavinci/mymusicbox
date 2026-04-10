@@ -658,14 +658,16 @@ const instructionNote = document.getElementById('instructionNote');
       return String(str).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
     }
 
-    function escapeForInline(obj){
-      return {
-        uri: obj.uri || '',
-        title: obj.title || '',
-        artist: obj.artist || '',
-        duration_ms: obj.duration_ms || 0
-      };
-    }
+function escapeForInline(obj){
+  return {
+    uri: obj.uri || '',
+    title: obj.title || '',
+    artist: obj.artist || '',
+    duration_ms: obj.duration_ms || 0,
+    albumArt: obj.albumArt || ''   // add fallback
+  };
+}
+
 
     (function prefillFromQuery(){
       const params = new URLSearchParams(window.location.search);
@@ -1258,6 +1260,7 @@ async function pollStatusOnce(){
         title: obj.title || '',
         artist: obj.artist || '',
         duration_ms: obj.duration_ms || 0
+        
       };
     }
 
@@ -1341,14 +1344,14 @@ async function pollStatusOnce(){
       }
     }
 
-    if (tracks && tracks.length > 0) {
-      paidQueue.push(...tracks.map(t => ({
-        uri: t.uri,
-        title: t.title || 'Unknown',
-        artist: t.artist || '',
-        duration_ms: t.duration_ms || 0,
-        addedAt: Date.now()
-      })));
+        paidQueue.push(...tracks.map(t => ({
+          uri: t.uri,
+          title: t.title || 'Unknown',
+          artist: t.artist || '',
+          duration_ms: t.duration_ms || 0,
+          albumArt: t.albumArt || '',   // ensure albumArt is present
+          addedAt: Date.now()
+        })));
 
       renderQueue();
 

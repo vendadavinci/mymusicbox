@@ -581,14 +581,16 @@ async function pollStatus() {
       return String(str).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
     }
 
-    function escapeForInline(obj){
-      return {
-        uri: obj.uri || '',
-        title: obj.title || '',
-        artist: obj.artist || '',
-        duration_ms: obj.duration_ms || 0
-      };
-    }
+function escapeForInline(obj){
+  return {
+    uri: obj.uri || '',
+    title: obj.title || '',
+    artist: obj.artist || '',
+    duration_ms: obj.duration_ms || 0,
+    albumArt: obj.albumArt || ''   // add fallback
+  };
+}
+
 
     (function prefillFromQuery(){
       const params = new URLSearchParams(window.location.search);
