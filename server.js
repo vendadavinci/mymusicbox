@@ -207,7 +207,7 @@ app.post('/api/play', async (req, res) => {
 
     const { tracks = [], device_id, sessionId, userId, append } = req.body || {};
     if (!Array.isArray(tracks) || tracks.length === 0) {
-      return res.status(400).json({ error: 'Missing tracks array' });
+      return res.status(400).json({ success: false, error: 'Missing tracks array' });
     }
 
     // Find or create session in Mongo
@@ -220,14 +220,14 @@ app.post('/api/play', async (req, res) => {
         packagePrice: 0,
         maxSongs: 0,
         songsAdded: 0,
-        active: true,
+        active: false,
         startedAt: new Date(),
         tracks: []
       });
     }
 
+    // Append mode
     if (append && session.active) {
-      // Append mode
       tracks.forEach((track, i) => {
         session.tracks.push(normalizeTrack(track, session.tracks.length + i + 1));
       });
@@ -236,13 +236,21 @@ app.post('/api/play', async (req, res) => {
 
       for (const track of tracks) {
         const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
-        await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
+        const qRes = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
+        if (!qRes.ok) {
+          console.warn('Spotify queue failed', track.uri, await qRes.text());
+        }
       }
 
-      return res.json({ ok: true, mode: 'append', sessionId });
+      return res.json({ success: true, mode: 'append', sessionId });
     }
 
-    // Replace mode
+    // Guard: if session is already active and not append, don’t restart playback
+    if (session.active) {
+      return res.json({ success: true, mode: 'already-active', sessionId });
+    }
+
+    // Replace mode (first start)
     session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
     session.songsAdded = tracks.length;
     session.active = true;
@@ -257,30 +265,72 @@ app.post('/api/play', async (req, res) => {
 
     if (!playR.ok) {
       const text = await playR.text().catch(() => '<no body>');
-      return res.status(playR.status).json({ error: 'play failed', details: text });
+      return res.status(playR.status).json({ success: false, error: 'play failed', details: text });
     }
 
-    return res.json({ ok: true, mode: 'replace', sessionId });
+    return res.json({ success: true, mode: 'replace', sessionId });
   } catch (err) {
     console.error('/api/play error', err);
-    return res.status(500).json({ error: 'play failed', details: err.message });
+    return res.status(500).json({ success: false, error: 'play failed', details: err.message });
+  }
+});
+
+// Pause/Resume/Skip protection
+app.post('/api/pause', async (req, res) => {
+  if (await isPaidSessionActive()) {
+    return res.status(403).json({ success: false, error: 'Cannot pause during paid session' });
+  }
+  res.json({ success: true });
+});
+
+app.post('/api/resume', async (req, res) => {
+  if (await isPaidSessionActive()) {
+    return res.status(403).json({ success: false, error: 'Cannot resume during paid session' });
+  }
+  res.json({ success: true });
+});
+
+app.post('/api/skip', async (req, res) => {
+  if (await isPaidSessionActive()) {
+    return res.status(403).json({ success: false, error: 'Cannot skip during paid session' });
+  }
+  res.json({ success: true });
+});
+
+app.get('/api/status', async (req, res) => {
+  try {
+    await refreshAccessTokenIfNeeded();
+    const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+
+    if (r.status === 204) {
+      return res.json({ success: true, mode: 'DEFAULT' });
+    }
+
+    if (!r.ok) {
+      return res.status(r.status).json({ success: false, error: 'Spotify status failed' });
+    }
+
+    const data = await r.json();
+    const activeSession = await PaidSession.findOne({ active: true });
+
+    res.json({
+      success: true,
+      mode: activeSession ? 'PAID' : 'DEFAULT',
+      sessionId: activeSession?.sessionId || null,
+      title: data.item?.name || 'Unknown',
+      artist: data.item?.artists?.map(a => a.name).join(', ') || '',
+      albumArt: data.item?.album?.images?.[0]?.url || '',
+      uri: data.item?.uri || null
+    });
+  } catch (err) {
+    console.error('/api/status error', err);
+    res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
 
 
-// Pause/Resume/Skip protection
-app.post('/api/pause', async (req, res) => {
-  if (paidSessionActive) return res.status(403).json({ error: 'Cannot pause during paid session' });
-  res.json({ ok: true });
-});
-app.post('/api/resume', async (req, res) => {
-  if (paidSessionActive) return res.status(403).json({ error: 'Cannot resume during paid session' });
-  res.json({ ok: true });
-});
-app.post('/api/skip', async (req, res) => {
-  if (paidSessionActive) return res.status(403).json({ error: 'Cannot skip during paid session' });
-  res.json({ ok: true });
-});
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
@@ -339,6 +389,11 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
+
+async function isPaidSessionActive() {
+  const activeSession = await PaidSession.findOne({ active: true });
+  return !!activeSession;
+}
 
 
 async function markTrackPlayed(sessionId, uri) {
@@ -649,39 +704,6 @@ app.get('/api/checkout-tracks', async (req, res) => {
     return res.status(500).json({ error: 'server error', details: err.message });
   }
 });
-
-
-
-app.get('/api/status', async (req, res) => {
-  try {
-    await refreshAccessTokenIfNeeded();
-    const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
-
-    if (r.status === 204) {
-      return res.json({ mode: 'DEFAULT' });
-    }
-
-    if (!r.ok) return res.status(r.status).json({ error: 'Spotify status failed' });
-
-    const data = await r.json();
-
-    // Example: check if any active PaidSession exists
-    const activeSession = await PaidSession.findOne({ active: true });
-
-    res.json({
-      mode: activeSession ? 'PAID' : 'DEFAULT',
-      title: data.item?.name,
-      artist: data.item?.artists?.map(a => a.name).join(', '),
-      albumArt: data.item?.album?.images?.[0]?.url
-    });
-  } catch (err) {
-    console.error('/api/status error', err);
-    res.status(500).json({ error: 'status failed' });
-  }
-});
-
 
 app.post('/api/queue', async (req, res) => {
   try {
