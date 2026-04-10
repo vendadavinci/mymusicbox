@@ -188,6 +188,7 @@ function getSession(sessionId) {
   return paidSessions.get(sessionId);
 }
 
+
 app.post('/api/play', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
@@ -271,7 +272,6 @@ app.post('/api/play', async (req, res) => {
     return res.status(500).json({ error: 'play failed', details: err.message });
   }
 });
-
 
 // Pause/Resume/Skip protection
 app.post('/api/pause', async (req, res) => {
