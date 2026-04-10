@@ -101,16 +101,17 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
   if (session.active) {
     // Append mode
     tracks.forEach((track, i) => {
-      session.tracks.push({
-        uri: track.uri,
-        title: track.title,
-        artist: track.artist,
-        durationMs: track.duration_ms,
-        albumArt: track.albumArt || '',
-        played: false,
-        orderIndex: session.songsAdded + i + 1,
-        addedAt: new Date()
-      });
+session.tracks.push({
+  uri: track.uri,
+  title: track.title || 'Unknown',
+  artist: track.artist || '',
+  durationMs: track.duration_ms || 0,
+  albumArt: track.albumArt || '',
+  played: false,
+  orderIndex: session.tracks.length + i + 1,
+  addedAt: new Date()
+});
+
     });
     session.songsAdded += tracks.length;
     await session.save();
@@ -241,16 +242,17 @@ app.post('/api/play', async (req, res) => {
     if (append && session.active) {
       // Append mode
       tracks.forEach((track, i) => {
-        session.tracks.push({
-          uri: track.uri,
-          title: track.title,
-          artist: track.artist,
-          durationMs: track.duration_ms,
-          albumArt: track.albumArt,
-          played: false,
-          orderIndex: session.songsAdded + i + 1,
-          addedAt: new Date()
-        });
+session.tracks.push({
+  uri: track.uri,
+  title: track.title || 'Unknown',
+  artist: track.artist || '',
+  durationMs: track.duration_ms || 0,
+  albumArt: track.albumArt || '',
+  played: false,
+  orderIndex: session.tracks.length + i + 1,
+  addedAt: new Date()
+});
+
       });
       session.songsAdded += tracks.length;
       await session.save();
@@ -765,12 +767,17 @@ app.post('/api/queue', async (req, res) => {
       });
     }
 
-    session.tracks.push({
-      uri,
-      played: false,
-      orderIndex: session.tracks.length + 1,
-      addedAt: new Date()
-    });
+session.tracks.push({
+  uri: track.uri,
+  title: track.title || 'Unknown',
+  artist: track.artist || '',
+  durationMs: track.duration_ms || 0,
+  albumArt: track.albumArt || '',
+  played: false,
+  orderIndex: session.tracks.length + i + 1,
+  addedAt: new Date()
+});
+
     session.songsAdded += 1;
     await session.save();
 
