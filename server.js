@@ -214,13 +214,13 @@ app.post('/api/play', async (req, res) => {
     }
 
     if (append && session.active) {
-      // Append mode: add tracks to Mongo session + Spotify queue
+      // Append mode
       tracks.forEach((track, i) => {
         session.tracks.push({
           uri: track.uri,
           title: track.title,
           artist: track.artist,
-          durationMs: track.duration_ms, // alias maps correctly
+          durationMs: track.duration_ms,
           albumArt: track.albumArt,
           played: false,
           orderIndex: session.songsAdded + i + 1,
@@ -238,7 +238,7 @@ app.post('/api/play', async (req, res) => {
       return res.json({ ok: true, mode: 'append', sessionId });
     }
 
-    // Replace mode: clear old tracks and start fresh
+    // Replace mode
     session.tracks = tracks.map((track, i) => ({
       uri: track.uri,
       title: track.title,
@@ -302,22 +302,55 @@ app.post('/api/reserve-tracks', async (req, res) => {
   }
 });
 
-// Payment webhook
+// Helper: always use Mongo, no in-memory map
+async function getSession(sessionId) {
+  let session = await PaidSession.findOne({ sessionId });
+  if (!session) {
+    session = new PaidSession({
+      sessionId,
+      active: false,
+      tracks: []
+    });
+    await session.save();
+  }
+  return session;
+}
+
 app.post('/webhook/payment-success', async (req, res) => {
   try {
-    const session = req.body;
-    const tracks = session.tracks || [];
+    const { sessionId, tracks = [] } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Missing sessionId' });
+    }
+
     const uris = tracks.map(t => t.uri);
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
+
     if (uris.length > 0) {
-      await startPaidSession(uris, estimatedTotalMs);
+      const session = await getSession(sessionId);
+      session.tracks = tracks.map((track, i) => ({
+        uri: track.uri,
+        title: track.title,
+        artist: track.artist,
+        durationMs: track.duration_ms,
+        albumArt: track.albumArt,
+        played: false,
+        orderIndex: i + 1,
+        addedAt: new Date()
+      }));
+      session.active = true;
+      await session.save();
+
+      await startPaidSession(sessionId, tracks, estimatedTotalMs);
     }
+
     res.json({ ok: true });
   } catch (err) {
     console.error('/webhook/payment-success error', err);
     res.status(500).json({ error: 'webhook handling failed' });
   }
 });
+
 
 // Search
 app.post('/api/search', async (req, res) => {
