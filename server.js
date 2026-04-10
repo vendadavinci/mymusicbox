@@ -94,59 +94,68 @@ let paidSessionActive = false;
 let paidSessionTimer = null;
 let paidQueue = [];
 
-async function startPaidSession(sessionId, uris, estimatedTotalMs = null) {
+async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
   let session = await PaidSession.findOne({ sessionId });
   if (!session) throw new Error('Session not found');
 
   if (session.active) {
-    // Append tracks to Mongo session
-    uris.forEach((uri, i) => {
+    // Append mode
+    tracks.forEach((track, i) => {
       session.tracks.push({
-        uri,
-        durationMs: 0,
+        uri: track.uri,
+        title: track.title,
+        artist: track.artist,
+        durationMs: track.duration_ms,
+        albumArt: track.albumArt || '',
         played: false,
-        orderIndex: session.tracks.length + i + 1,
+        orderIndex: session.songsAdded + i + 1,
         addedAt: new Date()
       });
     });
+    session.songsAdded += tracks.length;
     await session.save();
 
-    // Append to Spotify queue
+    // Queue in Spotify
     await refreshAccessTokenIfNeeded();
-    for (const uri of uris) {
-      const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`;
+    for (const track of tracks) {
+      const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}`;
       const qRes = await fetch(queueUrl, {
         method: 'POST',
         headers: { Authorization: `Bearer ${tokens.access_token}` }
       });
       if (!qRes.ok) {
-        console.warn('Spotify queue failed', uri, await qRes.text());
+        console.warn('Spotify queue failed', track.uri, await qRes.text());
       }
     }
 
     return { queued: true };
   }
 
-  // Replace mode: start fresh playback
+  // Replace mode: first start
   session.active = true;
-  session.tracks = uris.map((uri, i) => ({
-    uri,
-    durationMs: 0,
+  session.tracks = tracks.map((track, i) => ({
+    uri: track.uri,
+    title: track.title,
+    artist: track.artist,
+    durationMs: track.duration_ms,
+    albumArt: track.albumArt || '',
     played: false,
     orderIndex: i + 1,
     addedAt: new Date()
   }));
+  session.songsAdded = tracks.length;
   await session.save();
 
   try {
     await refreshAccessTokenIfNeeded();
-    const r = await fetch('https://api.spotify.com/v1/me/player/play', {
+    const playUrl = `https://api.spotify.com/v1/me/player/play`;
+    const r = await fetch(playUrl, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${tokens.access_token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ uris })
+      body: JSON.stringify({ uris: tracks.map(t => t.uri) })
     });
     if (r.status !== 204) {
       console.warn('spotify play returned', r.status, await r.text());
@@ -157,15 +166,14 @@ async function startPaidSession(sessionId, uris, estimatedTotalMs = null) {
 
   if (!estimatedTotalMs) {
     const perTrackMs = 3.5 * 60 * 1000;
-    estimatedTotalMs = uris.length * perTrackMs;
+    estimatedTotalMs = tracks.length * perTrackMs;
   }
 
   setTimeout(async () => {
-    // Check if more tracks are queued in Mongo
     const freshSession = await PaidSession.findOne({ sessionId });
     const remaining = freshSession.tracks.filter(t => !t.played);
     if (remaining.length > 0) {
-      await startPaidSession(sessionId, remaining.map(t => t.uri));
+      await startPaidSession(sessionId, remaining, null);
       return;
     }
 
@@ -195,7 +203,6 @@ async function startPaidSession(sessionId, uris, estimatedTotalMs = null) {
     }
   }, estimatedTotalMs + 2000);
 }
-
 
 // Helper to get or create a session
 function getSession(sessionId) {
