@@ -1338,20 +1338,28 @@ async function pollStatusOnce(){
       if (checkoutId) {
         const r = await fetch(`/api/checkout-tracks?checkoutId=${encodeURIComponent(checkoutId)}`);
         if (r.ok) {
-          const json = await r.json();
-          tracks = json.tracks || [];
+          try {
+            const json = await r.json();
+            tracks = json.tracks || [];
+          } catch (e) {
+            console.error('Response was not JSON:', e);
+          }
+        } else {
+          const text = await r.text();
+          console.error('Checkout-tracks failed:', r.status, text);
         }
       }
     }
 
-        paidQueue.push(...tracks.map(t => ({
-          uri: t.uri,
-          title: t.title || 'Unknown',
-          artist: t.artist || '',
-          duration_ms: t.duration_ms || 0,
-          albumArt: t.albumArt || '',   // ensure albumArt is present
-          addedAt: Date.now()
-        })));
+    if (tracks && tracks.length > 0) {
+      paidQueue.push(...tracks.map(t => ({
+        uri: t.uri,
+        title: t.title || 'Unknown',
+        artist: t.artist || '',
+        duration_ms: t.duration_ms || 0,
+        albumArt: t.albumArt || '',   // ensure albumArt is present
+        addedAt: Date.now()
+      })));
 
       renderQueue();
 
@@ -1362,7 +1370,6 @@ async function pollStatusOnce(){
         body: JSON.stringify({ tracks })
       });
 
-      // Remove the alert message — set a neutral status or skip entirely
       statusText.textContent = 'Tracks queued and ready to play.';
       pollStatusOnce();
     }
@@ -1371,6 +1378,7 @@ async function pollStatusOnce(){
   }
 })();
 </script>
+
 
 
    
