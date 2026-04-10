@@ -26,3 +26,4 @@ const PaidSessionSchema = new mongoose.Schema({
 });
 
 export const PaidSession = mongoose.model('PaidSession', PaidSessionSchema);
+
