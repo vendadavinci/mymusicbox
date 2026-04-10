@@ -310,33 +310,49 @@ app.post('/webhook/payment-success', async (req, res) => {
       return res.status(400).json({ error: 'Missing sessionId' });
     }
 
-    const uris = tracks.map(t => t.uri);
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    if (uris.length > 0) {
-      const session = await getSession(sessionId);
+    let session = await PaidSession.findOne({ sessionId });
+    if (!session) {
+      session = new PaidSession({
+        sessionId,
+        checkoutId: sessionId.split('-')[1],
+        userId: req.body.userId || null,
+        packagePrice: 0,
+        maxSongs: 0,
+        songsAdded: 0,
+        active: true,
+        startedAt: new Date(),
+        tracks: []
+      });
+    }
+
+    if (tracks.length > 0) {
       session.tracks = tracks.map((track, i) => ({
         uri: track.uri,
         title: track.title,
         artist: track.artist,
         durationMs: track.duration_ms,
-        albumArt: track.albumArt,
+        albumArt: track.albumArt || '',
         played: false,
         orderIndex: i + 1,
         addedAt: new Date()
       }));
+      session.songsAdded = tracks.length;
       session.active = true;
       await session.save();
 
+      // Kick off playback logic
       await startPaidSession(sessionId, tracks, estimatedTotalMs);
     }
 
     res.json({ ok: true });
   } catch (err) {
     console.error('/webhook/payment-success error', err);
-    res.status(500).json({ error: 'webhook handling failed' });
+    res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
+
 
 
 // Search
