@@ -1,6 +1,7 @@
 // server.js
 import dotenv from 'dotenv';
 dotenv.config();
+
 import crypto from 'crypto';
 import axios from 'axios';
 import express from 'express';
@@ -11,6 +12,7 @@ import mongoose from 'mongoose';
 import { PaidSession } from './models/paid_queue.js';
 import { Checkout } from './models/checkout.js'; 
 
+// ✅ Connect to MongoDB Atlas
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
@@ -18,26 +20,17 @@ mongoose.connect(process.env.MONGO_URI, {
 .then(() => console.log('✅ MongoDB connected'))
 .catch(err => console.error('❌ MongoDB connection error:', err));
 
-
-const { Sequelize, DataTypes } = require('sequelize');
-const sequelize = new Sequelize(process.env.DB_URI); 
-
 const app = express();
 app.use(express.json());
 
-
-sequelize.sync({ alter: true })
-  .then(() => console.log('Database synced with PaidSession and PaidTrack'))
-  .catch(err => console.error('DB sync error:', err));
-
-
-const checkoutStore = new Map(); // { checkoutId -> { tracks, expiresAt } }
+// In‑memory checkout store (optional fallback, can remove once you rely only on Mongo)
+const checkoutStore = new Map();
 function storeCheckout(checkoutId, payload, ttlMs = 1000 * 60 * 30) {
   checkoutStore.set(checkoutId, { payload, expiresAt: Date.now() + ttlMs });
-  // schedule cleanup
   setTimeout(() => checkoutStore.delete(checkoutId), ttlMs + 1000);
 }
 
+// Static file serving
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
