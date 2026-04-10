@@ -192,9 +192,9 @@ app.post('/api/play', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    const { uris, device_id, sessionId, userId, append } = req.body || {};
-    if (!Array.isArray(uris) || uris.length === 0) {
-      return res.status(400).json({ error: 'Missing uris array' });
+    const { tracks = [], device_id, sessionId, userId, append } = req.body || {};
+    if (!Array.isArray(tracks) || tracks.length === 0) {
+      return res.status(400).json({ error: 'Missing tracks array' });
     }
 
     // Find or create session in Mongo
@@ -215,19 +215,23 @@ app.post('/api/play', async (req, res) => {
 
     if (append && session.active) {
       // Append mode: add tracks to Mongo session + Spotify queue
-      uris.forEach((uri, i) => {
+      tracks.forEach((track, i) => {
         session.tracks.push({
-          uri,
+          uri: track.uri,
+          title: track.title,
+          artist: track.artist,
+          durationMs: track.duration_ms, // alias maps correctly
+          albumArt: track.albumArt,
           played: false,
           orderIndex: session.songsAdded + i + 1,
           addedAt: new Date()
         });
       });
-      session.songsAdded += uris.length;
+      session.songsAdded += tracks.length;
       await session.save();
 
-      for (const uri of uris) {
-        const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+      for (const track of tracks) {
+        const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
         await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
       }
 
@@ -235,13 +239,17 @@ app.post('/api/play', async (req, res) => {
     }
 
     // Replace mode: clear old tracks and start fresh
-    session.tracks = uris.map((uri, i) => ({
-      uri,
+    session.tracks = tracks.map((track, i) => ({
+      uri: track.uri,
+      title: track.title,
+      artist: track.artist,
+      durationMs: track.duration_ms,
+      albumArt: track.albumArt,
       played: false,
       orderIndex: i + 1,
       addedAt: new Date()
     }));
-    session.songsAdded = uris.length;
+    session.songsAdded = tracks.length;
     session.active = true;
     await session.save();
 
@@ -249,7 +257,7 @@ app.post('/api/play', async (req, res) => {
     const playR = await fetch(playUrl, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uris })
+      body: JSON.stringify({ uris: tracks.map(t => t.uri) })
     });
 
     if (!playR.ok) {
@@ -263,6 +271,7 @@ app.post('/api/play', async (req, res) => {
     return res.status(500).json({ error: 'play failed', details: err.message });
   }
 });
+
 
 // Pause/Resume/Skip protection
 app.post('/api/pause', async (req, res) => {
@@ -519,22 +528,27 @@ app.post('/api/create-payment', async (req, res) => {
 
     // automatically create a PaidSession linked to this checkout
     const sessionId = `${Date.now()}-${checkoutId}`;
-    await PaidSession.create({
-      sessionId,
-      userId,
-      checkoutId,
-      packagePrice: amount,
-      maxSongs: tracks.length,
-      songsAdded: 0,
-      active: false, // will be activated when playback starts
-      startedAt: new Date(),
-      tracks: tracks.map((uri, i) => ({
-        uri,
-        played: false,
-        orderIndex: i + 1,
-        addedAt: new Date()
-      }))
-    });
+        await PaidSession.create({
+          sessionId,
+          userId,
+          checkoutId,
+          packagePrice: amount,
+          maxSongs: tracks.length,
+          songsAdded: 0,
+          active: false,
+          startedAt: new Date(),
+          tracks: tracks.map((track, i) => ({
+            uri: track.uri,
+            title: track.title,
+            artist: track.artist,
+            durationMs: track.duration_ms,
+            albumArt: track.albumArt,
+            played: false,
+            orderIndex: i + 1,
+            addedAt: new Date()
+          }))
+        });
+
 
     return res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId, sessionId });
   } catch (err) {
