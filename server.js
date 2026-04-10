@@ -101,17 +101,7 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
   if (session.active) {
     // Append mode
     tracks.forEach((track, i) => {
-session.tracks.push({
-  uri: track.uri,
-  title: track.title || 'Unknown',
-  artist: track.artist || '',
-  durationMs: track.duration_ms || 0,
-  albumArt: track.albumArt || '',
-  played: false,
-  orderIndex: session.tracks.length + i + 1,
-  addedAt: new Date()
-});
-
+      session.tracks.push(normalizeTrack(track, session.tracks.length + i + 1));
     });
     session.songsAdded += tracks.length;
     await session.save();
@@ -134,23 +124,13 @@ session.tracks.push({
 
   // Replace mode: first start
   session.active = true;
-  session.tracks = tracks.map((track, i) => ({
-    uri: track.uri,
-    title: track.title,
-    artist: track.artist,
-    durationMs: track.duration_ms || 0,
-    albumArt: track.albumArt || '',
-    played: false,
-    orderIndex: i + 1,
-    addedAt: new Date()
-  }));
+  session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
   session.songsAdded = tracks.length;
   await session.save();
 
   try {
     await refreshAccessTokenIfNeeded();
-    const playUrl = `https://api.spotify.com/v1/me/player/play`;
-    const r = await fetch(playUrl, {
+    const r = await fetch('https://api.spotify.com/v1/me/player/play', {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${tokens.access_token}`,
@@ -170,37 +150,31 @@ session.tracks.push({
     estimatedTotalMs = tracks.length * perTrackMs;
   }
 
+  // Only check for session end, do not re‑queue
   setTimeout(async () => {
     const freshSession = await PaidSession.findOne({ sessionId });
+    if (!freshSession) return;
+
     const remaining = freshSession.tracks.filter(t => !t.played);
-    if (remaining.length > 0) {
-      await startPaidSession(sessionId, remaining, null);
-      return;
-    }
+    if (remaining.length === 0) {
+      freshSession.active = false;
+      await freshSession.save();
 
-    freshSession.active = false;
-    await freshSession.save();
-
-    try {
-      await refreshAccessTokenIfNeeded();
-      const defaultPlaylistUri = process.env.DEFAULT_PLAYLIST_URI || null;
-      if (defaultPlaylistUri) {
+      try {
+        await refreshAccessTokenIfNeeded();
+        const defaultPlaylistUri = process.env.DEFAULT_PLAYLIST_URI || null;
+        const body = defaultPlaylistUri ? { context_uri: defaultPlaylistUri } : {};
         await fetch('https://api.spotify.com/v1/me/player/play', {
           method: 'PUT',
           headers: {
             Authorization: `Bearer ${tokens.access_token}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ context_uri: defaultPlaylistUri })
+          body: JSON.stringify(body)
         });
-      } else {
-        await fetch('https://api.spotify.com/v1/me/player/play', {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${tokens.access_token}` }
-        });
+      } catch (err) {
+        console.warn('Error resuming default playlist after paid session', err);
       }
-    } catch (err) {
-      console.warn('Error resuming default playlist after paid session', err);
     }
   }, estimatedTotalMs + 2000);
 }
@@ -213,6 +187,19 @@ function getSession(sessionId) {
   return paidSessions.get(sessionId);
 }
 
+
+function normalizeTrack(track, orderIndex) {
+  return {
+    uri: track.uri,
+    title: track.title || 'Unknown',
+    artist: track.artist || '',
+    durationMs: track.duration_ms || 0,
+    albumArt: track.albumArt || '',
+    played: false,
+    orderIndex,
+    addedAt: new Date()
+  };
+}
 
 app.post('/api/play', async (req, res) => {
   try {
@@ -242,17 +229,7 @@ app.post('/api/play', async (req, res) => {
     if (append && session.active) {
       // Append mode
       tracks.forEach((track, i) => {
-session.tracks.push({
-  uri: track.uri,
-  title: track.title || 'Unknown',
-  artist: track.artist || '',
-  durationMs: track.duration_ms || 0,
-  albumArt: track.albumArt || '',
-  played: false,
-  orderIndex: session.tracks.length + i + 1,
-  addedAt: new Date()
-});
-
+        session.tracks.push(normalizeTrack(track, session.tracks.length + i + 1));
       });
       session.songsAdded += tracks.length;
       await session.save();
@@ -266,16 +243,7 @@ session.tracks.push({
     }
 
     // Replace mode
-    session.tracks = tracks.map((track, i) => ({
-      uri: track.uri,
-      title: track.title,
-      artist: track.artist,
-      durationMs: track.duration_ms || 0,
-      albumArt: track.albumArt,
-      played: false,
-      orderIndex: i + 1,
-      addedAt: new Date()
-    }));
+    session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
     session.songsAdded = tracks.length;
     session.active = true;
     await session.save();
@@ -298,6 +266,7 @@ session.tracks.push({
     return res.status(500).json({ error: 'play failed', details: err.message });
   }
 });
+
 
 // Pause/Resume/Skip protection
 app.post('/api/pause', async (req, res) => {
@@ -329,6 +298,7 @@ app.post('/api/reserve-tracks', async (req, res) => {
 });
 
 
+
 app.post('/webhook/payment-success', async (req, res) => {
   try {
     const { sessionId, tracks = [] } = req.body;
@@ -354,16 +324,7 @@ app.post('/webhook/payment-success', async (req, res) => {
     }
 
     if (tracks.length > 0) {
-      session.tracks = tracks.map((track, i) => ({
-        uri: track.uri,
-        title: track.title,
-        artist: track.artist,
-        durationMs: track.duration_ms || 0,
-        albumArt: track.albumArt || '',
-        played: false,
-        orderIndex: i + 1,
-        addedAt: new Date()
-      }));
+      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
       session.songsAdded = tracks.length;
       session.active = true;
       await session.save();
@@ -379,6 +340,16 @@ app.post('/webhook/payment-success', async (req, res) => {
   }
 });
 
+
+async function markTrackPlayed(sessionId, uri) {
+  const session = await PaidSession.findOne({ sessionId });
+  if (!session) return;
+  const track = session.tracks.find(t => t.uri === uri && !t.played);
+  if (track) {
+    track.played = true;
+    await session.save();
+  }
+}
 
 
 // Search
@@ -539,6 +510,7 @@ app.get('/callback', async (req, res) => {
 });
 
 
+
 app.post('/api/create-payment', async (req, res) => {
   try {
     console.log('/api/create-payment payload:', JSON.stringify(req.body));
@@ -590,27 +562,17 @@ app.post('/api/create-payment', async (req, res) => {
 
     // automatically create a PaidSession linked to this checkout
     const sessionId = `${Date.now()}-${checkoutId}`;
-        await PaidSession.create({
-          sessionId,
-          userId,
-          checkoutId,
-          packagePrice: amount,
-          maxSongs: tracks.length,
-          songsAdded: 0,
-          active: false,
-          startedAt: new Date(),
-          tracks: tracks.map((track, i) => ({
-            uri: track.uri,
-            title: track.title,
-            artist: track.artist,
-            durationMs: track.duration_ms || 0,
-            albumArt: track.albumArt,
-            played: false,
-            orderIndex: i + 1,
-            addedAt: new Date()
-          }))
-        });
-
+    await PaidSession.create({
+      sessionId,
+      userId,
+      checkoutId,
+      packagePrice: amount,
+      maxSongs: tracks.length,
+      songsAdded: 0,
+      active: false,
+      startedAt: new Date(),
+      tracks: tracks.map((track, i) => normalizeTrack(track, i + 1))
+    });
 
     return res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId, sessionId });
   } catch (err) {
@@ -673,16 +635,21 @@ app.get('/api/checkout-tracks', async (req, res) => {
       return res.status(404).json({ error: 'checkout not found or expired' });
     }
 
-    // Always return JSON, even if tracks is empty
+    // Ensure tracks are normalized before returning
+    const normalizedTracks = (entry.tracks || []).map((track, i) =>
+      normalizeTrack(track, i + 1)
+    );
+
     return res.json({
       success: true,
-      tracks: entry.tracks || []
+      tracks: normalizedTracks
     });
   } catch (err) {
     console.error('/api/checkout-tracks error', err);
     return res.status(500).json({ error: 'server error', details: err.message });
   }
 });
+
 
 
 app.get('/api/status', async (req, res) => {
@@ -720,16 +687,18 @@ app.post('/api/queue', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    const { uri, sessionId, userId } = req.body || {};
+    const { uri, sessionId, userId, title, artist, duration_ms, albumArt } = req.body || {};
     if (!uri || !sessionId) {
       return res.status(400).json({ error: 'Missing track URI or sessionId' });
     }
 
+    // Ensure shuffle is off
     await fetch('https://api.spotify.com/v1/me/player/shuffle?state=false', {
       method: 'PUT',
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
+    // Queue track in Spotify
     const r = await fetch(
       `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`,
       {
@@ -755,6 +724,7 @@ app.post('/api/queue', async (req, res) => {
       });
     }
 
+    // Find or create session
     let session = await PaidSession.findOne({ sessionId });
     if (!session) {
       session = new PaidSession({
@@ -767,17 +737,9 @@ app.post('/api/queue', async (req, res) => {
       });
     }
 
-session.tracks.push({
-  uri: track.uri,
-  title: track.title || 'Unknown',
-  artist: track.artist || '',
-  durationMs: track.duration_ms || 0,
-  albumArt: track.albumArt || '',
-  played: false,
-  orderIndex: session.tracks.length + i + 1,
-  addedAt: new Date()
-});
-
+    // Use normalizeTrack helper
+    const orderIndex = session.tracks.length + 1;
+    session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
     session.songsAdded += 1;
     await session.save();
 
@@ -787,6 +749,8 @@ session.tracks.push({
     res.status(500).json({ error: 'Queue request failed', details: err.message });
   }
 });
+
+
 
 
 /* -------------------------
