@@ -1338,15 +1338,10 @@ async function pollStatusOnce(){
       if (checkoutId) {
         const r = await fetch(`/api/checkout-tracks?checkoutId=${encodeURIComponent(checkoutId)}`);
         if (r.ok) {
-          try {
-            const json = await r.json();
-            tracks = json.tracks || [];
-          } catch (e) {
-            console.error('Response was not JSON:', e);
-          }
-        } else {
-          const text = await r.text();
-          console.error('Checkout-tracks failed:', r.status, text);
+          const json = await r.json();
+          tracks = json.tracks || [];
+          // store sessionId for later use
+          sessionStorage.setItem('sessionId', checkoutId);
         }
       }
     }
@@ -1357,7 +1352,7 @@ async function pollStatusOnce(){
         title: t.title || 'Unknown',
         artist: t.artist || '',
         duration_ms: t.duration_ms || 0,
-        albumArt: t.albumArt || '',   // ensure albumArt is present
+        albumArt: t.albumArt || '',
         addedAt: Date.now()
       })));
 
@@ -1367,10 +1362,13 @@ async function pollStatusOnce(){
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tracks })
+        body: JSON.stringify({ sessionId: sessionStorage.getItem('sessionId'), tracks })
       });
 
-      statusText.textContent = 'Tracks queued and ready to play.';
+      // Auto‑start playback
+      statusText.textContent = 'Starting paid playback...';
+      await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
+
       pollStatusOnce();
     }
   } catch (err) {
@@ -1378,6 +1376,7 @@ async function pollStatusOnce(){
   }
 })();
 </script>
+
 
 
 
