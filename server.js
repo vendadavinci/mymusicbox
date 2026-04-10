@@ -204,7 +204,7 @@ app.post('/api/play', async (req, res) => {
       session = new PaidSession({
         sessionId,
         userId,
-        checkoutId: sessionId.split('-')[1],
+        checkoutId: sessionId ? sessionId.split('-')[1] : null,
         packagePrice: 0,
         maxSongs: 0,
         songsAdded: 0,

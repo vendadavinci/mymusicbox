@@ -929,10 +929,11 @@ async function startPaidQueuePlayback(sessionId){
     updateStartPlayButton();
   }
 }
-
 async function backendPlayTracks(tracks, { sessionId, append }) {
   const payload = {
-    sessionId,
+    // ensure we always send a sessionId
+    sessionId: sessionId || sessionStorage.getItem('sessionId'),
+    userId: sessionStorage.getItem('userId') || null, // optional if you track userId
     append,
     tracks // full track objects
   };
