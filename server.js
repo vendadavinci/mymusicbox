@@ -302,20 +302,6 @@ app.post('/api/reserve-tracks', async (req, res) => {
   }
 });
 
-// Helper: always use Mongo, no in-memory map
-async function getSession(sessionId) {
-  let session = await PaidSession.findOne({ sessionId });
-  if (!session) {
-    session = new PaidSession({
-      sessionId,
-      active: false,
-      tracks: []
-    });
-    await session.save();
-  }
-  return session;
-}
-
 
 app.post('/webhook/payment-success', async (req, res) => {
   try {
