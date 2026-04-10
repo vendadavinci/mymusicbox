@@ -843,10 +843,9 @@ function renderPaidQueueControls(){
   updateStartPlayButton();
 }
 
-/* ====== Playback orchestration (refined for continuous paid sessions) ====== */
-async function startPaidQueuePlayback(){
+async function startPaidQueuePlayback(sessionId){
   if (!paidQueue || paidQueue.length === 0) return;
-  if (paidSessionActive) return; // already playing paid queue
+  if (paidSessionActive) return; // already playing
 
   if (redirectTimeoutHandle){
     clearTimeout(redirectTimeoutHandle);
@@ -862,7 +861,6 @@ async function startPaidQueuePlayback(){
   try {
     if (typeof backendPause === 'function') await backendPause();
 
-    // Snapshot the queue at the moment playback starts
     const snapshotQueue = paidQueue.slice();
     const uris = snapshotQueue.map(i => i.uri);
     const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
@@ -874,26 +872,16 @@ async function startPaidQueuePlayback(){
 
     let result = null;
     if (typeof backendPlayUris === 'function') {
-      result = await backendPlayUris(uris);
+      // Pass sessionId and append:false for a new session
+      result = await backendPlayUris(uris, { sessionId, append: false });
       if (typeof pollStatusOnce === 'function') await pollStatusOnce();
     }
 
     if (result && result.ok) {
-      // Remove only the items that were in the snapshot (played items)
-      const playedCount = snapshotQueue.length;
-      if (playedCount > 0) {
-        paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
-      }
       renderQueue();
     } else if (!result) {
-      // If backendPlayUris not provided, assume local playback and remove snapshot items
-      const playedCount = snapshotQueue.length;
-      if (playedCount > 0) {
-        paidQueue.splice(0, Math.min(playedCount, paidQueue.length));
-      }
       renderQueue();
     } else {
-      // Playback failed; do not remove queue items
       statusText.textContent = 'Playback/queue failed. Please try again.';
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
@@ -902,18 +890,15 @@ async function startPaidQueuePlayback(){
       return;
     }
 
-    // Schedule end-of-session actions after the snapshot duration
     setTimeout(async () => {
       paidSessionActive = false;
 
       if (paidQueue.length > 0) {
-        // If new songs were added during the last session, start them immediately
         statusText.textContent = 'Starting next paid queue...';
-        startPaidQueuePlayback();
+        startPaidQueuePlayback(sessionId);
         return;
       }
 
-      // Otherwise resume default playlist
       nowMode.textContent = 'Mode: DEFAULT';
       statusText.textContent = 'Resuming default playlist';
       renderPaidQueueControls();
@@ -1040,30 +1025,41 @@ async function pollStatus() {
 }
 
 
-function onPaymentSuccess(){
-  if (!currentPackage){
-    // If currentPackage not set (e.g., user returned from payment page),
-    // try to read from query string
-    applyPackageFromQuery({ autoMarkPaid: true });
-    if (!currentPackage){
-      alert('No package selected. Please start from Add Songs.');
+/* ====== Payment success handler ====== */
+async function onPaymentSuccess() {
+  try {
+    const tracksJson = sessionStorage.getItem('tracks');
+    if (!tracksJson) {
+      console.warn('No tracks found in sessionStorage after payment.');
       return;
     }
+
+    const tracks = JSON.parse(tracksJson);
+    sessionStorage.removeItem('tracks');
+
+    // Generate a sessionId: YYYY-MM-DD + checkoutId
+    const today = new Date().toISOString().slice(0,10);
+    const checkoutId = sessionStorage.getItem('checkoutId') || crypto.randomUUID();
+    const sessionId = `${today}-${checkoutId}`;
+    sessionStorage.setItem('sessionId', sessionId);
+
+    // Add each track to the paid queue
+    tracks.forEach(track => addToPaidQueue(track, sessionId));
+
+    if (!paidSessionActive && paidQueue.length > 0) {
+      statusText.textContent = 'Starting paid playback...';
+      startPaidQueuePlayback(sessionId);
+    } else {
+      statusText.textContent = 'Tracks added to paid queue';
+    }
+
+    console.log('Payment successful — tracks queued:', tracks.length, 'Session:', sessionId);
+  } catch (e) {
+    console.error('onPaymentSuccess error', e);
+    alert('Something went wrong adding your tracks after payment.');
   }
-
-  paymentComplete = true;
-  songsAddedThisSession = 0;
-
-  const searchRow = document.getElementById('searchRow');
-  if (searchRow) searchRow.style.display = 'flex';
-
-  statusText.textContent = `Payment complete for R${currentPackage.price}. You may now add up to ${currentPackage.maxSongs} songs.`;
 }
 
-/* Helper to parse price/songs from URL and set currentPackage.
-   If autoMarkPaid is true, it will also set paymentComplete = true.
-   Use this on payment.html or on return to main page.
-*/
 function applyPackageFromQuery({ autoMarkPaid = false } = {}){
   const params = new URLSearchParams(window.location.search);
   const price = params.get('price');
@@ -1086,8 +1082,8 @@ function startAddFlow(){
   if (searchRow) searchRow.style.display = 'flex';
 }
 
-/* ====== Add to queue with enforcement ====== */
-function addToPaidQueue(track){
+/* ====== Add to queue with enforcement (session-aware append) ====== */
+function addToPaidQueue(track, sessionId){
   if (!paymentComplete || !currentPackage){
     alert('You must pay for a package before adding songs.');
     return;
@@ -1098,7 +1094,6 @@ function addToPaidQueue(track){
     return;
   }
 
-  // Append to the existing paidQueue (do not overwrite)
   paidQueue.push({
     uri: track.uri,
     title: track.title,
@@ -1111,13 +1106,21 @@ function addToPaidQueue(track){
   songsAddedThisSession++;
   renderQueue();
 
-  // If a paid session is already active, do NOT attempt to start a new one.
-  // The currently playing snapshot will finish and the newly added track will remain in the queue.
   if (!paidSessionActive){
-    startPaidQueuePlayback();
+    statusText.textContent = 'Starting paid playback...';
+    startPaidQueuePlayback(sessionId); // new session
+  } else {
+    statusText.textContent = 'Track appended to paid queue';
+    if (typeof backendPlayUris === 'function') {
+      backendPlayUris([track.uri], { sessionId, append: true }) // append mode
+        .then(res => console.log('Appended track to backend queue:', res))
+        .catch(err => {
+          console.error('Failed to append track:', err);
+          statusText.textContent = 'Append failed — track still queued locally';
+        });
+    }
   }
 }
-
 
 /* ====== Optional: expose some functions for payment page to call ====== */
 window.applyPackageFromQuery = applyPackageFromQuery;

@@ -7,9 +7,28 @@ import express from 'express';
 import fetch from 'node-fetch';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
+import { PaidSession } from './models/paid_queue.js';
+import { Checkout } from './models/checkout.js'; 
+
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+.then(() => console.log('✅ MongoDB connected'))
+.catch(err => console.error('❌ MongoDB connection error:', err));
+
+
+const { Sequelize, DataTypes } = require('sequelize');
+const sequelize = new Sequelize(process.env.DB_URI); 
 
 const app = express();
 app.use(express.json());
+
+
+sequelize.sync({ alter: true })
+  .then(() => console.log('Database synced with PaidSession and PaidTrack'))
+  .catch(err => console.error('DB sync error:', err));
 
 
 const checkoutStore = new Map(); // { checkoutId -> { tracks, expiresAt } }
@@ -85,17 +104,33 @@ let paidSessionActive = false;
 let paidSessionTimer = null;
 let paidQueue = [];
 
-async function startPaidSession(uris, estimatedTotalMs = null) {
-  if (paidSessionActive) {
-    paidQueue.push(...uris.map(u => ({ uri: u, duration_ms: 0 })));
+async function startPaidSession(sessionId, uris, estimatedTotalMs = null) {
+  let session = await getSession(sessionId);
+
+  if (session.active) {
+    // Append tracks to Mongo session
+    uris.forEach((uri, i) => {
+      session.tracks.push({
+        uri,
+        durationMs: 0,
+        played: false,
+        orderIndex: session.tracks.length + i + 1,
+        addedAt: new Date()
+      });
+    });
+    await session.save();
     return { queued: true };
   }
 
-  paidSessionActive = true;
-  if (paidSessionTimer) {
-    clearTimeout(paidSessionTimer);
-    paidSessionTimer = null;
-  }
+  session.active = true;
+  session.tracks = uris.map((uri, i) => ({
+    uri,
+    durationMs: 0,
+    played: false,
+    orderIndex: i + 1,
+    addedAt: new Date()
+  }));
+  await session.save();
 
   try {
     await refreshAccessTokenIfNeeded();
@@ -119,17 +154,17 @@ async function startPaidSession(uris, estimatedTotalMs = null) {
     estimatedTotalMs = uris.length * perTrackMs;
   }
 
-  paidSessionTimer = setTimeout(async () => {
-    if (paidQueue.length > 0) {
-      const queuedUris = paidQueue.map(i => i.uri);
-      paidQueue = [];
-      paidSessionTimer = null;
-      await startPaidSession(queuedUris, null);
+  setTimeout(async () => {
+    // Check if more tracks are queued in Mongo
+    const freshSession = await getSession(sessionId);
+    const remaining = freshSession.tracks.filter(t => !t.played);
+    if (remaining.length > 0) {
+      await startPaidSession(sessionId, remaining.map(t => t.uri));
       return;
     }
 
-    paidSessionActive = false;
-    paidSessionTimer = null;
+    freshSession.active = false;
+    await freshSession.save();
 
     try {
       await refreshAccessTokenIfNeeded();
@@ -155,53 +190,84 @@ async function startPaidSession(uris, estimatedTotalMs = null) {
   }, estimatedTotalMs + 2000);
 }
 
+// Helper to get or create a session
+function getSession(sessionId) {
+  if (!paidSessions.has(sessionId)) {
+    paidSessions.set(sessionId, { tracks: [], active: false });
+  }
+  return paidSessions.get(sessionId);
+}
+
 app.post('/api/play', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    const { uris, device_id, isPaid } = req.body || {};
-
-    // Validate input
+    const { uris, device_id, sessionId, userId, append } = req.body || {};
     if (!Array.isArray(uris) || uris.length === 0) {
       return res.status(400).json({ error: 'Missing uris array' });
     }
 
-    const authHeader = { Authorization: `Bearer ${tokens.access_token}` };
-
-    // 1) Turn shuffle off on the target device (or active device if none provided)
-    const shuffleUrl = `https://api.spotify.com/v1/me/player/shuffle?state=false${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
-    const shuffleR = await fetch(shuffleUrl, { method: 'PUT', headers: authHeader });
-    if (!shuffleR.ok) {
-      const txt = await shuffleR.text().catch(()=>'<no body>');
-      console.warn('/api/play: shuffle off returned', shuffleR.status, txt);
-      // continue — not fatal for play, but log for debugging
+    // Find or create session in Mongo
+    let session = await PaidSession.findOne({ sessionId });
+    if (!session) {
+      session = new PaidSession({
+        sessionId,
+        userId,
+        checkoutId: sessionId.split('-')[1],
+        packagePrice: 0,
+        maxSongs: 0,
+        songsAdded: 0,
+        active: true,
+        startedAt: new Date(),
+        tracks: []
+      });
     }
 
-    // 2) Turn repeat off on the target device (prevents repeat-one sticking)
-    const repeatUrl = `https://api.spotify.com/v1/me/player/repeat?state=off${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
-    const repeatR = await fetch(repeatUrl, { method: 'PUT', headers: authHeader });
-    if (!repeatR.ok) {
-      const txt = await repeatR.text().catch(()=>'<no body>');
-      console.warn('/api/play: repeat off returned', repeatR.status, txt);
-      // continue
+    if (append && session.active) {
+      // Append mode: add tracks to Mongo session + Spotify queue
+      uris.forEach((uri, i) => {
+        session.tracks.push({
+          uri,
+          played: false,
+          orderIndex: session.songsAdded + i + 1,
+          addedAt: new Date()
+        });
+      });
+      session.songsAdded += uris.length;
+      await session.save();
+
+      for (const uri of uris) {
+        const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+        await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
+      }
+
+      return res.json({ ok: true, mode: 'append', sessionId });
     }
 
-    // 3) Start playback with the provided URIs
+    // Replace mode: clear old tracks and start fresh
+    session.tracks = uris.map((uri, i) => ({
+      uri,
+      played: false,
+      orderIndex: i + 1,
+      addedAt: new Date()
+    }));
+    session.songsAdded = uris.length;
+    session.active = true;
+    await session.save();
+
     const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
     const playR = await fetch(playUrl, {
       method: 'PUT',
-      headers: Object.assign({}, authHeader, { 'Content-Type': 'application/json' }),
+      headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ uris })
     });
 
     if (!playR.ok) {
-      const text = await playR.text().catch(()=>'<no body>');
-      console.error('/api/play failed', playR.status, text);
+      const text = await playR.text().catch(() => '<no body>');
       return res.status(playR.status).json({ error: 'play failed', details: text });
     }
 
-    // Successful start
-    return res.json({ ok: true });
+    return res.json({ ok: true, mode: 'replace', sessionId });
   } catch (err) {
     console.error('/api/play error', err);
     return res.status(500).json({ error: 'play failed', details: err.message });
@@ -292,6 +358,62 @@ app.post('/api/search', async (req, res) => {
   }
 });
 
+// =========================
+// Get full session details
+// =========================
+app.get('/api/session/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find the PaidSession by sessionId
+    const session = await PaidSession.findOne({ sessionId: id });
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Find the linked Checkout by checkoutId
+    const checkout = await Checkout.findOne({ checkoutId: session.checkoutId });
+
+    // Format response
+    const response = {
+      sessionId: session.sessionId,
+      userId: session.userId,
+      checkoutId: session.checkoutId,
+      packagePrice: session.packagePrice,
+      maxSongs: session.maxSongs,
+      songsAdded: session.songsAdded,
+      active: session.active,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt,
+      tracks: session.tracks.map(track => ({
+        uri: track.uri,
+        title: track.title,
+        artist: track.artist,
+        durationMs: track.durationMs,
+        albumArt: track.albumArt,
+        addedAt: track.addedAt,
+        played: track.played,
+        orderIndex: track.orderIndex
+      })),
+      checkout: checkout
+        ? {
+            amount: checkout.amount,
+            currency: checkout.currency,
+            description: checkout.description,
+            createdAt: checkout.createdAt,
+            expiresAt: checkout.expiresAt
+          }
+        : null
+    };
+
+    res.json(response);
+  } catch (err) {
+    console.error('/api/session/:id error', err);
+    res.status(500).json({ error: 'Failed to fetch session', details: err.message });
+  }
+});
+
+
 app.get('/auth', (req, res) => {
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const redirectUri = process.env.SPOTIFY_REDIRECT_URI;
@@ -355,10 +477,11 @@ app.get('/callback', async (req, res) => {
   }
 });
 
+
 app.post('/api/create-payment', async (req, res) => {
   try {
     console.log('/api/create-payment payload:', JSON.stringify(req.body));
-    const { amount, currency = 'ZAR', description = 'Musicbox Paid Session', tracks = [] } = req.body;
+    const { amount, currency = 'ZAR', description = 'Musicbox Paid Session', tracks = [], userId } = req.body;
 
     if (!process.env.YOCO_SECRET_KEY) {
       console.error('YOCO_SECRET_KEY missing in env');
@@ -393,17 +516,43 @@ app.post('/api/create-payment', async (req, res) => {
 
     console.log('Yoco response data:', response.data);
 
-    // store tracks server-side for fallback
-    storeCheckout(checkoutId, { tracks, amount, createdAt: Date.now() });
+    // persist checkout in Mongo
+    await Checkout.create({
+      checkoutId,
+      tracks,
+      amount,
+      currency,
+      description,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000) // 30 min TTL
+    });
 
-    return res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId });
+    // automatically create a PaidSession linked to this checkout
+    const sessionId = `${Date.now()}-${checkoutId}`;
+    await PaidSession.create({
+      sessionId,
+      userId,
+      checkoutId,
+      packagePrice: amount,
+      maxSongs: tracks.length,
+      songsAdded: 0,
+      active: false, // will be activated when playback starts
+      startedAt: new Date(),
+      tracks: tracks.map((uri, i) => ({
+        uri,
+        played: false,
+        orderIndex: i + 1,
+        addedAt: new Date()
+      }))
+    });
+
+    return res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId, sessionId });
   } catch (err) {
     console.error('/api/create-payment error:', err.response?.status, err.response?.data || err.message);
     const message = err.response?.data || err.message || 'Checkout creation failed';
     return res.status(500).json({ success: false, error: message });
   }
 });
-
 
 
 // create checkout route (adapted)
@@ -445,14 +594,17 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
   }
 });
 
-// endpoint to fetch stored tracks by checkoutId
-app.get('/api/checkout-tracks', (req, res) => {
+
+app.get('/api/checkout-tracks', async (req, res) => {
   const id = req.query.checkoutId;
   if (!id) return res.status(400).json({ error: 'checkoutId required' });
-  const entry = checkoutStore.get(id);
+
+  const entry = await Checkout.findOne({ checkoutId: id });
   if (!entry) return res.status(404).json({ error: 'checkout not found or expired' });
-  return res.json({ success: true, tracks: entry.payload.tracks || [] });
+
+  return res.json({ success: true, tracks: entry.tracks || [] });
 });
+
 
 app.get('/api/status', async (req, res) => {
   try {
@@ -462,15 +614,18 @@ app.get('/api/status', async (req, res) => {
     });
 
     if (r.status === 204) {
-      // 204 = no content (nothing playing)
-      return res.json({ mode: paidSessionActive ? 'PAID' : 'DEFAULT' });
+      return res.json({ mode: 'DEFAULT' });
     }
 
     if (!r.ok) return res.status(r.status).json({ error: 'Spotify status failed' });
 
     const data = await r.json();
+
+    // Example: check if any active PaidSession exists
+    const activeSession = await PaidSession.findOne({ active: true });
+
     res.json({
-      mode: paidSessionActive ? 'PAID' : 'DEFAULT',
+      mode: activeSession ? 'PAID' : 'DEFAULT',
       title: data.item?.name,
       artist: data.item?.artists?.map(a => a.name).join(', '),
       albumArt: data.item?.album?.images?.[0]?.url
@@ -481,22 +636,21 @@ app.get('/api/status', async (req, res) => {
   }
 });
 
+
 app.post('/api/queue', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    const uri = req.query.uri;
-    if (!uri) {
-      return res.status(400).json({ error: 'Missing track URI' });
+    const { uri, sessionId, userId } = req.body || {};
+    if (!uri || !sessionId) {
+      return res.status(400).json({ error: 'Missing track URI or sessionId' });
     }
 
-    // 🔹 Ensure shuffle is off before adding to queue
     await fetch('https://api.spotify.com/v1/me/player/shuffle?state=false', {
       method: 'PUT',
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // 🔹 Queue the track
     const r = await fetch(
       `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`,
       {
@@ -522,13 +676,33 @@ app.post('/api/queue', async (req, res) => {
       });
     }
 
-    res.json({ ok: true });
+    let session = await PaidSession.findOne({ sessionId });
+    if (!session) {
+      session = new PaidSession({
+        sessionId,
+        userId,
+        active: true,
+        tracks: [],
+        songsAdded: 0,
+        startedAt: new Date()
+      });
+    }
+
+    session.tracks.push({
+      uri,
+      played: false,
+      orderIndex: session.tracks.length + 1,
+      addedAt: new Date()
+    });
+    session.songsAdded += 1;
+    await session.save();
+
+    res.json({ ok: true, sessionId, queued: uri });
   } catch (err) {
     console.error('/api/queue error', err);
     res.status(500).json({ error: 'Queue request failed', details: err.message });
   }
 });
-
 
 
 /* -------------------------
