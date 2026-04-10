@@ -2,28 +2,27 @@
 import mongoose from 'mongoose';
 
 const PaidTrackSchema = new mongoose.Schema({
-  uri: String,
-  title: String,
-  artist: String,
-  durationMs: Number,
-  albumArt: String,
+  uri: { type: String, required: true },
+  title: { type: String, required: true },
+  artist: { type: String, required: true },
+  durationMs: { type: Number, alias: 'duration_ms', required: true },
+  albumArt: { type: String, required: true },
   addedAt: { type: Date, default: Date.now },
   played: { type: Boolean, default: false },
-  orderIndex: Number
-});
+  orderIndex: { type: Number }
+}, { _id: false });
 
 const PaidSessionSchema = new mongoose.Schema({
-  sessionId: { type: String, unique: true },
-  userId: String,
-  checkoutId: String,
-  packagePrice: Number,
-  maxSongs: Number,
+  sessionId: { type: String, unique: true, index: true },
+  userId: { type: String },
+  checkoutId: { type: String, index: true },
+  packagePrice: { type: Number },
+  maxSongs: { type: Number },
   songsAdded: { type: Number, default: 0 },
   active: { type: Boolean, default: true },
   startedAt: { type: Date, default: Date.now },
-  endedAt: Date,
+  endedAt: { type: Date },
   tracks: [PaidTrackSchema]
 });
 
 export const PaidSession = mongoose.model('PaidSession', PaidSessionSchema);
-
