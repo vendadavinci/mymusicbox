@@ -95,7 +95,8 @@ let paidSessionTimer = null;
 let paidQueue = [];
 
 async function startPaidSession(sessionId, uris, estimatedTotalMs = null) {
-  let session = await getSession(sessionId);
+  let session = await PaidSession.findOne({ sessionId });
+  if (!session) throw new Error('Session not found');
 
   if (session.active) {
     // Append tracks to Mongo session
@@ -109,9 +110,24 @@ async function startPaidSession(sessionId, uris, estimatedTotalMs = null) {
       });
     });
     await session.save();
+
+    // Append to Spotify queue
+    await refreshAccessTokenIfNeeded();
+    for (const uri of uris) {
+      const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`;
+      const qRes = await fetch(queueUrl, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokens.access_token}` }
+      });
+      if (!qRes.ok) {
+        console.warn('Spotify queue failed', uri, await qRes.text());
+      }
+    }
+
     return { queued: true };
   }
 
+  // Replace mode: start fresh playback
   session.active = true;
   session.tracks = uris.map((uri, i) => ({
     uri,
@@ -146,7 +162,7 @@ async function startPaidSession(sessionId, uris, estimatedTotalMs = null) {
 
   setTimeout(async () => {
     // Check if more tracks are queued in Mongo
-    const freshSession = await getSession(sessionId);
+    const freshSession = await PaidSession.findOne({ sessionId });
     const remaining = freshSession.tracks.filter(t => !t.played);
     if (remaining.length > 0) {
       await startPaidSession(sessionId, remaining.map(t => t.uri));
@@ -179,6 +195,7 @@ async function startPaidSession(sessionId, uris, estimatedTotalMs = null) {
     }
   }, estimatedTotalMs + 2000);
 }
+
 
 // Helper to get or create a session
 function getSession(sessionId) {
