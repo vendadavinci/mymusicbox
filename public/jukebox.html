@@ -862,7 +862,6 @@ async function startPaidQueuePlayback(sessionId){
     if (typeof backendPause === 'function') await backendPause();
 
     const snapshotQueue = paidQueue.slice();
-    const uris = snapshotQueue.map(i => i.uri);
     const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
 
     const first = snapshotQueue[0];
@@ -871,9 +870,9 @@ async function startPaidQueuePlayback(sessionId){
     }
 
     let result = null;
-    if (typeof backendPlayUris === 'function') {
+    if (typeof backendPlayTracks === 'function') {
       // Pass sessionId and append:false for a new session
-      result = await backendPlayUris(uris, { sessionId, append: false });
+      result = await backendPlayTracks(snapshotQueue, { sessionId, append: false });
       if (typeof pollStatusOnce === 'function') await pollStatusOnce();
     }
 
@@ -930,6 +929,24 @@ async function startPaidQueuePlayback(sessionId){
     updateStartPlayButton();
   }
 }
+
+async function backendPlayTracks(tracks, { sessionId, append }) {
+  const payload = {
+    sessionId,
+    append,
+    tracks // full track objects
+  };
+
+  const res = await fetch('/api/play', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  return res.json();
+}
+
+
 
 /* ====== Search + results rendering (fixed wiring) ====== */
 async function searchTracks(){
