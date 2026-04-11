@@ -21,7 +21,13 @@ const CheckoutSchema = new mongoose.Schema({
   cancelUrl: { type: String },
   createdAt: { type: Date, default: Date.now },
   tracks: [PaidTrackSchema],
-  sessionRef: { type: mongoose.Schema.Types.ObjectId, ref: 'PaidSession' } // durable link back
+
+  // Durable link back to the session
+  sessionRef: { type: mongoose.Schema.Types.ObjectId, ref: 'PaidSession' },
+
+  // NEW: markers for idempotency and playback
+  processedAt: { type: Date },          // when this checkout was consumed into a session
+  playbackStartedAt: { type: Date }     // when playback was triggered for this checkout
 });
 
 export const Checkout = mongoose.model('Checkout', CheckoutSchema);

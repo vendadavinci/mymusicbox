@@ -24,7 +24,8 @@ const PaidSessionSchema = new mongoose.Schema({
   startedAt: { type: Date, default: Date.now },
   endedAt: { type: Date },
   tracks: [PaidTrackSchema],
-  processedAt: { type: Date } // marker for idempotency
+  processedAt: { type: Date }, // marker for idempotency
+  playbackStartedAt: { type: Date } // NEW: marker for Spotify playback trigger
 });
 
 export const PaidSession = mongoose.model('PaidSession', PaidSessionSchema);
