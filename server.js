@@ -904,17 +904,38 @@ setInterval(async () => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    if (r.ok) {
-      const data = await r.json();
-      if (data?.item?.uri) {
-        await markTrackPlayed(activeSession.sessionId, data.item.uri);
+    // Handle 204 (no content)
+    if (r.status === 204) {
+      return; // nothing playing
+    }
+
+    // Handle non-OK responses
+    if (!r.ok) {
+      const text = await r.text().catch(() => '<no body>');
+      console.warn(`Spotify status failed ${r.status}: ${text}`);
+      return;
+    }
+
+    // Defensive JSON parse
+    let data = null;
+    try {
+      const text = await r.text();
+      if (text && text.trim().length > 0) {
+        data = JSON.parse(text);
       }
+    } catch (err) {
+      console.warn('Spotify returned empty or invalid JSON', err);
+      return;
+    }
+
+    // If we got valid data, mark track played
+    if (data?.item?.uri) {
+      await markTrackPlayed(activeSession.sessionId, data.item.uri);
     }
   } catch (err) {
     console.error('Poller error:', err);
   }
 }, 5000); // every 5 seconds
-
 
 
 /* -------------------------
