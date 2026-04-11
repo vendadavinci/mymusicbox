@@ -825,7 +825,6 @@ function renderQueue() {
   try {
     if (!paidQueueEl) return;
 
-    // Ensure paidQueue is an array
     if (!Array.isArray(paidQueue)) paidQueue = [];
 
     // Persist local queue so refresh doesn't lose it
@@ -835,7 +834,6 @@ function renderQueue() {
       console.warn('Could not persist paidQueue to sessionStorage', e);
     }
 
-    // Clear container using fragment for performance
     paidQueueEl.innerHTML = '';
     const frag = document.createDocumentFragment();
 
@@ -873,7 +871,7 @@ function renderQueue() {
       left.appendChild(titleDiv);
       left.appendChild(metaDiv);
 
-      // Right column: duration, played indicator, remove button
+      // Right column: duration + played indicator
       const right = document.createElement('div');
       right.style.display = 'flex';
       right.style.flexDirection = 'column';
@@ -887,45 +885,13 @@ function renderQueue() {
       durationDiv.style.color = '#333';
       durationDiv.textContent = formatMs(item.duration_ms || 0);
 
-      // Played indicator
       const playedDiv = document.createElement('div');
       playedDiv.style.fontSize = '0.75em';
       playedDiv.style.color = item.played ? '#0a0' : '#999';
       playedDiv.textContent = item.played ? 'Played' : 'Queued';
 
-      // Remove button
-      const removeBtn = document.createElement('button');
-      removeBtn.type = 'button';
-      removeBtn.className = 'queue-remove-btn';
-      removeBtn.style.marginTop = '6px';
-      removeBtn.style.fontSize = '0.8em';
-      removeBtn.textContent = 'Remove';
-      removeBtn.setAttribute('aria-label', `Remove ${item.title}`);
-      removeBtn.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        // Remove from local queue
-        const idx = Number(wrapper.dataset.index);
-        if (!Number.isFinite(idx)) return;
-        const removed = paidQueue.splice(idx, 1);
-        // Persist change
-        try { sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue)); } catch (e) { /* ignore */ }
-        // Update counters and UI
-        songsAddedThisSession = Math.max(0, (songsAddedThisSession || 0) - (removed.length || 1));
-        renderQueue();
-        // Optionally inform backend to remove from session if already sent
-        if (typeof backendRemoveTrack === 'function') {
-          try {
-            const sid = sessionStorage.getItem('sessionId');
-            backendRemoveTrack(removed[0], { sessionId: sid }).catch(err => {
-              console.warn('backendRemoveTrack failed', err);
-            });
-          } catch (e) { /* ignore */ }
-        }
-      });
-
       right.appendChild(durationDiv);
       right.appendChild(playedDiv);
-      right.appendChild(removeBtn);
 
       wrapper.appendChild(left);
       wrapper.appendChild(right);
@@ -935,11 +901,9 @@ function renderQueue() {
 
     paidQueueEl.appendChild(frag);
 
-    // Update counts and duration text defensively
     if (queueCount) queueCount.textContent = `Paid queue: ${paidQueue.length}`;
     if (queueDurationText) queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
 
-    // Next title
     if (nextTitleEl) {
       if (paidQueue.length > 0) {
         const next = paidQueue[0];
@@ -949,7 +913,6 @@ function renderQueue() {
       }
     }
 
-    // Call existing UI hooks
     if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
@@ -958,43 +921,6 @@ function renderQueue() {
   }
 }
 
-function removeFromQueue(index){
-  alert('Paid tracks cannot be removed once queued.');
-}
-
-/* Start Play button state */
-function updateStartPlayButton(){
-  const btn = document.getElementById('startPlayBtn');
-  if (btn) {
-    btn.disabled = (paidQueue.length === 0 || paidSessionActive);
-    btn.textContent = paidSessionActive ? 'Playing' : 'Start Play';
-  }
-}
-
-/* Render controls area (JS-managed button) */
-function renderPaidQueueControls(){
-  const controls = document.getElementById('paidQueueControls');
-  if (!controls) return;
-
-  controls.innerHTML = '';
-
-  const startBtn = document.createElement('button');
-  startBtn.className = 'btn';
-  startBtn.id = 'startPlayBtn';
-  startBtn.textContent = 'Start Play';
-  startBtn.onclick = () => {
-    if (paidQueue.length === 0) return;
-    startPaidQueuePlayback();
-  };
-
-  const spacer = document.createElement('div');
-  spacer.style.flex = '1';
-
-  controls.appendChild(startBtn);
-  controls.appendChild(spacer);
-
-  updateStartPlayButton();
-}
 
 // Helper: fetch with timeout and one retry
 async function fetchWithTimeout(url, opts = {}, timeout = 10000, retry = true) {
