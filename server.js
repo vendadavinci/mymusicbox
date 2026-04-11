@@ -335,14 +335,14 @@ app.get('/api/status', async (req, res) => {
       albumArt: data.item?.album?.images?.[0]?.url || '',
       uri: data.item?.uri || null,
       isPlaying: data.is_playing || false,
-      progressMs: data.progress_ms || 0
+      progressMs: data.progress_ms || 0,
+      durationMs: data.item?.duration_ms || 0   // ✅ add total track length
     });
   } catch (err) {
     console.error('/api/status error', err);
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
-
 
 
 // Reserve tracks
@@ -426,9 +426,9 @@ async function markTrackPlayed(sessionId, uri) {
       track.played = true;
       session.playedCount = (session.playedCount || 0) + 1;
 
-      // End session if all tracks are played
       if (session.playedCount >= session.tracks.length) {
         session.active = false;
+        session.endedAt = new Date();
       }
 
       await session.save();
@@ -438,6 +438,7 @@ async function markTrackPlayed(sessionId, uri) {
     console.error('markTrackPlayed error:', err);
   }
 }
+
 
 
 // Search
@@ -827,6 +828,7 @@ setInterval(async () => {
     console.error('Poller error:', err);
   }
 }, 5000); // every 5 seconds
+
 
 
 /* -------------------------
