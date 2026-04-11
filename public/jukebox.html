@@ -1241,7 +1241,7 @@ function showResumePaymentNotice(pending) {
     notice.style.margin = '8px 0';
     document.querySelector('.right-col')?.prepend(notice);
   }
-  notice.innerHTML = `You have a pending payment for ${pending.tracks.length} tracks. <button class="btn" onclick="resumePendingPayment()">Resume</button>`;
+  notice.innerHTML = `You have a pending payment for ${pending.tracks.length} tracks. `;
 }
 
 async function resumePendingPayment() {
