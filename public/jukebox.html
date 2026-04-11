@@ -517,6 +517,21 @@ const instructionNote = document.getElementById('instructionNote');
       return wrapper;
     }
 
+      // Idempotency + pending submission helpers
+function makeId() {
+  return 'id-' + Math.random().toString(36).slice(2, 12);
+}
+function savePendingSubmission(payload) {
+  try { sessionStorage.setItem('pendingSubmission', JSON.stringify(payload)); } catch (e) { /* ignore */ }
+}
+function getPendingSubmission() {
+  try { const s = sessionStorage.getItem('pendingSubmission'); return s ? JSON.parse(s) : null; } catch (e) { return null; }
+}
+function clearPendingSubmission() {
+  try { sessionStorage.removeItem('pendingSubmission'); } catch (e) { /* ignore */ }
+}
+
+
     async function doSearch(slotIndex){
       const q = document.getElementById(`input-${slotIndex}`).value.trim();
       const resultsEl = document.getElementById(`results-${slotIndex}`);
@@ -704,12 +719,32 @@ function escapeForInline(obj){
       }
     })();
 
-async function startPayment(){
-  if(!currentPackage) return;
+
+
+async function startPayment() {
+  if (!currentPackage) return;
   const selected = slots.filter(s => s.selected).map(s => s.selected);
-  if(selected.length === 0) return alert('Please select at least one track.');
+  if (selected.length === 0) return alert('Please select at least one track.');
 
   const amountInCents = Math.round((currentPackage.price || 0) * 100);
+  const idempotencyKey = makeId();
+
+  const pending = {
+    id: idempotencyKey,
+    createdAt: Date.now(),
+    tracks: selected,
+    package: currentPackage
+  };
+
+  // Persist pending submission locally before contacting backend
+  savePendingSubmission(pending);
+
+  // UI lock
+  const payBtn = document.getElementById('payBtn');
+  if (payBtn) {
+    payBtn.disabled = true;
+    payBtn.textContent = 'Processing…';
+  }
 
   const payload = {
     amount: amountInCents,
@@ -718,58 +753,72 @@ async function startPayment(){
     tracks: selected
   };
 
-  payBtn.disabled = true;
-  payBtn.textContent = 'Processing…';
-
-  try{
+  try {
     const res = await fetch('/api/create-payment', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey
+      },
       body: JSON.stringify(payload)
     });
 
     const text = await res.text();
-    console.log('Raw /api/create-payment response text:', text);
-
     let data;
-    try { data = JSON.parse(text); } catch(e) {
-      throw new Error('Invalid JSON from backend: ' + text);
-    }
+    try { data = JSON.parse(text); } catch (e) { throw new Error('Invalid JSON from backend: ' + text); }
 
-    if(data && data.checkoutUrl){
-      sessionStorage.setItem('tracks', JSON.stringify(selected));
-      if(data.checkoutId) sessionStorage.setItem('checkoutId', data.checkoutId);
-
+    if (data && data.checkoutUrl) {
+      // store minimal checkout info so we can resume if user refreshes during payment
+      if (data.checkoutId) sessionStorage.setItem('checkoutId', data.checkoutId);
+      // redirect to payment provider
       window.location.href = data.checkoutUrl;
       return;
     }
 
-    console.error('create-payment returned:', data);
-    throw new Error(data.error || 'No checkout URL returned');
-
-  }catch(err){
+    throw new Error(data && data.error ? data.error : 'No checkout URL returned');
+  } catch (err) {
     console.error('startPayment error:', err);
     alert('Payment initialization failed. Try again.');
-    payBtn.disabled = false;
-    payBtn.textContent = 'Pay';
+    if (payBtn) {
+      payBtn.disabled = false;
+      payBtn.textContent = 'Pay';
+    }
   }
 }
+
+
 
 // initPage: fetch server status and merge canonical session into local queue
 async function initPage() {
   try {
     const res = await fetch('/api/status');
     const data = await res.json();
-    if (!data.success) return;
+    if (!data || !data.success) return;
+
+    const pending = getPendingSubmission();
 
     if (data.mode === 'PAID') {
       // persist canonical session id and merge server tracks into local queue
       sessionStorage.setItem('sessionId', data.sessionId);
       mergeServerQueueIntoLocal(data.tracks || []);
-      // update now playing UI and progress bar
       if (typeof updateNowPlayingUI === 'function') updateNowPlayingUI(data);
-      // mark local state as paid session active
       paidSessionActive = true;
+
+      // If we have a pending submission, check whether server already has those tracks
+      if (pending && Array.isArray(pending.tracks) && (data.tracks || []).length > 0) {
+        const serverUris = new Set((data.tracks || []).map(t => t.uri));
+        const allPresent = pending.tracks.every(t => serverUris.has(t.uri));
+        // If server already has them, clear pending submission and UI
+        if (allPresent || data.sessionId === pending.id) {
+          clearPendingSubmission();
+          // clear selected UI
+          selectedTracks = [];
+          const selectedContainer = document.getElementById('selectedContainer');
+          const selectedList = document.getElementById('selectedList');
+          if (selectedContainer) selectedContainer.style.display = 'none';
+          if (selectedList) selectedList.innerHTML = '';
+        }
+      }
     } else {
       // no server session: restore any local queue persisted earlier
       const local = sessionStorage.getItem('paidQueue');
@@ -780,6 +829,11 @@ async function initPage() {
       paidQueue = paidQueue.filter(t => !t.played);
       renderQueue();
       paidSessionActive = false;
+
+      // If there is a pending submission, show a resume notice instead of auto-posting
+      if (pending) {
+        showResumePaymentNotice(pending);
+      }
     }
   } catch (e) {
     console.warn('initPage /api/status failed', e);
@@ -790,6 +844,10 @@ async function initPage() {
       paidQueue = paidQueue.filter(t => !t.played);
       renderQueue();
     }
+
+    // If pending submission exists, show resume notice
+    const pending = getPendingSubmission();
+    if (pending) showResumePaymentNotice(pending);
   }
 }
 
@@ -1173,6 +1231,42 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     statusText && (statusText.textContent = 'Playback error');
     renderPaidQueueControls && renderPaidQueueControls();
     updateStartPlayButton && updateStartPlayButton();
+  }
+}
+
+function showResumePaymentNotice(pending) {
+  let notice = document.getElementById('pendingNotice');
+  if (!notice) {
+    notice = document.createElement('div');
+    notice.id = 'pendingNotice';
+    notice.className = 'note';
+    notice.style.margin = '8px 0';
+    document.querySelector('.right-col')?.prepend(notice);
+  }
+  notice.innerHTML = `You have a pending payment for ${pending.tracks.length} tracks. <button class="btn" onclick="resumePendingPayment()">Resume</button>`;
+}
+
+async function resumePendingPayment() {
+  const pending = getPendingSubmission();
+  if (!pending) return;
+  // Option: call backend to re-create or resume checkout using pending.id as idempotency key
+  try {
+    const res = await fetch('/api/resume-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': pending.id },
+      body: JSON.stringify({ tracks: pending.tracks, package: pending.package })
+    });
+    const data = await res.json();
+    if (data && data.checkoutUrl) {
+      window.location.href = data.checkoutUrl;
+    } else {
+      // If server already enqueued, clear locally
+      clearPendingSubmission();
+      document.getElementById('pendingNotice')?.remove();
+      await initPage();
+    }
+  } catch (err) {
+    console.warn('resumePendingPayment failed', err);
   }
 }
 
@@ -1907,39 +2001,117 @@ async function pollStatusOnce(){
 <script>
 (async function handlePostPayment() {
   try {
-    let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+    // Try to read a pending submission (preferred) or legacy 'tracks' storage
+    const pendingRaw = sessionStorage.getItem('pendingSubmission');
+    let pending = null;
+    try { pending = pendingRaw ? JSON.parse(pendingRaw) : null; } catch (e) { pending = null; }
 
-    if ((!tracks || tracks.length === 0) && location.search) {
-      const params = new URLSearchParams(location.search);
-      const checkoutId = params.get('checkoutId') || sessionStorage.getItem('checkoutId');
-      if (checkoutId) {
-        const r = await fetch(`/api/checkout-tracks?checkoutId=${encodeURIComponent(checkoutId)}`);
-        if (r.ok) {
-          const json = await r.json();
-          tracks = json.tracks || [];
-        }
-      }
+    // Legacy fallback: single 'tracks' + optional checkoutId
+    let legacyTracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+    const checkoutIdFromUrl = new URLSearchParams(location.search).get('checkoutId') || sessionStorage.getItem('checkoutId');
+
+    // If we have neither pending nor legacy tracks, nothing to do
+    if ((!pending || !Array.isArray(pending.tracks) || pending.tracks.length === 0) &&
+        (!legacyTracks || legacyTracks.length === 0) &&
+        !checkoutIdFromUrl) {
+      console.log('No pending payment data found.');
+      return;
     }
 
-    if (tracks && tracks.length > 0) {
-      await fetch('/webhook/payment-success', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tracks })
-      });
+    // Prefer pendingSubmission shape { id, tracks, package, createdAt }
+    const idempotencyKey = pending?.id || sessionStorage.getItem('checkoutId') || checkoutIdFromUrl || ('legacy-' + Date.now());
 
+    // Ask backend whether this checkout already completed / enqueued
+    // Backend should return { ok: true, enqueued: true/false, enqueuedUris: [...] }
+    const statusRes = await fetch(`/api/checkout-status?checkoutId=${encodeURIComponent(idempotencyKey)}`);
+    if (!statusRes.ok) {
+      console.warn('checkout-status returned non-ok', statusRes.status);
+      // If backend is unreachable, do not auto-post; show resume notice instead
+      showResumePaymentNotice(pending || { tracks: legacyTracks || [] });
+      return;
+    }
+
+    const statusJson = await statusRes.json();
+
+    // If backend already enqueued, clear local state and exit
+    if (statusJson && statusJson.enqueued === true) {
+      console.log('Backend already enqueued tracks for checkout:', idempotencyKey);
       sessionStorage.removeItem('tracks');
       sessionStorage.removeItem('checkoutId');
-
-      console.log('Payment successful — tracks submitted to server.');
-    } else {
-      console.log('No paid tracks found for this checkout.');
+      sessionStorage.removeItem('pendingSubmission');
+      // Optionally refresh UI/server canonical queue
+      if (typeof initPage === 'function') initPage();
+      // Remove query params to avoid re-checks
+      history.replaceState(null, '', window.location.pathname);
+      return;
     }
+
+    // Determine which tracks to submit: prefer pendingSubmission, then legacyTracks, then server-provided list
+    const tracksToSubmit = (pending && Array.isArray(pending.tracks) && pending.tracks.length > 0)
+      ? pending.tracks
+      : (legacyTracks && legacyTracks.length > 0 ? legacyTracks : (statusJson.tracks || []));
+
+    if (!tracksToSubmit || tracksToSubmit.length === 0) {
+      console.log('No tracks to submit after status check.');
+      return;
+    }
+
+    // Final safety: if server returned enqueuedUris, filter out already enqueued URIs
+    if (Array.isArray(statusJson.enqueuedUris) && statusJson.enqueuedUris.length > 0) {
+      const enqueuedSet = new Set(statusJson.enqueuedUris);
+      const filtered = tracksToSubmit.filter(t => !enqueuedSet.has(t.uri));
+      if (filtered.length === 0) {
+        console.log('All tracks already enqueued on server; clearing local pending state.');
+        sessionStorage.removeItem('tracks');
+        sessionStorage.removeItem('checkoutId');
+        sessionStorage.removeItem('pendingSubmission');
+        if (typeof initPage === 'function') initPage();
+        history.replaceState(null, '', window.location.pathname);
+        return;
+      }
+      // use filtered list for submission
+      tracksToSubmit.length = 0;
+      tracksToSubmit.push(...filtered);
+    }
+
+    // Submit to webhook/payment-success with idempotency header
+    const webhookRes = await fetch('/webhook/payment-success', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey
+      },
+      body: JSON.stringify({ tracks: tracksToSubmit, checkoutId: idempotencyKey })
+    });
+
+    if (!webhookRes.ok) {
+      console.error('payment-success webhook failed', webhookRes.status);
+      showResumePaymentNotice({ tracks: tracksToSubmit });
+      return;
+    }
+
+    // Success: clear local pending state and legacy keys
+    sessionStorage.removeItem('tracks');
+    sessionStorage.removeItem('checkoutId');
+    sessionStorage.removeItem('pendingSubmission');
+
+    console.log('Payment successful — tracks submitted to server and local state cleared.');
+
+    // Refresh canonical queue/UI
+    if (typeof initPage === 'function') initPage();
+    history.replaceState(null, '', window.location.pathname);
+
   } catch (err) {
     console.error('Error handling payment success:', err);
+    // Do not auto-retry; show resume UI so user can re-attempt intentionally
+    const pending = (() => {
+      try { return JSON.parse(sessionStorage.getItem('pendingSubmission') || 'null'); } catch (e) { return null; }
+    })();
+    showResumePaymentNotice(pending || { tracks: JSON.parse(sessionStorage.getItem('tracks') || '[]') });
   }
 })();
 </script>
+
     
 <script>
 (async function loadPaidTracks() {
