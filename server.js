@@ -313,11 +313,12 @@ app.get('/api/status', async (req, res) => {
     });
 
     if (r.status === 204) {
-      return res.json({ success: true, mode: 'DEFAULT' });
+      return res.json({ success: true, mode: 'DEFAULT', isPlaying: false });
     }
 
     if (!r.ok) {
-      return res.status(r.status).json({ success: false, error: 'Spotify status failed' });
+      const text = await r.text().catch(() => '<no body>');
+      return res.status(r.status).json({ success: false, error: 'Spotify status failed', details: text });
     }
 
     const data = await r.json();
@@ -327,10 +328,14 @@ app.get('/api/status', async (req, res) => {
       success: true,
       mode: activeSession ? 'PAID' : 'DEFAULT',
       sessionId: activeSession?.sessionId || null,
+      playedCount: activeSession?.playedCount || 0,
+      totalTracks: activeSession?.tracks?.length || 0,
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
-      uri: data.item?.uri || null
+      uri: data.item?.uri || null,
+      isPlaying: data.is_playing || false,
+      progressMs: data.progress_ms || 0
     });
   } catch (err) {
     console.error('/api/status error', err);
@@ -399,10 +404,11 @@ app.post('/webhook/payment-success', async (req, res) => {
 });
 
 // Check if there is an active paid session
+// Return the active paid session object (or null)
 async function isPaidSessionActive() {
   try {
     const activeSession = await PaidSession.findOne({ active: true });
-    return activeSession || null; // return the session object if found, otherwise null
+    return activeSession || null;
   } catch (err) {
     console.error('isPaidSessionActive error:', err);
     return null;
@@ -419,6 +425,12 @@ async function markTrackPlayed(sessionId, uri) {
     if (track) {
       track.played = true;
       session.playedCount = (session.playedCount || 0) + 1;
+
+      // End session if all tracks are played
+      if (session.playedCount >= session.tracks.length) {
+        session.active = false;
+      }
+
       await session.save();
       console.log(`Marked track as played: ${uri} in session ${sessionId}`);
     }
