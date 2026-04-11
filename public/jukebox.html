@@ -2220,22 +2220,34 @@ async function pollStatusOnce(){
 </script>
 
 <script>
+// Read-only UI refresh. Never enqueue or post anything here.
 async function refreshStatus() {
-  const res = await fetch('/api/status');
-  const data = await res.json();
+  try {
+    const res = await fetch('/api/status');
+    if (!res.ok) return;
+    const data = await res.json();
 
-  if (data.success) {
-    document.getElementById('song-title').textContent = data.title;
-    document.getElementById('song-artist').textContent = data.artist;
-    document.getElementById('album-art').src = data.albumArt || '';
-    document.getElementById('session-mode').textContent = data.mode;
-    document.getElementById('progress').textContent =
-      `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
+    if (data && data.success) {
+      const titleEl = document.getElementById('song-title');
+      const artistEl = document.getElementById('song-artist');
+      const artEl = document.getElementById('album-art');
+      const modeEl = document.getElementById('session-mode');
+      const progressEl = document.getElementById('progress');
+
+      if (titleEl) titleEl.textContent = data.title || '';
+      if (artistEl) artistEl.textContent = data.artist || '';
+      if (artEl) artEl.src = data.albumArt || '';
+      if (modeEl) modeEl.textContent = data.mode || '';
+      if (progressEl) progressEl.textContent = `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
+    }
+  } catch (err) {
+    console.warn('refreshStatus error', err);
   }
 }
 
 setInterval(refreshStatus, 60000);
 refreshStatus();
+
 
 </script>
 

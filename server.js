@@ -449,7 +449,7 @@ app.post('/api/reserve-tracks', async (req, res) => {
 
 app.post('/webhook/payment-success', async (req, res) => {
   try {
-    const { sessionId, tracks = [] } = req.body;
+    const { sessionId, tracks = [], userId } = req.body;
     if (!sessionId) {
       return res.status(400).json({ error: 'Missing sessionId' });
     }
@@ -461,14 +461,19 @@ app.post('/webhook/payment-success', async (req, res) => {
       session = new PaidSession({
         sessionId,
         checkoutId: sessionId.split('-')[1],
-        userId: req.body.userId || null,
+        userId: userId || null,
         packagePrice: 0,
         maxSongs: 0,
         songsAdded: 0,
-        active: true,
+        active: false,
         startedAt: new Date(),
         tracks: []
       });
+    }
+
+    // Guard: if already processed, skip re‑adding and playback
+    if (session.songsAdded > 0 && session.playbackStartedAt) {
+      return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
     }
 
     if (tracks.length > 0) {
@@ -477,8 +482,14 @@ app.post('/webhook/payment-success', async (req, res) => {
       session.active = true;
       await session.save();
 
-      // Kick off playback logic
-      await startPaidSession(sessionId, tracks, estimatedTotalMs);
+      try {
+        await startPaidSession(sessionId, tracks, estimatedTotalMs);
+        session.playbackStartedAt = new Date(); // mark playback triggered
+        await session.save();
+      } catch (err) {
+        console.error('startPaidSession error', err);
+        return res.status(500).json({ error: 'playback failed', details: err.message });
+      }
     }
 
     res.json({ ok: true });
@@ -487,6 +498,7 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
+
 
 
 // Check if there is an active paid session
