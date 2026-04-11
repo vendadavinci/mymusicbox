@@ -15,16 +15,14 @@ const PaidTrackSchema = new mongoose.Schema({
 const PaidSessionSchema = new mongoose.Schema({
   sessionId: { type: String, unique: true, index: true },
   userId: { type: String },
-  checkoutId: { type: String, unique: true, index: true }, // enforce one-to-one
-  checkoutRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Checkout' }, // durable link
+  checkoutId: { type: String, index: true },
   packagePrice: { type: Number },
   maxSongs: { type: Number },
   songsAdded: { type: Number, default: 0 },
   active: { type: Boolean, default: true },
   startedAt: { type: Date, default: Date.now },
   endedAt: { type: Date },
-  tracks: [PaidTrackSchema],
-  processedAt: { type: Date } // marker for idempotency
+  tracks: [PaidTrackSchema]
 });
 
 export const PaidSession = mongoose.model('PaidSession', PaidSessionSchema);
