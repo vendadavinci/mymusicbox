@@ -1523,26 +1523,6 @@ async function pollStatus() {
     // keep polling; do not auto-submit or clear pending state on transient errors
   }
 }
-// Use this helper before posting tracks to server
-function markSubmissionInProgress(key) {
-  try { sessionStorage.setItem(key, JSON.stringify({ startedAt: Date.now() })); } catch (e) {}
-}
-function clearSubmissionFlag(key) {
-  try { sessionStorage.removeItem(key); } catch (e) {}
-}
-function isSubmissionInProgress(key) {
-  try {
-    const v = sessionStorage.getItem(key);
-    if (!v) return false;
-    const obj = JSON.parse(v);
-    // optional: expire stale flags after 30 minutes
-    if (obj.startedAt && (Date.now() - obj.startedAt) > 30 * 60 * 1000) {
-      clearSubmissionFlag(key);
-      return false;
-    }
-    return true;
-  } catch (e) { return false; }
-}
 
 
 /* ====== Payment success handler ====== */
@@ -1890,8 +1870,6 @@ function mergeServerQueueIntoLocal(serverTracks = []) {
   renderQueue && renderQueue();
   renderPlayedHistory && renderPlayedHistory();
 }
-
-
 
 // Render played history section
 function renderPlayedHistory() {
@@ -2258,28 +2236,17 @@ async function pollStatusOnce(){
 </script>
 
 <script>
-// Read-only UI refresh. Never enqueue or post anything here.
 async function refreshStatus() {
-  try {
-    const res = await fetch('/api/status');
-    if (!res.ok) return;
-    const data = await res.json();
+  const res = await fetch('/api/status');
+  const data = await res.json();
 
-    if (data && data.success) {
-      const titleEl = document.getElementById('song-title');
-      const artistEl = document.getElementById('song-artist');
-      const artEl = document.getElementById('album-art');
-      const modeEl = document.getElementById('session-mode');
-      const progressEl = document.getElementById('progress');
-
-      if (titleEl) titleEl.textContent = data.title || '';
-      if (artistEl) artistEl.textContent = data.artist || '';
-      if (artEl) artEl.src = data.albumArt || '';
-      if (modeEl) modeEl.textContent = data.mode || '';
-      if (progressEl) progressEl.textContent = `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
-    }
-  } catch (err) {
-    console.warn('refreshStatus error', err);
+  if (data.success) {
+    document.getElementById('song-title').textContent = data.title;
+    document.getElementById('song-artist').textContent = data.artist;
+    document.getElementById('album-art').src = data.albumArt || '';
+    document.getElementById('session-mode').textContent = data.mode;
+    document.getElementById('progress').textContent =
+      `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
   }
 }
 

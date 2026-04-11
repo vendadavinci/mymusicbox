@@ -448,83 +448,45 @@ app.post('/api/reserve-tracks', async (req, res) => {
 });
 
 
-// POST /webhook/payment-success
+
 app.post('/webhook/payment-success', async (req, res) => {
   try {
     const { sessionId, tracks = [] } = req.body;
-    if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Missing sessionId' });
+    }
 
-    // Defensive normalization of incoming tracks
-    const normalizedTracks = (tracks || []).map((t, i) => normalizeTrack(t, i + 1));
-    const estimatedTotalMs = normalizedTracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
+    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    // Atomic upsert: only set tracks/songsAdded if songsAdded is 0 (not processed yet)
-    // This prevents race conditions where two requests try to write the same session
-    const update = {
-      $setOnInsert: {
+    let session = await PaidSession.findOne({ sessionId });
+    if (!session) {
+      session = new PaidSession({
         sessionId,
-        checkoutId: sessionId.split('-')[1] || null,
+        checkoutId: sessionId.split('-')[1],
         userId: req.body.userId || null,
-        packagePrice: req.body.packagePrice || 0,
-        maxSongs: req.body.maxSongs || 0,
+        packagePrice: 0,
+        maxSongs: 0,
+        songsAdded: 0,
         active: true,
-        startedAt: new Date()
-      },
-      // If tracks are provided, set them and mark songsAdded; only one request should succeed
-      $set: {
-        // we will set these below conditionally using findOneAndUpdate filter
-      }
-    };
-
-    // Try to atomically set tracks only if songsAdded is 0 or missing
-    const filter = { sessionId, $or: [{ songsAdded: { $exists: false } }, { songsAdded: 0 }] };
-
-    // Build the fields to set when we are the first writer
-    const setFields = {
-      tracks: normalizedTracks,
-      songsAdded: normalizedTracks.length,
-      active: true,
-      processedAt: new Date()
-    };
-
-    const updated = await PaidSession.findOneAndUpdate(
-      filter,
-      { $set: setFields, $setOnInsert: update.$setOnInsert },
-      { upsert: true, new: true }
-    ).lean();
-
-    // If updated.songsAdded does not match our normalizedTracks length, it means another request already processed it
-    if (!updated) {
-      // Shouldn't happen because upsert:true, but handle defensively
-      return res.json({ ok: true, note: 'No update performed' });
+        startedAt: new Date(),
+        tracks: []
+      });
     }
 
-    // If the session already had songsAdded > 0 before our update, we should not re-run startPaidSession
-    // Check whether the record we updated was the one that actually wrote the tracks
-    // If the DB record's tracks match our normalizedTracks (or songsAdded equals our length and processedAt is recent), proceed.
-    // Otherwise, assume another process already enqueued and return success.
-    const alreadyProcessed = Array.isArray(updated.tracks) && updated.tracks.length > 0 &&
-      updated.tracks.length !== normalizedTracks.length &&
-      updated.songsAdded && updated.songsAdded > 0;
+    if (tracks.length > 0) {
+      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
+      session.songsAdded = tracks.length;
+      session.active = true;
+      await session.save();
 
-    if (alreadyProcessed) {
-      // Another request already enqueued these (or different) tracks — return success without re-enqueueing
-      return res.json({ ok: true, note: 'Already processed by another request' });
+      // Kick off playback logic
+      await startPaidSession(sessionId, tracks, estimatedTotalMs);
     }
 
-    // At this point we are the writer — kick off playback logic once
-    // (Wrap startPaidSession in try/catch so webhook returns quickly even if playback logic fails)
-    try {
-      await startPaidSession(sessionId, normalizedTracks, estimatedTotalMs);
-    } catch (playErr) {
-      console.error('startPaidSession error (non-fatal):', playErr);
-      // still return ok to the webhook caller; you can retry playback logic separately if needed
-    }
-
-    return res.json({ ok: true, enqueued: true });
+    res.json({ ok: true });
   } catch (err) {
     console.error('/webhook/payment-success error', err);
-    return res.status(500).json({ error: 'webhook handling failed', details: err.message });
+    res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
 
@@ -943,46 +905,39 @@ setInterval(async () => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    if (r.status === 204) return;
+    // Handle 204 (no content)
+    if (r.status === 204) {
+      return; // nothing playing
+    }
+
+    // Handle non-OK responses
     if (!r.ok) {
-      console.warn('Spotify status failed', r.status);
+      const text = await r.text().catch(() => '<no body>');
+      console.warn(`Spotify status failed ${r.status}: ${text}`);
       return;
     }
 
-    let data;
+    // Defensive JSON parse
+    let data = null;
     try {
       const text = await r.text();
       if (text && text.trim().length > 0) {
         data = JSON.parse(text);
       }
-    } catch {
+    } catch (err) {
+      console.warn('Spotify returned empty or invalid JSON', err);
       return;
     }
 
+    // If we got valid data, mark track played
     if (data?.item?.uri) {
       await markTrackPlayed(activeSession.sessionId, data.item.uri);
-
-      // Move track from paidQueue to playedQueue
-      const idx = paidQueue.findIndex(t => t.uri === data.item.uri);
-      if (idx !== -1) {
-        const [track] = paidQueue.splice(idx, 1);
-        track.played = true;
-        playedQueue.push(track);
-
-        // Persist and re-render both sections
-        try {
-          sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
-          sessionStorage.setItem('playedQueue', JSON.stringify(playedQueue));
-        } catch (e) { /* ignore */ }
-
-        renderQueue();
-        renderPlayedHistory();
-      }
     }
   } catch (err) {
     console.error('Poller error:', err);
   }
-}, 5000);
+}, 5000); // every 5 seconds
+
 
 /* -------------------------
    Start server
