@@ -305,114 +305,96 @@
   </section>
 
 
-<aside class="right-col">
+  <aside class="right-col">
 
-  <!-- Add flow -->
-  <div class="card" aria-label="Add to paid playlist">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-      <div style="font-weight:700;">Add To Paid Playlist</div>
-      <div class="small">Users must select package &amp; pay</div>
+    <!-- Add flow -->
+    <div class="card" aria-label="Add to paid playlist">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-weight:700;">Add To Paid Playlist</div>
+        <div class="small">Users must select package & pay</div>
+      </div>
+
+      <!-- Add Songs button -->
+      <div style="margin-top:20px;text-align:center;">
+        <button class="btn" id="addSongsBtn" onclick="togglePackageDropdown()">
+          Add Songs
+        </button>
+      </div>
+
+      <!-- Dropdown with package options (hidden by default) -->
+      <div id="packageDropdown" style="display:none;margin-top:12px;">
+        <select id="packageSelect" class="btn" onchange="handlePackageSelect()">
+          <option value="">-- Select Package --</option>
+          <option value="10-2">R10 (1–2 songs, max 10 min)</option>
+          <option value="20-4">R20 (3–4 songs, max 20 min)</option>
+          <option value="40-6">R40 (4–6 songs, max 30 min)</option>
+          <option value="50-8">R50 (6–8 songs, ~40 min)</option>
+          <option value="100-12">R100 (9–12 songs, ~50 min)</option>
+          <option value="150-15">R150 (10–15 songs, ~60 min)</option>
+          <option value="200-20">R200 (15–20 songs, ~90 min)</option>
+        </select>
+        <!-- Dynamic form panel -->
+        <div class="form-panel" id="formPanel">
+          <h3>Select package to continue</h3>
+          <div class="note" id="instructionNote">Choose a package on the left. After selecting, use the search boxes to pick tracks (top 10 results shown per search box). When ready, press Pay to proceed to payment.</div>
+
+          <!-- package summary -->
+          <div class="form-row" id="packageSummary" style="display:none;">
+            <label>Package</label>
+            <div id="pkgLabel" style="font-weight:700;color:var(--accent);"></div>
+          </div>
+
+          <!-- dynamic slots container -->
+          <div id="slotsContainer" style="margin-top:12px;"></div>
+
+          <!-- selected tracks preview -->
+          <div id="selectedContainer" style="display:none;">
+            <h4 style="margin:12px 0 6px 0;color:var(--accent);">Selected tracks (will be queued after payment)</h4>
+            <div class="selected-list" id="selectedList"></div>
+          </div>
+
+          <!-- payment controls -->
+          <div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
+            <!-- Pay button (normal) -->
+            <button class="btn" id="payBtn" onclick="startPayment()" disabled>Pay</button>
+            <button class="btn ghost" onclick="cancelSelection()">Cancel</button>
+            <div style="flex:1"></div>
+            <div class="note" id="priceNote"></div>
+          </div>
+
+          <div class="note" style="margin-top:12px;">
+            Payment flow: this page sends selected tracks and package info to your backend endpoint <code>/api/create-payment</code>. Your server should create the payment session and redirect the user to the payment gateway. After successful payment the backend should enqueue the paid tracks to the pub playback queue.
+          </div>
+        </div>
+      </div>
+
+      <!-- Search UI (locked until payment) -->
+      <div class="search-row" id="searchRow" style="margin-top:12px;display:none;">
+        <input id="searchInput" placeholder="Search Spotify (title or artist)" 
+               onkeydown="if(event.key==='Enter') searchTracks()" />
+        <button class="btn" onclick="searchTracks()">Search</button>
+      </div>
+
+      <div class="search-results" id="searchResults" aria-live="polite"></div>
+      <div class="small" style="margin-top:8px;">Tip: search unlocks after payment.</div>
     </div>
 
-    <!-- Add Songs button -->
-    <div style="margin-top:20px;text-align:center;">
-      <button class="btn" id="addSongsBtn" onclick="togglePackageDropdown()">
-        Add Songs
-      </button>
-    </div>
+    <!-- Paid queue -->
+    <div class="card" aria-label="Paid queue">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-weight:700;">Paid Queue</div>
+        <div class="small" id="queueInfo">Plays in order; no jumping</div>
+      </div>
 
-    <!-- Dropdown with package options (hidden by default) -->
-    <div id="packageDropdown" style="display:none;margin-top:12px;">
-      <select id="packageSelect" class="btn" onchange="handlePackageSelect()">
-        <option value="">-- Select Package --</option>
-        <option value="10-2">R10 (1–2 songs, max 10 min)</option>
-        <option value="20-4">R20 (3–4 songs, max 20 min)</option>
-        <option value="40-6">R40 (4–6 songs, max 30 min)</option>
-        <option value="50-8">R50 (6–8 songs, ~40 min)</option>
-        <option value="100-12">R100 (9–12 songs, ~50 min)</option>
-        <option value="150-15">R150 (10–15 songs, ~60 min)</option>
-        <option value="200-20">R200 (15–20 songs, ~90 min)</option>
-      </select>
+      <div class="queue-list" id="paidQueue"></div>
 
-      <!-- Dynamic form panel -->
-      <div class="form-panel" id="formPanel">
-        <h3>Select package to continue</h3>
-        <div class="note" id="instructionNote">
-          Choose a package on the left. After selecting, use the search boxes to pick tracks (top 10 results shown per search box). When ready, press Pay to proceed to payment.
-        </div>
-
-        <!-- package summary -->
-        <div class="form-row" id="packageSummary" style="display:none;">
-          <label>Package</label>
-          <div id="pkgLabel" style="font-weight:700;color:var(--accent);"></div>
-        </div>
-
-        <!-- dynamic slots container -->
-        <div id="slotsContainer" style="margin-top:12px;"></div>
-
-        <!-- selected tracks preview -->
-        <div id="selectedContainer" style="display:none;">
-          <h4 style="margin:12px 0 6px 0;color:var(--accent);">Selected tracks (will be queued after payment)</h4>
-          <div class="selected-list" id="selectedList"></div>
-        </div>
-
-        <!-- payment controls -->
-        <div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
-          <button class="btn" id="payBtn" onclick="startPayment()" disabled>Pay</button>
-          <button class="btn ghost" onclick="cancelSelection()">Cancel</button>
-          <div style="flex:1"></div>
-          <div class="note" id="priceNote"></div>
-        </div>
-
-        <div class="note" style="margin-top:12px;">
-          Payment flow: this page sends selected tracks and package info to your backend endpoint <code>/api/create-payment</code>. Your server should create the payment session and redirect the user to the payment gateway. After successful payment the backend should enqueue the paid tracks to the pub playback queue.
-        </div>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+        <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
+        <div id="paidQueueControls"></div>
       </div>
     </div>
 
-    <!-- Search UI (locked until payment) -->
-    <div class="search-row" id="searchRow" style="margin-top:12px;display:none;">
-      <input id="searchInput" placeholder="Search Spotify (title or artist)"
-             onkeydown="if(event.key==='Enter') searchTracks()" />
-      <button class="btn" onclick="searchTracks()">Search</button>
-    </div>
-
-    <div class="search-results" id="searchResults" aria-live="polite"></div>
-    <div class="small" style="margin-top:8px;">Tip: search unlocks after payment.</div>
-  </div>
-
-  <!-- Paid queue -->
-  <div class="card" aria-label="Paid queue" style="margin-top:12px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-      <div style="font-weight:700;">Paid Queue</div>
-      <div class="small" id="queueInfo">Plays in order; no jumping</div>
-    </div>
-
-    <!-- Active queue list (populated by renderQueue) -->
-    <div class="queue-list" id="paidQueueEl" style="margin-top:10px;"></div>
-
-    <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-      <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
-      <div id="paidQueueControls"></div>
-    </div>
-
-    <div class="small" id="nextTitleEl" style="margin-top:8px;"></div>
-    <div class="small" id="queueCount" style="margin-top:4px;"></div>
-  </div>
-
-  <!-- Played history -->
-  <div class="card" aria-label="Played history" style="margin-top:12px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-      <div style="font-weight:700;">Played History</div>
-      <div class="small" id="playedCount">Played tracks: 0</div>
-    </div>
-
-    <!-- History list (populated by renderPlayedHistory) -->
-    <div class="queue-list" id="playedHistory" style="margin-top:10px;"></div>
-  </div>
-
-</aside>
-
+  </aside>
 </main>
 
 
