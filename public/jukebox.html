@@ -1358,11 +1358,30 @@ async function pollStatusOnce(){
 </script>
 
 <script>
-  // Refresh the page every 60 seconds
-  setInterval(() => {
-    window.location.reload();
-  }, 60000); // 60,000 ms = 1 minute
+  async function refreshStatus() {
+    try {
+      const res = await fetch('/api/status');
+      const data = await res.json();
+
+      if (data.success) {
+        document.getElementById('song-title').textContent = data.title;
+        document.getElementById('song-artist').textContent = data.artist;
+        document.getElementById('album-art').src = data.albumArt || '';
+        document.getElementById('session-mode').textContent = data.mode;
+        document.getElementById('progress').textContent =
+          `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
+      }
+    } catch (err) {
+      console.error('Error refreshing status:', err);
+    }
+  }
+
+  // Poll every 60 seconds
+  setInterval(refreshStatus, 60000);
+  refreshStatus(); // run once on page load
 </script>
+
+
 
 
 

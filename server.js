@@ -822,8 +822,6 @@ setInterval(async () => {
       if (data?.item?.uri) {
         await markTrackPlayed(activeSession.sessionId, data.item.uri);
       }
-    } else {
-      console.warn('Poller: Spotify status request failed', r.status);
     }
   } catch (err) {
     console.error('Poller error:', err);
