@@ -745,6 +745,50 @@ async function startPayment(){
   }
 }
 
+// initPage: fetch server status and merge canonical session into local queue
+async function initPage() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    if (!data.success) return;
+
+    if (data.mode === 'PAID') {
+      // persist canonical session id and merge server tracks into local queue
+      sessionStorage.setItem('sessionId', data.sessionId);
+      mergeServerQueueIntoLocal(data.tracks || []);
+      // update now playing UI and progress bar
+      if (typeof updateNowPlayingUI === 'function') updateNowPlayingUI(data);
+      // mark local state as paid session active
+      paidSessionActive = true;
+    } else {
+      // no server session: restore any local queue persisted earlier
+      const local = sessionStorage.getItem('paidQueue');
+      if (local) {
+        try { paidQueue = JSON.parse(local); } catch (e) { paidQueue = []; }
+      }
+      renderQueue();
+      paidSessionActive = false;
+    }
+  } catch (e) {
+    console.warn('initPage /api/status failed', e);
+    // fallback: restore local queue if available
+    const local = sessionStorage.getItem('paidQueue');
+    if (local) {
+      try { paidQueue = JSON.parse(local); } catch (err) { paidQueue = []; }
+      renderQueue();
+    }
+  }
+}
+
+// Run on initial page load
+window.addEventListener('load', () => {
+  initPage();
+  // Poll status periodically to keep UI in sync
+  setInterval(() => {
+    initPage().catch(() => {});
+  }, 10000); // every 10s, adjust as needed
+});
+
 
 
 
@@ -1677,6 +1721,60 @@ window.applyPackageFromQuery = applyPackageFromQuery;
 window.onPaymentSuccess = onPaymentSuccess;
 
 /* ====== End of fixed script ====== */
+
+// Merge server session tracks into local paidQueue
+function mergeServerQueueIntoLocal(serverTracks = []) {
+  // Normalize serverTracks to minimal shape
+  const normalizedServer = (serverTracks || []).map((t, i) => ({
+    uri: t.uri,
+    title: t.title || t.name || 'Unknown',
+    artist: t.artist || (t.artists && t.artists.join(', ')) || '',
+    duration_ms: t.durationMs || t.duration_ms || 0,
+    albumArt: t.albumArt || t.album_art || '',
+    played: !!t.played,
+    orderIndex: t.orderIndex || i + 1
+  }));
+
+  // Build maps for quick lookup
+  const localByUri = new Map((paidQueue || []).map((t, i) => [t.uri, { item: t, index: i }]));
+  const serverByUri = new Map(normalizedServer.map((t, i) => [t.uri, t]));
+
+  // 1) Update played flags and metadata for items that exist locally
+  for (const [uri, { item }] of localByUri.entries()) {
+    if (serverByUri.has(uri)) {
+      const s = serverByUri.get(uri);
+      item.played = !!s.played;
+      item.title = s.title || item.title;
+      item.artist = s.artist || item.artist;
+      item.duration_ms = s.duration_ms || item.duration_ms;
+      item.albumArt = s.albumArt || item.albumArt;
+    }
+  }
+
+  // 2) Append any server tracks that are not present locally, preserving server order
+  for (const s of normalizedServer) {
+    if (!localByUri.has(s.uri)) {
+      paidQueue.push({
+        uri: s.uri,
+        title: s.title,
+        artist: s.artist,
+        duration_ms: s.duration_ms,
+        albumArt: s.albumArt,
+        addedAt: Date.now(),
+        played: !!s.played,
+        orderIndex: s.orderIndex
+      });
+    }
+  }
+
+  // 3) Optionally sort local queue by orderIndex if you want server ordering to win
+  paidQueue.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+
+  // Persist and re-render
+  try { sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue)); } catch (e) { /* ignore */ }
+  renderQueue && renderQueue();
+}
+
 
 
 // frontend: play first track, disable shuffle/repeat, queue rest, and return {ok:true} on success

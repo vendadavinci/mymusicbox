@@ -192,16 +192,17 @@ function getSession(sessionId) {
 }
 
 
+// Helper: normalize incoming track shape
 function normalizeTrack(track, orderIndex) {
   return {
     uri: track.uri,
-    title: track.title || 'Unknown',
-    artist: track.artist || '',
-    durationMs: track.duration_ms || 0,
-    albumArt: track.albumArt || '',
-    played: false,
-    orderIndex,
-    addedAt: new Date()
+    title: track.title || track.name || 'Unknown',
+    artist: track.artist || (track.artists && track.artists.join(', ')) || '',
+    durationMs: track.duration_ms || track.durationMs || 0,
+    albumArt: track.albumArt || track.album_art || '',
+    addedAt: track.addedAt ? new Date(track.addedAt) : new Date(),
+    played: !!track.played,
+    orderIndex: orderIndex || 0
   };
 }
 
@@ -209,18 +210,41 @@ app.post('/api/play', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    const { tracks = [], device_id, sessionId, userId, append } = req.body || {};
+    const { tracks = [], device_id, sessionId, checkoutId, userId, append } = req.body || {};
     if (!Array.isArray(tracks) || tracks.length === 0) {
       return res.status(400).json({ success: false, error: 'Missing tracks array' });
     }
 
-    // Find or create session in Mongo
-    let session = await PaidSession.findOne({ sessionId });
+    // Prefer explicit checkoutId if provided, otherwise try to parse from sessionId
+    const effectiveCheckoutId = checkoutId || (typeof sessionId === 'string' && sessionId.split('-')[1]) || null;
+
+    // 1) Idempotency by checkoutId: if we've already processed this checkout, return existing session
+    if (effectiveCheckoutId) {
+      const existing = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
+      if (existing) {
+        // If session exists, return its state and avoid re-adding tracks
+        return res.json({
+          success: true,
+          mode: existing.active ? 'already-active' : 'existing-session',
+          sessionId: existing.sessionId,
+          message: 'Checkout already processed; attach to existing session'
+        });
+      }
+    }
+
+    // 2) If sessionId provided, try to find session by sessionId
+    let session = null;
+    if (sessionId) {
+      session = await PaidSession.findOne({ sessionId });
+    }
+
+    // 3) If no session found by sessionId, create a new session object (not yet active)
     if (!session) {
+      const newSessionId = sessionId || `${new Date().toISOString().slice(0,10)}-${effectiveCheckoutId || crypto.randomUUID()}-${Date.now().toString().slice(-6)}`;
       session = new PaidSession({
-        sessionId,
-        userId,
-        checkoutId: sessionId ? sessionId.split('-')[1] : null,
+        sessionId: newSessionId,
+        userId: userId || null,
+        checkoutId: effectiveCheckoutId || null,
         packagePrice: 0,
         maxSongs: 0,
         songsAdded: 0,
@@ -230,58 +254,99 @@ app.post('/api/play', async (req, res) => {
       });
     }
 
-    // Append mode with deduplication
-    if (append && session.active) {
-      tracks.forEach((track) => {
-        if (!session.tracks.some(t => t.uri === track.uri)) {
-          session.tracks.push(normalizeTrack(track, session.tracks.length + 1));
-          session.songsAdded++;
-        }
-      });
-      await session.save();
+    // 4) Append mode: add only tracks that are not already present (by URI)
+    if (append) {
+      const existingUris = new Set(session.tracks.map(t => t.uri));
+      const toAdd = [];
+      let nextIndex = session.tracks.length + 1;
 
-      for (const track of tracks) {
-        if (!session.tracks.some(t => t.uri === track.uri && t.played)) {
+      for (const t of tracks) {
+        if (!t || !t.uri) continue;
+        if (existingUris.has(t.uri)) continue;
+        const nt = normalizeTrack(t, nextIndex++);
+        toAdd.push(nt);
+        existingUris.add(nt.uri);
+      }
+
+      if (toAdd.length > 0) {
+        // push new tracks into session and update counters
+        session.tracks = session.tracks.concat(toAdd);
+        session.songsAdded = (session.songsAdded || 0) + toAdd.length;
+        await session.save();
+      }
+
+      // Queue only tracks that are not played yet
+      for (const track of toAdd) {
+        try {
           const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
           const qRes = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
           if (!qRes.ok) {
-            console.warn('Spotify queue failed', track.uri, await qRes.text());
+            const txt = await qRes.text().catch(() => '<no body>');
+            console.warn('Spotify queue failed', track.uri, qRes.status, txt);
           }
+        } catch (e) {
+          console.warn('Spotify queue error', track.uri, e);
         }
       }
 
-      return res.json({ success: true, mode: 'append', sessionId });
+      return res.json({ success: true, mode: 'append', sessionId: session.sessionId, added: toAdd.length });
     }
 
-    // Guard: if session is already active and not append, don’t restart playback
+    // 5) Replace mode: if session is already active, do not restart or re-add
     if (session.active) {
-      return res.json({ success: true, mode: 'already-active', sessionId });
+      return res.json({ success: true, mode: 'already-active', sessionId: session.sessionId });
     }
 
-    // Replace mode (first start)
-    session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
-    session.songsAdded = tracks.length;
-    session.active = true;
+    // 6) Replace: set session.tracks to normalized incoming tracks (dedup by URI)
+    const seen = new Set();
+    const normalized = [];
+    let idx = 1;
+    for (const t of tracks) {
+      if (!t || !t.uri) continue;
+      if (seen.has(t.uri)) continue;
+      seen.add(t.uri);
+      normalized.push(normalizeTrack(t, idx++));
+    }
+
+    session.tracks = normalized;
+    session.songsAdded = normalized.length;
+    session.active = true; // mark active locally; we will attempt to start playback next
+    session.startedAt = session.startedAt || new Date();
     await session.save();
 
-    const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
-    const playR = await fetch(playUrl, {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uris: tracks.map(t => t.uri) })
-    });
+    // 7) Attempt to start playback on Spotify. If this fails, roll back active flag so client can retry
+    try {
+      const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
+      const playR = await fetch(playUrl, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uris: normalized.map(t => t.uri) })
+      });
 
-    if (!playR.ok) {
-      const text = await playR.text().catch(() => '<no body>');
-      return res.status(playR.status).json({ success: false, error: 'play failed', details: text });
+      if (!playR.ok) {
+        const text = await playR.text().catch(() => '<no body>');
+        // rollback active flag so subsequent calls can attempt again
+        session.active = false;
+        await session.save();
+        return res.status(playR.status).json({ success: false, error: 'play failed', details: text });
+      }
+    } catch (e) {
+      // network or other error: rollback and return error
+      session.active = false;
+      await session.save();
+      console.error('Spotify play error', e);
+      return res.status(500).json({ success: false, error: 'play failed', details: e.message });
     }
 
-    return res.json({ success: true, mode: 'replace', sessionId });
+    // 8) Success
+    return res.json({ success: true, mode: 'replace', sessionId: session.sessionId });
+
   } catch (err) {
     console.error('/api/play error', err);
     return res.status(500).json({ success: false, error: 'play failed', details: err.message });
   }
 });
+
 
 // Pause/Resume/Skip protection
 app.post('/api/pause', async (req, res) => {
@@ -308,12 +373,26 @@ app.post('/api/skip', async (req, res) => {
 app.get('/api/status', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
+
+    // Ask Spotify for current playback
     const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
+    // If no active device / nothing playing
     if (r.status === 204) {
-      return res.json({ success: true, mode: 'DEFAULT', isPlaying: false });
+      // Still return canonical session info if any
+      const activeSession = await PaidSession.findOne({ active: true }).lean();
+      const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
+      return res.json({
+        success: true,
+        mode: activeSession ? 'PAID' : 'DEFAULT',
+        sessionId: activeSession?.sessionId || null,
+        playedCount,
+        totalTracks: activeSession?.tracks?.length || 0,
+        tracks: activeSession?.tracks || [],
+        isPlaying: false
+      });
     }
 
     if (!r.ok) {
@@ -322,21 +401,28 @@ app.get('/api/status', async (req, res) => {
     }
 
     const data = await r.json();
-    const activeSession = await PaidSession.findOne({ active: true });
 
-    res.json({
+    // Get canonical paid session from DB
+    const activeSession = await PaidSession.findOne({ active: true }).lean();
+
+    const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
+
+    return res.json({
       success: true,
       mode: activeSession ? 'PAID' : 'DEFAULT',
       sessionId: activeSession?.sessionId || null,
-      playedCount: activeSession?.playedCount || 0,
+      playedCount,
       totalTracks: activeSession?.tracks?.length || 0,
+      // include full server-side track list so client can merge and mark played
+      tracks: activeSession?.tracks || [],
+      // Spotify playback info
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
       uri: data.item?.uri || null,
       isPlaying: data.is_playing || false,
       progressMs: data.progress_ms || 0,
-      durationMs: data.item?.duration_ms || 0   // ✅ add total track length
+      durationMs: data.item?.duration_ms || 0
     });
   } catch (err) {
     console.error('/api/status error', err);
