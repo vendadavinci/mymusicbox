@@ -393,7 +393,17 @@
         <div id="paidQueueControls"></div>
       </div>
     </div>
+      
+        <!-- Played history -->
+  <div class="card" aria-label="Played history" style="margin-top:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:700;">Played History</div>
+      <div class="small" id="playedCount">Played tracks: 0</div>
+    </div>
 
+    <!-- History list (populated by renderPlayedHistory) -->
+    <div class="queue-list" id="playedHistory" style="margin-top:10px;"></div>
+  </div>
   </aside>
 </main>
 
