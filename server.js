@@ -806,6 +806,29 @@ app.post('/api/queue', async (req, res) => {
 });
 
 
+// Poller: update played tracks every 5 seconds
+setInterval(async () => {
+  const activeSession = await isPaidSessionActive();
+  if (!activeSession) return;
+
+  try {
+    await refreshAccessTokenIfNeeded();
+    const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+
+    if (r.ok) {
+      const data = await r.json();
+      if (data?.item?.uri) {
+        await markTrackPlayed(activeSession.sessionId, data.item.uri);
+      }
+    } else {
+      console.warn('Poller: Spotify status request failed', r.status);
+    }
+  } catch (err) {
+    console.error('Poller error:', err);
+  }
+}, 5000); // every 5 seconds
 
 
 /* -------------------------
