@@ -448,45 +448,83 @@ app.post('/api/reserve-tracks', async (req, res) => {
 });
 
 
-
+// POST /webhook/payment-success
 app.post('/webhook/payment-success', async (req, res) => {
   try {
     const { sessionId, tracks = [] } = req.body;
-    if (!sessionId) {
-      return res.status(400).json({ error: 'Missing sessionId' });
-    }
+    if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
 
-    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
+    // Defensive normalization of incoming tracks
+    const normalizedTracks = (tracks || []).map((t, i) => normalizeTrack(t, i + 1));
+    const estimatedTotalMs = normalizedTracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    let session = await PaidSession.findOne({ sessionId });
-    if (!session) {
-      session = new PaidSession({
+    // Atomic upsert: only set tracks/songsAdded if songsAdded is 0 (not processed yet)
+    // This prevents race conditions where two requests try to write the same session
+    const update = {
+      $setOnInsert: {
         sessionId,
-        checkoutId: sessionId.split('-')[1],
+        checkoutId: sessionId.split('-')[1] || null,
         userId: req.body.userId || null,
-        packagePrice: 0,
-        maxSongs: 0,
-        songsAdded: 0,
+        packagePrice: req.body.packagePrice || 0,
+        maxSongs: req.body.maxSongs || 0,
         active: true,
-        startedAt: new Date(),
-        tracks: []
-      });
+        startedAt: new Date()
+      },
+      // If tracks are provided, set them and mark songsAdded; only one request should succeed
+      $set: {
+        // we will set these below conditionally using findOneAndUpdate filter
+      }
+    };
+
+    // Try to atomically set tracks only if songsAdded is 0 or missing
+    const filter = { sessionId, $or: [{ songsAdded: { $exists: false } }, { songsAdded: 0 }] };
+
+    // Build the fields to set when we are the first writer
+    const setFields = {
+      tracks: normalizedTracks,
+      songsAdded: normalizedTracks.length,
+      active: true,
+      processedAt: new Date()
+    };
+
+    const updated = await PaidSession.findOneAndUpdate(
+      filter,
+      { $set: setFields, $setOnInsert: update.$setOnInsert },
+      { upsert: true, new: true }
+    ).lean();
+
+    // If updated.songsAdded does not match our normalizedTracks length, it means another request already processed it
+    if (!updated) {
+      // Shouldn't happen because upsert:true, but handle defensively
+      return res.json({ ok: true, note: 'No update performed' });
     }
 
-    if (tracks.length > 0) {
-      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
-      session.songsAdded = tracks.length;
-      session.active = true;
-      await session.save();
+    // If the session already had songsAdded > 0 before our update, we should not re-run startPaidSession
+    // Check whether the record we updated was the one that actually wrote the tracks
+    // If the DB record's tracks match our normalizedTracks (or songsAdded equals our length and processedAt is recent), proceed.
+    // Otherwise, assume another process already enqueued and return success.
+    const alreadyProcessed = Array.isArray(updated.tracks) && updated.tracks.length > 0 &&
+      updated.tracks.length !== normalizedTracks.length &&
+      updated.songsAdded && updated.songsAdded > 0;
 
-      // Kick off playback logic
-      await startPaidSession(sessionId, tracks, estimatedTotalMs);
+    if (alreadyProcessed) {
+      // Another request already enqueued these (or different) tracks — return success without re-enqueueing
+      return res.json({ ok: true, note: 'Already processed by another request' });
     }
 
-    res.json({ ok: true });
+    // At this point we are the writer — kick off playback logic once
+    // (Wrap startPaidSession in try/catch so webhook returns quickly even if playback logic fails)
+    try {
+      await startPaidSession(sessionId, normalizedTracks, estimatedTotalMs);
+    } catch (playErr) {
+      console.error('startPaidSession error (non-fatal):', playErr);
+      // still return ok to the webhook caller; you can retry playback logic separately if needed
+    }
+
+    return res.json({ ok: true, enqueued: true });
   } catch (err) {
     console.error('/webhook/payment-success error', err);
-    res.status(500).json({ error: 'webhook handling failed', details: err.message });
+    return res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
 

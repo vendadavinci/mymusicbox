@@ -1523,6 +1523,26 @@ async function pollStatus() {
     // keep polling; do not auto-submit or clear pending state on transient errors
   }
 }
+// Use this helper before posting tracks to server
+function markSubmissionInProgress(key) {
+  try { sessionStorage.setItem(key, JSON.stringify({ startedAt: Date.now() })); } catch (e) {}
+}
+function clearSubmissionFlag(key) {
+  try { sessionStorage.removeItem(key); } catch (e) {}
+}
+function isSubmissionInProgress(key) {
+  try {
+    const v = sessionStorage.getItem(key);
+    if (!v) return false;
+    const obj = JSON.parse(v);
+    // optional: expire stale flags after 30 minutes
+    if (obj.startedAt && (Date.now() - obj.startedAt) > 30 * 60 * 1000) {
+      clearSubmissionFlag(key);
+      return false;
+    }
+    return true;
+  } catch (e) { return false; }
+}
 
 
 /* ====== Payment success handler ====== */
@@ -1870,6 +1890,8 @@ function mergeServerQueueIntoLocal(serverTracks = []) {
   renderQueue && renderQueue();
   renderPlayedHistory && renderPlayedHistory();
 }
+
+
 
 // Render played history section
 function renderPlayedHistory() {
