@@ -99,23 +99,27 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
   if (!session) throw new Error('Session not found');
 
   if (session.active) {
-    // Append mode
-    tracks.forEach((track, i) => {
-      session.tracks.push(normalizeTrack(track, session.tracks.length + i + 1));
+    // Append mode with deduplication
+    tracks.forEach((track) => {
+      if (!session.tracks.some(t => t.uri === track.uri)) {
+        session.tracks.push(normalizeTrack(track, session.tracks.length + 1));
+        session.songsAdded++;
+      }
     });
-    session.songsAdded += tracks.length;
     await session.save();
 
-    // Queue in Spotify
+    // Queue only new tracks in Spotify
     await refreshAccessTokenIfNeeded();
     for (const track of tracks) {
-      const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}`;
-      const qRes = await fetch(queueUrl, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${tokens.access_token}` }
-      });
-      if (!qRes.ok) {
-        console.warn('Spotify queue failed', track.uri, await qRes.text());
+      if (!session.tracks.some(t => t.uri === track.uri && t.played)) {
+        const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}`;
+        const qRes = await fetch(queueUrl, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${tokens.access_token}` }
+        });
+        if (!qRes.ok) {
+          console.warn('Spotify queue failed', track.uri, await qRes.text());
+        }
       }
     }
 
@@ -226,19 +230,23 @@ app.post('/api/play', async (req, res) => {
       });
     }
 
-    // Append mode
+    // Append mode with deduplication
     if (append && session.active) {
-      tracks.forEach((track, i) => {
-        session.tracks.push(normalizeTrack(track, session.tracks.length + i + 1));
+      tracks.forEach((track) => {
+        if (!session.tracks.some(t => t.uri === track.uri)) {
+          session.tracks.push(normalizeTrack(track, session.tracks.length + 1));
+          session.songsAdded++;
+        }
       });
-      session.songsAdded += tracks.length;
       await session.save();
 
       for (const track of tracks) {
-        const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
-        const qRes = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
-        if (!qRes.ok) {
-          console.warn('Spotify queue failed', track.uri, await qRes.text());
+        if (!session.tracks.some(t => t.uri === track.uri && t.played)) {
+          const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+          const qRes = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
+          if (!qRes.ok) {
+            console.warn('Spotify queue failed', track.uri, await qRes.text());
+          }
         }
       }
 
@@ -390,19 +398,32 @@ app.post('/webhook/payment-success', async (req, res) => {
   }
 });
 
+// Check if there is an active paid session
 async function isPaidSessionActive() {
-  const activeSession = await PaidSession.findOne({ active: true });
-  return !!activeSession;
+  try {
+    const activeSession = await PaidSession.findOne({ active: true });
+    return activeSession || null; // return the session object if found, otherwise null
+  } catch (err) {
+    console.error('isPaidSessionActive error:', err);
+    return null;
+  }
 }
 
-
+// Mark a track as played in the given session
 async function markTrackPlayed(sessionId, uri) {
-  const session = await PaidSession.findOne({ sessionId });
-  if (!session) return;
-  const track = session.tracks.find(t => t.uri === uri && !t.played);
-  if (track) {
-    track.played = true;
-    await session.save();
+  try {
+    const session = await PaidSession.findOne({ sessionId });
+    if (!session) return;
+
+    const track = session.tracks.find(t => t.uri === uri && !t.played);
+    if (track) {
+      track.played = true;
+      session.playedCount = (session.playedCount || 0) + 1;
+      await session.save();
+      console.log(`Marked track as played: ${uri} in session ${sessionId}`);
+    }
+  } catch (err) {
+    console.error('markTrackPlayed error:', err);
   }
 }
 
