@@ -1689,13 +1689,8 @@ function startAddFlow(){
   if (searchRow) searchRow.style.display = 'flex';
 }
 
-/* ====== Add to queue with enforcement (session-aware append) ====== */
-// Robust addToPaidQueue: dedupe, local persistence, batched appends, idempotent start
-// Assumes these globals exist: paymentComplete, currentPackage, paidQueue (array), 
-// songsAddedThisSession (number), paidSessionActive (bool), statusText, renderQueue,
-// backendPlayTracks(tracks, opts) -> Promise, startPaidQueuePlayback(sessionId, replace)
+
 (function () {
-  // Batch appends to backend to avoid multiple network calls on quick adds/refreshes
   let appendBatch = [];
   let appendTimer = null;
   const APPEND_BATCH_MS = 800;
@@ -1708,12 +1703,15 @@ function startAddFlow(){
     appendTimer = null;
 
     try {
-      await backendPlayTracks(batch, { sessionId, append: true });
+      await backendPlayTracks(batch, {
+        sessionId,
+        checkoutId: sessionStorage.getItem('checkoutId'),
+        append: true
+      });
       console.log('Appended batch to backend:', batch.map(t => t.uri));
     } catch (err) {
       console.error('Failed to append batch to backend:', err);
       statusText && (statusText.textContent = 'Append failed — will retry shortly');
-      // Re-queue locally so UI doesn't lose the tracks; try again after delay
       appendBatch = batch.concat(appendBatch);
       if (!appendTimer) {
         appendTimer = setTimeout(() => flushAppendBatch(sessionId), 3000);
@@ -1721,10 +1719,8 @@ function startAddFlow(){
     }
   }
 
-  // Exported function
   window.addToPaidQueue = async function addToPaidQueue(track, sessionId) {
     try {
-      // Basic guards
       if (!paymentComplete || !currentPackage) {
         alert('You must pay for a package before adding songs.');
         return;
@@ -1740,24 +1736,21 @@ function startAddFlow(){
         return;
       }
 
-      // Normalize track object
       const normalized = {
         uri: track.uri,
         title: track.title || track.name || 'Unknown',
         artist: track.artist || (track.artists && track.artists.join(', ')) || '',
         duration_ms: track.duration_ms || track.durationMs || 0,
-        albumArt: track.albumArt || (track.album && track.album.images && track.album.images[0]?.url) || '',
+        albumArt: track.albumArt || (track.album?.images?.[0]?.url) || '',
         addedAt: Date.now()
       };
 
-      // Local dedupe: don't add same URI twice in local queue
       if (paidQueue.some(t => t.uri === normalized.uri)) {
         console.info('Track already in local paidQueue, skipping:', normalized.uri);
         statusText && (statusText.textContent = 'Track already in paid queue');
         return;
       }
 
-      // Persist local queue to sessionStorage so refresh doesn't lose it
       paidQueue.push(normalized);
       try {
         sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
@@ -1768,44 +1761,37 @@ function startAddFlow(){
       songsAddedThisSession++;
       renderQueue && renderQueue();
 
-      // Ensure a stable sessionId exists; if not provided, try to read from sessionStorage
       let sid = sessionId || sessionStorage.getItem('sessionId');
+      let checkoutId = sessionStorage.getItem('checkoutId');
       if (!sid) {
-        // If no sessionId, create a temporary one (should normally be created on payment success)
-        const checkoutId = sessionStorage.getItem('checkoutId') || crypto.randomUUID();
+        checkoutId = checkoutId || crypto.randomUUID();
         const today = new Date().toISOString().slice(0,10);
         sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
         sessionStorage.setItem('sessionId', sid);
+        sessionStorage.setItem('checkoutId', checkoutId);
         sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
       }
 
-      // If no paid session active locally, start playback in replace mode (only once)
       if (!paidSessionActive) {
-        // Prevent multiple starts: use a marker per session
         const startMarkerKey = `paidStarted_${sid}`;
         if (!sessionStorage.getItem(startMarkerKey)) {
           sessionStorage.setItem(startMarkerKey, 'true');
           statusText && (statusText.textContent = 'Starting paid playback...');
           try {
-            // startPaidQueuePlayback should be idempotent on the backend
             await startPaidQueuePlayback(sid, false);
             paidSessionActive = true;
             statusText && (statusText.textContent = 'Paid playback started');
           } catch (err) {
             console.error('startPaidQueuePlayback failed', err);
             statusText && (statusText.textContent = 'Failed to start paid playback — will retry');
-            // Clear marker so user can retry
             sessionStorage.removeItem(startMarkerKey);
           }
         } else {
-          // Already attempted start; just inform user
           statusText && (statusText.textContent = 'Paid playback starting (in progress)');
         }
         return;
       }
 
-      // If session is active, append the new track(s) to backend in a batched way
-      // Use appendBatch to collect quick successive adds and send them together
       appendBatch.push(normalized);
       if (!appendTimer) {
         appendTimer = setTimeout(() => flushAppendBatch(sid), APPEND_BATCH_MS);
