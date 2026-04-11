@@ -449,63 +449,39 @@ app.post('/api/reserve-tracks', async (req, res) => {
 
 app.post('/webhook/payment-success', async (req, res) => {
   try {
-    const { sessionId, checkoutId, tracks = [], userId, packagePrice = 0, maxSongs = 0 } = req.body;
-    if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
-    if (!checkoutId) return res.status(400).json({ error: 'Missing checkoutId' });
+    const { sessionId, tracks = [] } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Missing sessionId' });
+    }
 
-    const normalizedTracks = tracks.map((t, i) => normalizeTrack(t, i + 1));
-    const estimatedTotalMs = normalizedTracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
+    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    // Ensure Checkout exists
-    const checkout = await Checkout.findOneAndUpdate(
-      { checkoutId },
-      { $setOnInsert: { checkoutId, amount: packagePrice, currency: 'ZAR', description: 'Musicbox Paid Session', tracks: normalizedTracks, createdAt: new Date() } },
-      { upsert: true, new: true }
-    );
-
-    // Upsert PaidSession
-    let session = await PaidSession.findOne({ checkoutId });
+    let session = await PaidSession.findOne({ sessionId });
     if (!session) {
       session = new PaidSession({
         sessionId,
-        checkoutId,
-        checkoutRef: checkout._id,
-        userId,
-        packagePrice,
-        maxSongs,
-        tracks: normalizedTracks,
-        songsAdded: normalizedTracks.length,
+        checkoutId: sessionId.split('-')[1],
+        userId: req.body.userId || null,
+        packagePrice: 0,
+        maxSongs: 0,
+        songsAdded: 0,
         active: true,
         startedAt: new Date(),
-        processedAt: new Date()
+        tracks: []
       });
-    } else if (session.songsAdded === 0) {
-      session.tracks = normalizedTracks;
-      session.songsAdded = normalizedTracks.length;
+    }
+
+    if (tracks.length > 0) {
+      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
+      session.songsAdded = tracks.length;
       session.active = true;
-      session.processedAt = new Date();
+      await session.save();
+
+      // Kick off playback logic
+      await startPaidSession(sessionId, tracks, estimatedTotalMs);
     }
 
-    await session.save();
-
-    // Link back
-    if (!checkout.sessionRef) {
-      checkout.sessionRef = session._id;
-      await checkout.save();
-    }
-
-    // Trigger playback only once
-    if (!session.playbackStartedAt) {
-      try {
-        await startPaidSession(sessionId, normalizedTracks, estimatedTotalMs);
-        session.playbackStartedAt = new Date();
-        await session.save();
-      } catch (err) {
-        console.error('startPaidSession error (non-fatal):', err);
-      }
-    }
-
-    res.json({ ok: true, sessionId: session.sessionId, checkoutId });
+    res.json({ ok: true });
   } catch (err) {
     console.error('/webhook/payment-success error', err);
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
