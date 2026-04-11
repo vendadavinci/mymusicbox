@@ -216,14 +216,12 @@ app.post('/api/play', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing tracks array' });
     }
 
-    // Prefer explicit checkoutId if provided, otherwise try to parse from sessionId
     const effectiveCheckoutId = checkoutId || (typeof sessionId === 'string' && sessionId.split('-')[1]) || null;
 
-    // 1) Idempotency by checkoutId: if we've already processed this checkout, return existing session
-    if (effectiveCheckoutId) {
+    // 1) Idempotency by checkoutId: only short-circuit for replace mode
+    if (effectiveCheckoutId && !append) {
       const existing = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
       if (existing) {
-        // If session exists, return its state and avoid re-adding tracks
         return res.json({
           success: true,
           mode: existing.active ? 'already-active' : 'existing-session',
@@ -239,7 +237,7 @@ app.post('/api/play', async (req, res) => {
       session = await PaidSession.findOne({ sessionId });
     }
 
-    // 3) If no session found by sessionId, create a new session object (not yet active)
+    // 3) If no session found, create new
     if (!session) {
       const newSessionId = sessionId || `${new Date().toISOString().slice(0,10)}-${effectiveCheckoutId || crypto.randomUUID()}-${Date.now().toString().slice(-6)}`;
       session = new PaidSession({
@@ -255,7 +253,7 @@ app.post('/api/play', async (req, res) => {
       });
     }
 
-    // 4) Append mode: add only tracks that are not already present (by URI)
+    // 4) Append mode
     if (append) {
       const existingUris = new Set(session.tracks.map(t => t.uri));
       const toAdd = [];
@@ -270,13 +268,11 @@ app.post('/api/play', async (req, res) => {
       }
 
       if (toAdd.length > 0) {
-        // push new tracks into session and update counters
         session.tracks = session.tracks.concat(toAdd);
         session.songsAdded = (session.songsAdded || 0) + toAdd.length;
         await session.save();
       }
 
-      // Queue only tracks that are not played yet
       for (const track of toAdd) {
         try {
           const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
@@ -293,12 +289,12 @@ app.post('/api/play', async (req, res) => {
       return res.json({ success: true, mode: 'append', sessionId: session.sessionId, added: toAdd.length });
     }
 
-    // 5) Replace mode: if session is already active, do not restart or re-add
+    // 5) Replace mode
     if (session.active) {
       return res.json({ success: true, mode: 'already-active', sessionId: session.sessionId });
     }
 
-    // 6) Replace: set session.tracks to normalized incoming tracks (dedup by URI)
+    // 6) Replace logic
     const seen = new Set();
     const normalized = [];
     let idx = 1;
@@ -311,11 +307,11 @@ app.post('/api/play', async (req, res) => {
 
     session.tracks = normalized;
     session.songsAdded = normalized.length;
-    session.active = true; // mark active locally; we will attempt to start playback next
+    session.active = true;
     session.startedAt = session.startedAt || new Date();
     await session.save();
 
-    // 7) Attempt to start playback on Spotify. If this fails, roll back active flag so client can retry
+    // 7) Attempt to start playback
     try {
       const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
       const playR = await fetch(playUrl, {
@@ -326,13 +322,16 @@ app.post('/api/play', async (req, res) => {
 
       if (!playR.ok) {
         const text = await playR.text().catch(() => '<no body>');
-        // rollback active flag so subsequent calls can attempt again
         session.active = false;
         await session.save();
         return res.status(playR.status).json({ success: false, error: 'play failed', details: text });
       }
+
+      // Mark playback started
+      session.playbackStartedAt = new Date();
+      await session.save();
+
     } catch (e) {
-      // network or other error: rollback and return error
       session.active = false;
       await session.save();
       console.error('Spotify play error', e);
