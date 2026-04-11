@@ -93,6 +93,7 @@ async function refreshAccessTokenIfNeeded() {
 let paidSessionActive = false;
 let paidSessionTimer = null;
 let paidQueue = [];
+let playedQueue = [];
 
 async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
   let session = await PaidSession.findOne({ sessionId });
@@ -904,39 +905,46 @@ setInterval(async () => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // Handle 204 (no content)
-    if (r.status === 204) {
-      return; // nothing playing
-    }
-
-    // Handle non-OK responses
+    if (r.status === 204) return;
     if (!r.ok) {
-      const text = await r.text().catch(() => '<no body>');
-      console.warn(`Spotify status failed ${r.status}: ${text}`);
+      console.warn('Spotify status failed', r.status);
       return;
     }
 
-    // Defensive JSON parse
-    let data = null;
+    let data;
     try {
       const text = await r.text();
       if (text && text.trim().length > 0) {
         data = JSON.parse(text);
       }
-    } catch (err) {
-      console.warn('Spotify returned empty or invalid JSON', err);
+    } catch {
       return;
     }
 
-    // If we got valid data, mark track played
     if (data?.item?.uri) {
       await markTrackPlayed(activeSession.sessionId, data.item.uri);
+
+      // Move track from paidQueue to playedQueue
+      const idx = paidQueue.findIndex(t => t.uri === data.item.uri);
+      if (idx !== -1) {
+        const [track] = paidQueue.splice(idx, 1);
+        track.played = true;
+        playedQueue.push(track);
+
+        // Persist and re-render both sections
+        try {
+          sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
+          sessionStorage.setItem('playedQueue', JSON.stringify(playedQueue));
+        } catch (e) { /* ignore */ }
+
+        renderQueue();
+        renderPlayedHistory();
+      }
     }
   } catch (err) {
     console.error('Poller error:', err);
   }
-}, 5000); // every 5 seconds
-
+}, 5000);
 
 /* -------------------------
    Start server

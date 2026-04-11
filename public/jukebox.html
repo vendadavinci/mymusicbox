@@ -305,96 +305,114 @@
   </section>
 
 
-  <aside class="right-col">
+<aside class="right-col">
 
-    <!-- Add flow -->
-    <div class="card" aria-label="Add to paid playlist">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-weight:700;">Add To Paid Playlist</div>
-        <div class="small">Users must select package & pay</div>
-      </div>
+  <!-- Add flow -->
+  <div class="card" aria-label="Add to paid playlist">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:700;">Add To Paid Playlist</div>
+      <div class="small">Users must select package &amp; pay</div>
+    </div>
 
-      <!-- Add Songs button -->
-      <div style="margin-top:20px;text-align:center;">
-        <button class="btn" id="addSongsBtn" onclick="togglePackageDropdown()">
-          Add Songs
-        </button>
-      </div>
+    <!-- Add Songs button -->
+    <div style="margin-top:20px;text-align:center;">
+      <button class="btn" id="addSongsBtn" onclick="togglePackageDropdown()">
+        Add Songs
+      </button>
+    </div>
 
-      <!-- Dropdown with package options (hidden by default) -->
-      <div id="packageDropdown" style="display:none;margin-top:12px;">
-        <select id="packageSelect" class="btn" onchange="handlePackageSelect()">
-          <option value="">-- Select Package --</option>
-          <option value="10-2">R10 (1–2 songs, max 10 min)</option>
-          <option value="20-4">R20 (3–4 songs, max 20 min)</option>
-          <option value="40-6">R40 (4–6 songs, max 30 min)</option>
-          <option value="50-8">R50 (6–8 songs, ~40 min)</option>
-          <option value="100-12">R100 (9–12 songs, ~50 min)</option>
-          <option value="150-15">R150 (10–15 songs, ~60 min)</option>
-          <option value="200-20">R200 (15–20 songs, ~90 min)</option>
-        </select>
-        <!-- Dynamic form panel -->
-        <div class="form-panel" id="formPanel">
-          <h3>Select package to continue</h3>
-          <div class="note" id="instructionNote">Choose a package on the left. After selecting, use the search boxes to pick tracks (top 10 results shown per search box). When ready, press Pay to proceed to payment.</div>
+    <!-- Dropdown with package options (hidden by default) -->
+    <div id="packageDropdown" style="display:none;margin-top:12px;">
+      <select id="packageSelect" class="btn" onchange="handlePackageSelect()">
+        <option value="">-- Select Package --</option>
+        <option value="10-2">R10 (1–2 songs, max 10 min)</option>
+        <option value="20-4">R20 (3–4 songs, max 20 min)</option>
+        <option value="40-6">R40 (4–6 songs, max 30 min)</option>
+        <option value="50-8">R50 (6–8 songs, ~40 min)</option>
+        <option value="100-12">R100 (9–12 songs, ~50 min)</option>
+        <option value="150-15">R150 (10–15 songs, ~60 min)</option>
+        <option value="200-20">R200 (15–20 songs, ~90 min)</option>
+      </select>
 
-          <!-- package summary -->
-          <div class="form-row" id="packageSummary" style="display:none;">
-            <label>Package</label>
-            <div id="pkgLabel" style="font-weight:700;color:var(--accent);"></div>
-          </div>
+      <!-- Dynamic form panel -->
+      <div class="form-panel" id="formPanel">
+        <h3>Select package to continue</h3>
+        <div class="note" id="instructionNote">
+          Choose a package on the left. After selecting, use the search boxes to pick tracks (top 10 results shown per search box). When ready, press Pay to proceed to payment.
+        </div>
 
-          <!-- dynamic slots container -->
-          <div id="slotsContainer" style="margin-top:12px;"></div>
+        <!-- package summary -->
+        <div class="form-row" id="packageSummary" style="display:none;">
+          <label>Package</label>
+          <div id="pkgLabel" style="font-weight:700;color:var(--accent);"></div>
+        </div>
 
-          <!-- selected tracks preview -->
-          <div id="selectedContainer" style="display:none;">
-            <h4 style="margin:12px 0 6px 0;color:var(--accent);">Selected tracks (will be queued after payment)</h4>
-            <div class="selected-list" id="selectedList"></div>
-          </div>
+        <!-- dynamic slots container -->
+        <div id="slotsContainer" style="margin-top:12px;"></div>
 
-          <!-- payment controls -->
-          <div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
-            <!-- Pay button (normal) -->
-            <button class="btn" id="payBtn" onclick="startPayment()" disabled>Pay</button>
-            <button class="btn ghost" onclick="cancelSelection()">Cancel</button>
-            <div style="flex:1"></div>
-            <div class="note" id="priceNote"></div>
-          </div>
+        <!-- selected tracks preview -->
+        <div id="selectedContainer" style="display:none;">
+          <h4 style="margin:12px 0 6px 0;color:var(--accent);">Selected tracks (will be queued after payment)</h4>
+          <div class="selected-list" id="selectedList"></div>
+        </div>
 
-          <div class="note" style="margin-top:12px;">
-            Payment flow: this page sends selected tracks and package info to your backend endpoint <code>/api/create-payment</code>. Your server should create the payment session and redirect the user to the payment gateway. After successful payment the backend should enqueue the paid tracks to the pub playback queue.
-          </div>
+        <!-- payment controls -->
+        <div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
+          <button class="btn" id="payBtn" onclick="startPayment()" disabled>Pay</button>
+          <button class="btn ghost" onclick="cancelSelection()">Cancel</button>
+          <div style="flex:1"></div>
+          <div class="note" id="priceNote"></div>
+        </div>
+
+        <div class="note" style="margin-top:12px;">
+          Payment flow: this page sends selected tracks and package info to your backend endpoint <code>/api/create-payment</code>. Your server should create the payment session and redirect the user to the payment gateway. After successful payment the backend should enqueue the paid tracks to the pub playback queue.
         </div>
       </div>
-
-      <!-- Search UI (locked until payment) -->
-      <div class="search-row" id="searchRow" style="margin-top:12px;display:none;">
-        <input id="searchInput" placeholder="Search Spotify (title or artist)" 
-               onkeydown="if(event.key==='Enter') searchTracks()" />
-        <button class="btn" onclick="searchTracks()">Search</button>
-      </div>
-
-      <div class="search-results" id="searchResults" aria-live="polite"></div>
-      <div class="small" style="margin-top:8px;">Tip: search unlocks after payment.</div>
     </div>
 
-    <!-- Paid queue -->
-    <div class="card" aria-label="Paid queue">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-weight:700;">Paid Queue</div>
-        <div class="small" id="queueInfo">Plays in order; no jumping</div>
-      </div>
-
-      <div class="queue-list" id="paidQueue"></div>
-
-      <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-        <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
-        <div id="paidQueueControls"></div>
-      </div>
+    <!-- Search UI (locked until payment) -->
+    <div class="search-row" id="searchRow" style="margin-top:12px;display:none;">
+      <input id="searchInput" placeholder="Search Spotify (title or artist)"
+             onkeydown="if(event.key==='Enter') searchTracks()" />
+      <button class="btn" onclick="searchTracks()">Search</button>
     </div>
 
-  </aside>
+    <div class="search-results" id="searchResults" aria-live="polite"></div>
+    <div class="small" style="margin-top:8px;">Tip: search unlocks after payment.</div>
+  </div>
+
+  <!-- Paid queue -->
+  <div class="card" aria-label="Paid queue" style="margin-top:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:700;">Paid Queue</div>
+      <div class="small" id="queueInfo">Plays in order; no jumping</div>
+    </div>
+
+    <!-- Active queue list (populated by renderQueue) -->
+    <div class="queue-list" id="paidQueueEl" style="margin-top:10px;"></div>
+
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+      <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
+      <div id="paidQueueControls"></div>
+    </div>
+
+    <div class="small" id="nextTitleEl" style="margin-top:8px;"></div>
+    <div class="small" id="queueCount" style="margin-top:4px;"></div>
+  </div>
+
+  <!-- Played history -->
+  <div class="card" aria-label="Played history" style="margin-top:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:700;">Played History</div>
+      <div class="small" id="playedCount">Played tracks: 0</div>
+    </div>
+
+    <!-- History list (populated by renderPlayedHistory) -->
+    <div class="queue-list" id="playedHistory" style="margin-top:10px;"></div>
+  </div>
+
+</aside>
+
 </main>
 
 
@@ -766,6 +784,8 @@ async function initPage() {
       if (local) {
         try { paidQueue = JSON.parse(local); } catch (e) { paidQueue = []; }
       }
+      // filter out played tracks before rendering
+      paidQueue = paidQueue.filter(t => !t.played);
       renderQueue();
       paidSessionActive = false;
     }
@@ -775,6 +795,7 @@ async function initPage() {
     const local = sessionStorage.getItem('paidQueue');
     if (local) {
       try { paidQueue = JSON.parse(local); } catch (err) { paidQueue = []; }
+      paidQueue = paidQueue.filter(t => !t.played);
       renderQueue();
     }
   }
@@ -820,7 +841,6 @@ function escapeHtml(s){
 
 
 /* ====== Queue rendering & controls ====== */
-// Robust renderQueue: safe DOM updates, persistence, played indicator, remove buttons
 function renderQueue() {
   try {
     if (!paidQueueEl) return;
@@ -834,12 +854,15 @@ function renderQueue() {
       console.warn('Could not persist paidQueue to sessionStorage', e);
     }
 
+    // Only show tracks that are not yet played
+    const activeTracks = paidQueue.filter(t => !t.played);
+
     paidQueueEl.innerHTML = '';
     const frag = document.createDocumentFragment();
 
     let totalMs = 0;
 
-    paidQueue.forEach((item, index) => {
+    activeTracks.forEach((item, index) => {
       totalMs += item.duration_ms || 0;
 
       const wrapper = document.createElement('div');
@@ -901,12 +924,12 @@ function renderQueue() {
 
     paidQueueEl.appendChild(frag);
 
-    if (queueCount) queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+    if (queueCount) queueCount.textContent = `Paid queue: ${activeTracks.length}`;
     if (queueDurationText) queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
 
     if (nextTitleEl) {
-      if (paidQueue.length > 0) {
-        const next = paidQueue[0];
+      if (activeTracks.length > 0) {
+        const next = activeTracks[0];
         nextTitleEl.textContent = `${next.title} — ${next.artist}`;
       } else {
         nextTitleEl.textContent = 'No paid tracks queued';
@@ -1648,7 +1671,8 @@ window.onPaymentSuccess = onPaymentSuccess;
 
 /* ====== End of fixed script ====== */
 
-// Merge server session tracks into local paidQueue
+
+// Merge server session tracks into local paidQueue and playedQueue
 function mergeServerQueueIntoLocal(serverTracks = []) {
   // Normalize serverTracks to minimal shape
   const normalizedServer = (serverTracks || []).map((t, i) => ({
@@ -1661,46 +1685,86 @@ function mergeServerQueueIntoLocal(serverTracks = []) {
     orderIndex: t.orderIndex || i + 1
   }));
 
-  // Build maps for quick lookup
-  const localByUri = new Map((paidQueue || []).map((t, i) => [t.uri, { item: t, index: i }]));
-  const serverByUri = new Map(normalizedServer.map((t, i) => [t.uri, t]));
+  // Reset queues
+  paidQueue = [];
+  playedQueue = [];
 
-  // 1) Update played flags and metadata for items that exist locally
-  for (const [uri, { item }] of localByUri.entries()) {
-    if (serverByUri.has(uri)) {
-      const s = serverByUri.get(uri);
-      item.played = !!s.played;
-      item.title = s.title || item.title;
-      item.artist = s.artist || item.artist;
-      item.duration_ms = s.duration_ms || item.duration_ms;
-      item.albumArt = s.albumArt || item.albumArt;
-    }
-  }
-
-  // 2) Append any server tracks that are not present locally, preserving server order
+  // Split into active vs played
   for (const s of normalizedServer) {
-    if (!localByUri.has(s.uri)) {
-      paidQueue.push({
-        uri: s.uri,
-        title: s.title,
-        artist: s.artist,
-        duration_ms: s.duration_ms,
-        albumArt: s.albumArt,
-        addedAt: Date.now(),
-        played: !!s.played,
-        orderIndex: s.orderIndex
-      });
+    if (s.played) {
+      playedQueue.push(s);
+    } else {
+      paidQueue.push(s);
     }
   }
 
-  // 3) Optionally sort local queue by orderIndex if you want server ordering to win
+  // Sort both queues by orderIndex
   paidQueue.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+  playedQueue.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
 
-  // Persist and re-render
-  try { sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue)); } catch (e) { /* ignore */ }
+  // Persist both queues
+  try {
+    sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
+    sessionStorage.setItem('playedQueue', JSON.stringify(playedQueue));
+  } catch (e) { /* ignore */ }
+
+  // Render both sections
   renderQueue && renderQueue();
+  renderPlayedHistory && renderPlayedHistory();
 }
 
+// Render played history section
+function renderPlayedHistory() {
+  const historyEl = document.getElementById('playedHistory');
+  if (!historyEl) return;
+
+  historyEl.innerHTML = '';
+  const frag = document.createDocumentFragment();
+
+  playedQueue.forEach((item) => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'history-item';
+    wrapper.style.display = 'flex';
+    wrapper.style.justifyContent = 'space-between';
+    wrapper.style.alignItems = 'center';
+    wrapper.style.gap = '12px';
+
+    const left = document.createElement('div');
+    left.style.minWidth = '0';
+    left.style.flex = '1';
+
+    const titleDiv = document.createElement('div');
+    titleDiv.style.fontWeight = '700';
+    titleDiv.style.whiteSpace = 'nowrap';
+    titleDiv.style.overflow = 'hidden';
+    titleDiv.style.textOverflow = 'ellipsis';
+    titleDiv.textContent = item.title || 'Unknown';
+
+    const metaDiv = document.createElement('div');
+    metaDiv.className = 'meta';
+    metaDiv.style.fontSize = '0.9em';
+    metaDiv.style.color = '#666';
+    metaDiv.textContent = item.artist || '';
+
+    left.appendChild(titleDiv);
+    left.appendChild(metaDiv);
+
+    const right = document.createElement('div');
+    right.style.fontSize = '0.75em';
+    right.style.color = '#0a0';
+    right.textContent = 'Played';
+
+    wrapper.appendChild(left);
+    wrapper.appendChild(right);
+
+    frag.appendChild(wrapper);
+  });
+
+  historyEl.appendChild(frag);
+
+  const countEl = document.getElementById('playedCount');
+  if (countEl) countEl.textContent = `Played tracks: ${playedQueue.length}`;
+}
 
 
 // frontend: play first track, disable shuffle/repeat, queue rest, and return {ok:true} on success
