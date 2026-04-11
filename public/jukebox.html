@@ -1098,28 +1098,28 @@ async function backendPlayTracks(tracks, { sessionId, append } = {}) {
   }
 }
 
-// Robust startPaidQueuePlayback: idempotent start, uses sent-URI tracking, safer timeout handling
+// Robust startPaidQueuePlayback: idempotent start, aligned with checkout/session durable link
 async function startPaidQueuePlayback(sessionId, replace = false) {
   try {
-    // Basic guards
     if (!Array.isArray(paidQueue) || paidQueue.length === 0) return;
     if (paidSessionActive) return; // already playing
 
-    // Ensure sessionId exists and persist it
+    // Ensure sessionId and checkoutId exist
     let sid = sessionId || sessionStorage.getItem('sessionId');
+    let checkoutId = sessionStorage.getItem('checkoutId');
     if (!sid) {
-      const checkoutId = sessionStorage.getItem('checkoutId') || crypto.randomUUID();
+      checkoutId = checkoutId || crypto.randomUUID();
       const today = new Date().toISOString().slice(0,10);
       sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
       sessionStorage.setItem('sessionId', sid);
+      sessionStorage.setItem('checkoutId', checkoutId);
       sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
     }
 
-    // Prevent multiple starts for same session: marker per session
+    // Prevent multiple starts for same session
     const startMarker = `paidStarted_${sid}`;
     if (sessionStorage.getItem(startMarker)) {
       console.info('startPaidQueuePlayback already attempted for', sid);
-      // still set local state so UI reflects server state
       paidSessionActive = true;
       nowMode.textContent = 'Mode: PAID';
       renderPaidQueueControls();
@@ -1128,7 +1128,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     }
     sessionStorage.setItem(startMarker, 'true');
 
-    // Clear any redirect timeout
+    // Clear redirect timeout
     if (typeof redirectTimeoutHandle !== 'undefined' && redirectTimeoutHandle) {
       clearTimeout(redirectTimeoutHandle);
       redirectTimeoutHandle = null;
@@ -1141,32 +1141,34 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     renderPaidQueueControls && renderPaidQueueControls();
     updateStartPlayButton && updateStartPlayButton();
 
-    // Pause default playback if available
+    // Pause default playback
     if (typeof backendPause === 'function') {
       try { await backendPause(); } catch (e) { console.warn('backendPause failed', e); }
     }
 
-    // Snapshot local queue and compute total duration defensively
+    // Snapshot local queue
     const snapshotQueue = paidQueue.slice();
     const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
 
-    // Update now playing UI for first track
+    // Update now playing UI
     const first = snapshotQueue[0];
     if (first && typeof setNowPlaying === 'function') {
       setNowPlaying(first.title, first.artist, first.albumArt);
     }
 
-    // Send tracks to backend in one batch (replace mode if requested)
+    // Send tracks to backend once, with durable identifiers
     let result = null;
     try {
-      result = await backendPlayTracks(snapshotQueue, { sessionId: sid, append: !!replace ? false : false });
-      // If backend returns an object with ok false, treat as failure
+      result = await backendPlayTracks(snapshotQueue, {
+        sessionId: sid,
+        checkoutId,
+        append: false
+      });
       if (result && result.ok === false) {
         throw new Error('Backend reported failure when starting paid playback');
       }
     } catch (err) {
       console.error('startPaidQueuePlayback backendPlayTracks failed', err);
-      // Reset UI and markers so user can retry
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       statusText && (statusText.textContent = 'Playback/queue failed. Please try again.');
@@ -1176,22 +1178,19 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       throw err;
     }
 
-    // Optionally poll status once to sync UI
+    // Poll status once to sync UI
     if (typeof pollStatusOnce === 'function') {
       try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
     }
 
     renderQueue && renderQueue();
 
-    // Schedule fallback: when totalMs elapses, resume default playback if session still inactive
-    // Use a safe guard: if totalMs is huge or zero, clamp to reasonable bounds
-    const clamp = ms => Math.max(5000, Math.min(ms, 1000 * 60 * 60)); // 5s .. 1h
+    // Schedule fallback
+    const clamp = ms => Math.max(5000, Math.min(ms, 1000 * 60 * 60));
     const waitMs = clamp(totalMs + 2000);
 
     setTimeout(async () => {
-      // If a new paid session started meanwhile, do nothing
       if (paidSessionActive && readSentUris(sid).length > 0) {
-        // If there are still queued tracks, attempt to start next batch
         if (paidQueue.length > 0) {
           statusText && (statusText.textContent = 'Starting next paid queue...');
           try { await startPaidQueuePlayback(sid); } catch (e) { console.warn('restart next paid queue failed', e); }
@@ -1215,7 +1214,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
         console.warn('backendResume failed', e);
       }
 
-      // Redirect fallback after 30s if still not in paid mode
       if (typeof redirectTimeoutHandle !== 'undefined' && redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
       redirectTimeoutHandle = setTimeout(() => {
         if (paidSessionActive) return;
