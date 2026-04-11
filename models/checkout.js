@@ -13,14 +13,15 @@ const PaidTrackSchema = new mongoose.Schema({
 }, { _id: false });
 
 const CheckoutSchema = new mongoose.Schema({
-  checkoutId: { type: String, unique: true },
+  checkoutId: { type: String, unique: true, index: true },
   amount: { type: Number, required: true },
   currency: { type: String, required: true },
   description: { type: String },
   successUrl: { type: String },
   cancelUrl: { type: String },
   createdAt: { type: Date, default: Date.now },
-  tracks: [PaidTrackSchema]
+  tracks: [PaidTrackSchema],
+  sessionRef: { type: mongoose.Schema.Types.ObjectId, ref: 'PaidSession' } // durable link back
 });
 
 export const Checkout = mongoose.model('Checkout', CheckoutSchema);
