@@ -132,6 +132,77 @@ async function refreshAndGetActiveDevice() {
   return active.id;
 }
 
+app.post('/webhook/payment-success', async (req, res) => {
+  try {
+    const { sessionId, tracks = [], userId } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Missing sessionId' });
+    }
+
+    const estimatedTotalMs = tracks.reduce(
+      (s, t) => s + (t.durationMs || t.duration_ms || 210000),
+      0
+    );
+
+    // Find or create session
+    let session = await PaidSession.findOne({ sessionId });
+    if (!session) {
+      session = new PaidSession({
+        sessionId,
+        checkoutId: sessionId.split('-')[1],
+        userId: userId || null,
+        packagePrice: 0,
+        maxSongs: 0,
+        songsAdded: 0,
+        active: false,
+        startedAt: new Date(),
+        tracks: []
+      });
+    }
+
+    if (tracks.length > 0) {
+      // Normalize and merge tracks into session
+      const normalizedTracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
+      session.tracks = normalizedTracks;
+      session.songsAdded = normalizedTracks.length;
+      session.active = true;
+      await session.save();
+
+      // Update checkout linkage
+      await Checkout.findOneAndUpdate(
+        { checkoutId: sessionId.split('-')[1] },
+        { $set: { sessionRef: session._id, processedAt: new Date() } },
+        { upsert: true }
+      );
+
+      try {
+        // Always call startPaidSession (handles both start and append)
+        await startPaidSession(sessionId, normalizedTracks, estimatedTotalMs);
+
+        // Mark playback started if not already
+        if (!session.playbackStartedAt) {
+          session.playbackStartedAt = new Date();
+          await session.save();
+        }
+
+        // Update checkout playback timestamp
+        await Checkout.findOneAndUpdate(
+          { checkoutId: sessionId.split('-')[1] },
+          { $set: { playbackStartedAt: new Date() } }
+        );
+      } catch (err) {
+        console.error('startPaidSession error', err);
+        return res.status(500).json({ error: 'playback failed', details: err.message });
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('/webhook/payment-success error', err);
+    res.status(500).json({ error: 'webhook handling failed', details: err.message });
+  }
+});
+
 
 app.post('/api/play', async (req, res) => {
   try {
@@ -302,7 +373,7 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
     }
     await session.save();
 
-    // Queue only the new tracks
+    // Queue only the new tracks with strict error handling
     for (const track of newTracks) {
       const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}&device_id=${encodeURIComponent(deviceId)}`;
       const qRes = await fetch(queueUrl, {
@@ -310,7 +381,11 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
         headers: { Authorization: `Bearer ${tokens.access_token}` }
       });
       if (!qRes.ok) {
-        console.warn('Spotify queue failed', track.uri, await qRes.text());
+        const errText = await qRes.text().catch(() => '<no body>');
+        console.error('Spotify queue failed', track.uri, qRes.status, errText);
+        throw new Error(`Queue failed for ${track.uri}: ${errText}`);
+      } else {
+        console.log('Queued track successfully:', track.uri);
       }
     }
 
@@ -332,10 +407,14 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
     body: JSON.stringify({ uris: [firstTrack.uri] })
   });
   if (!playRes.ok) {
-    console.warn('Spotify play failed', await playRes.text());
+    const errText = await playRes.text().catch(() => '<no body>');
+    console.error('Spotify play failed', firstTrack.uri, playRes.status, errText);
+    throw new Error(`Play failed for ${firstTrack.uri}: ${errText}`);
+  } else {
+    console.log('Started playback with:', firstTrack.uri);
   }
 
-  // Queue the rest of the tracks
+  // Queue the rest of the tracks with strict error handling
   for (const track of session.tracks.slice(1)) {
     const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}&device_id=${encodeURIComponent(deviceId)}`;
     const qRes = await fetch(queueUrl, {
@@ -343,7 +422,11 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
     if (!qRes.ok) {
-      console.warn('Spotify queue failed', track.uri, await qRes.text());
+      const errText = await qRes.text().catch(() => '<no body>');
+      console.error('Spotify queue failed', track.uri, qRes.status, errText);
+      throw new Error(`Queue failed for ${track.uri}: ${errText}`);
+    } else {
+      console.log('Queued track successfully:', track.uri);
     }
   }
 
@@ -368,7 +451,10 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
         const body = defaultPlaylistUri ? { context_uri: defaultPlaylistUri } : {};
         await fetch('https://api.spotify.com/v1/me/player/play', {
           method: 'PUT',
-          headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
+          headers: {
+            Authorization: `Bearer ${tokens.access_token}`,
+            'Content-Type': 'application/json'
+          },
           body: JSON.stringify(body)
         });
       } catch (err) {
@@ -458,76 +544,6 @@ app.post('/api/reserve-tracks', async (req, res) => {
   }
 });
 
-app.post('/webhook/payment-success', async (req, res) => {
-  try {
-    const { sessionId, tracks = [], userId } = req.body;
-    if (!sessionId) {
-      return res.status(400).json({ error: 'Missing sessionId' });
-    }
-
-    const estimatedTotalMs = tracks.reduce(
-      (s, t) => s + (t.durationMs || t.duration_ms || 210000),
-      0
-    );
-
-    // Find or create session
-    let session = await PaidSession.findOne({ sessionId });
-    if (!session) {
-      session = new PaidSession({
-        sessionId,
-        checkoutId: sessionId.split('-')[1],
-        userId: userId || null,
-        packagePrice: 0,
-        maxSongs: 0,
-        songsAdded: 0,
-        active: false,
-        startedAt: new Date(),
-        tracks: []
-      });
-    }
-
-    if (tracks.length > 0) {
-      // Normalize and merge tracks into session
-      const normalizedTracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
-      session.tracks = normalizedTracks;
-      session.songsAdded = normalizedTracks.length;
-      session.active = true;
-      await session.save();
-
-      // Update checkout linkage
-      await Checkout.findOneAndUpdate(
-        { checkoutId: sessionId.split('-')[1] },
-        { $set: { sessionRef: session._id, processedAt: new Date() } },
-        { upsert: true }
-      );
-
-      try {
-        // Always call startPaidSession (handles both start and append)
-        await startPaidSession(sessionId, normalizedTracks, estimatedTotalMs);
-
-        // Mark playback started if not already
-        if (!session.playbackStartedAt) {
-          session.playbackStartedAt = new Date();
-          await session.save();
-        }
-
-        // Update checkout playback timestamp
-        await Checkout.findOneAndUpdate(
-          { checkoutId: sessionId.split('-')[1] },
-          { $set: { playbackStartedAt: new Date() } }
-        );
-      } catch (err) {
-        console.error('startPaidSession error', err);
-        return res.status(500).json({ error: 'playback failed', details: err.message });
-      }
-    }
-
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('/webhook/payment-success error', err);
-    res.status(500).json({ error: 'webhook handling failed', details: err.message });
-  }
-});
 
 // Check if there is an active paid session
 // Return the active paid session object (or null)
