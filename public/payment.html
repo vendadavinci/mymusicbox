@@ -401,20 +401,35 @@
       });
     }
 
-    function selectTrackForSlot(slotIndex, track){
-      const slot = slots[slotIndex];
-      slot.selected = {
-        uri: track.uri,
-        title: track.title,
-        artist: track.artist,
-        duration_ms: track.duration_ms || 0,
-        albumArt: track.albumArt || ''
-      };
+function selectTrackForSlot(slotIndex, track){
+  const slot = slots[slotIndex];
+  slot.selected = {
+    uri: track.uri,
+    title: track.title,
+    artist: track.artist,
+    duration_ms: track.duration_ms || 0,
+    albumArt: track.albumArt || ''
+  };
 
-      const info = document.getElementById(`selectedInfo-${slotIndex}`);
-      info.textContent = `${track.title} — ${track.artist}`;
-      updateSelectedList();
-    }
+  const info = document.getElementById(`selectedInfo-${slotIndex}`);
+  info.textContent = `${track.title} — ${track.artist}`;
+  updateSelectedList();
+
+  // NEW: clear and hide the search results after selection
+  const resultsEl = document.getElementById(`results-${slotIndex}`);
+  if (resultsEl) {
+    resultsEl.innerHTML = '';
+    resultsEl.style.display = 'none';
+  }
+
+  // optional: clear the search input too
+  const inputEl = document.getElementById(`input-${slotIndex}`);
+  if (inputEl) {
+    inputEl.value = '';
+    inputEl.blur();
+  }
+}
+
 
     function updateSelectedList(){
       const selected = slots.filter(s => s.selected).map(s => s.selected);
