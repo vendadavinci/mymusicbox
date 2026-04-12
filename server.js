@@ -446,7 +446,6 @@ app.post('/api/reserve-tracks', async (req, res) => {
   }
 });
 
-
 app.post('/webhook/payment-success', async (req, res) => {
   try {
     const { sessionId, tracks = [], userId } = req.body;
@@ -454,7 +453,7 @@ app.post('/webhook/payment-success', async (req, res) => {
       return res.status(400).json({ error: 'Missing sessionId' });
     }
 
-    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
+    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.durationMs || t.duration_ms || 210000), 0);
 
     let session = await PaidSession.findOne({ sessionId });
     if (!session) {
@@ -482,10 +481,22 @@ app.post('/webhook/payment-success', async (req, res) => {
       session.active = true;
       await session.save();
 
+      // Mark checkout as processed
+      await Checkout.findOneAndUpdate(
+        { checkoutId: sessionId.split('-')[1] },
+        { $set: { sessionRef: session._id, processedAt: new Date() } }
+      );
+
       try {
-        await startPaidSession(sessionId, tracks, estimatedTotalMs);
+        await startPaidSession(sessionId, session.tracks, estimatedTotalMs);
         session.playbackStartedAt = new Date(); // mark playback triggered
         await session.save();
+
+        // Mark checkout playback started
+        await Checkout.findOneAndUpdate(
+          { checkoutId: sessionId.split('-')[1] },
+          { $set: { playbackStartedAt: new Date() } }
+        );
       } catch (err) {
         console.error('startPaidSession error', err);
         return res.status(500).json({ error: 'playback failed', details: err.message });
@@ -498,7 +509,6 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
-
 
 
 // Check if there is an active paid session
