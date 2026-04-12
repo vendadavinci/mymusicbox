@@ -212,7 +212,6 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
 
   return { started: true };
 }
-
 // Helper to get or create a session
 function getSession(sessionId) {
   if (!paidSessions.has(sessionId)) {
