@@ -895,6 +895,7 @@ function renderQueue() {
   try {
     if (!paidQueueEl) return;
 
+    if (!Array.isArray(paidQueue)) paidQueue = [];
     // Ensure paidQueue is always an array
     if (!Array.isArray(paidQueue)) {
       paidQueue = [];
@@ -921,6 +922,10 @@ function renderQueue() {
 
       const wrapper = document.createElement('div');
       wrapper.className = 'queue-item';
+      wrapper.style.display = 'flex';
+      wrapper.style.justifyContent = 'space-between';
+      wrapper.style.alignItems = 'center';
+      wrapper.style.gap = '12px';
       Object.assign(wrapper.style, {
         display: 'flex',
         justifyContent: 'space-between',
@@ -935,6 +940,10 @@ function renderQueue() {
       left.style.flex = '1';
 
       const titleDiv = document.createElement('div');
+      titleDiv.style.fontWeight = '700';
+      titleDiv.style.whiteSpace = 'nowrap';
+      titleDiv.style.overflow = 'hidden';
+      titleDiv.style.textOverflow = 'ellipsis';
       Object.assign(titleDiv.style, {
         fontWeight: '700',
         whiteSpace: 'nowrap',
@@ -945,6 +954,8 @@ function renderQueue() {
 
       const metaDiv = document.createElement('div');
       metaDiv.className = 'meta';
+      metaDiv.style.fontSize = '0.9em';
+      metaDiv.style.color = '#666';
       Object.assign(metaDiv.style, {
         fontSize: '0.9em',
         color: '#666'
@@ -956,6 +967,11 @@ function renderQueue() {
 
       // Right column: duration + played indicator
       const right = document.createElement('div');
+      right.style.display = 'flex';
+      right.style.flexDirection = 'column';
+      right.style.gap = '6px';
+      right.style.alignItems = 'flex-end';
+      right.style.minWidth = '90px';
       Object.assign(right.style, {
         display: 'flex',
         flexDirection: 'column',
@@ -966,6 +982,9 @@ function renderQueue() {
 
       const durationDiv = document.createElement('div');
       durationDiv.className = 'small';
+      durationDiv.style.fontSize = '0.85em';
+      durationDiv.style.color = '#333';
+      durationDiv.textContent = formatMs(item.duration_ms || 0);
       Object.assign(durationDiv.style, {
         fontSize: '0.85em',
         color: '#333'
@@ -975,6 +994,8 @@ function renderQueue() {
         : `${Math.round((item.duration_ms || 0) / 1000)}s`;
 
       const playedDiv = document.createElement('div');
+      playedDiv.style.fontSize = '0.75em';
+      playedDiv.style.color = item.played ? '#0a0' : '#999';
       Object.assign(playedDiv.style, {
         fontSize: '0.75em',
         color: item.played ? '#0a0' : '#999'
@@ -1000,6 +1021,7 @@ function renderQueue() {
     if (nextTitleEl) {
       if (activeTracks.length > 0) {
         const next = activeTracks[0];
+        nextTitleEl.textContent = `${next.title} — ${next.artist}`;
         nextTitleEl.textContent = `${next.title || 'Unknown'} — ${next.artist || ''}`;
       } else {
         nextTitleEl.textContent = 'No paid tracks queued';
@@ -1167,6 +1189,9 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       try { await backendPause(); } catch (e) { console.warn('backendPause failed', e); }
     }
 
+    // Snapshot local queue
+    const snapshotQueue = paidQueue.slice();
+    const totalMs = snapshotQueue.reduce((s, i) => s + (i.duration_ms || 210000), 0);
     // Snapshot local queue and normalize
     const snapshotQueue = paidQueue.map((t, i) => ({
       uri: t.uri,
@@ -1745,7 +1770,7 @@ function startAddFlow(){
       console.log('Appended batch to backend:', batch.map(t => t.uri));
     } catch (err) {
       console.error('Failed to append batch to backend:', err);
-      if (statusText) statusText.textContent = 'Append failed — will retry shortly';
+      statusText && (statusText.textContent = 'Append failed — will retry shortly');
       appendBatch = batch.concat(appendBatch);
       if (!appendTimer) {
         appendTimer = setTimeout(() => flushAppendBatch(sessionId), 3000);
@@ -1770,11 +1795,18 @@ function startAddFlow(){
         return;
       }
 
-      const normalized = normalizeTrack(track, paidQueue.length + 1);
+      const normalized = {
+        uri: track.uri,
+        title: track.title || track.name || 'Unknown',
+        artist: track.artist || (track.artists && track.artists.join(', ')) || '',
+        duration_ms: track.duration_ms || track.durationMs || 0,
+        albumArt: track.albumArt || (track.album?.images?.[0]?.url) || '',
+        addedAt: Date.now()
+      };
 
       if (paidQueue.some(t => t.uri === normalized.uri)) {
         console.info('Track already in local paidQueue, skipping:', normalized.uri);
-        if (statusText) statusText.textContent = 'Track already in paid queue';
+        statusText && (statusText.textContent = 'Track already in paid queue');
         return;
       }
 
@@ -1786,7 +1818,7 @@ function startAddFlow(){
       }
 
       songsAddedThisSession++;
-      if (typeof renderQueue === 'function') renderQueue();
+      renderQueue && renderQueue();
 
       let sid = sessionId || sessionStorage.getItem('sessionId');
       let checkoutId = sessionStorage.getItem('checkoutId');
@@ -1803,18 +1835,18 @@ function startAddFlow(){
         const startMarkerKey = `paidStarted_${sid}`;
         if (!sessionStorage.getItem(startMarkerKey)) {
           sessionStorage.setItem(startMarkerKey, 'true');
-          if (statusText) statusText.textContent = 'Starting paid playback...';
+          statusText && (statusText.textContent = 'Starting paid playback...');
           try {
             await startPaidQueuePlayback(sid, false);
             paidSessionActive = true;
-            if (statusText) statusText.textContent = 'Paid playback started';
+            statusText && (statusText.textContent = 'Paid playback started');
           } catch (err) {
             console.error('startPaidQueuePlayback failed', err);
-            if (statusText) statusText.textContent = 'Failed to start paid playback — will retry';
+            statusText && (statusText.textContent = 'Failed to start paid playback — will retry');
             sessionStorage.removeItem(startMarkerKey);
           }
         } else {
-          if (statusText) statusText.textContent = 'Paid playback starting (in progress)';
+          statusText && (statusText.textContent = 'Paid playback starting (in progress)');
         }
         return;
       }
@@ -1824,7 +1856,7 @@ function startAddFlow(){
         appendTimer = setTimeout(() => flushAppendBatch(sid), APPEND_BATCH_MS);
       }
 
-      if (statusText) statusText.textContent = 'Track added to paid queue';
+      statusText && (statusText.textContent = 'Track added to paid queue');
 
     } catch (err) {
       console.error('addToPaidQueue error', err);
@@ -1832,7 +1864,6 @@ function startAddFlow(){
     }
   };
 })();
-
 
 
 /* ====== Optional: expose some functions for payment page to call ====== */
@@ -2065,24 +2096,22 @@ async function pollStatusOnce(){
 
 <script>
   const tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
-  const sid = sessionStorage.getItem('sessionId');
 
-  if (sid && tracks.length > 0) {
-    fetch('/webhook/payment-success', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: sid, tracks })
-    }).then(() => {
-      const statusText = document.getElementById('statusText');
-      if (statusText) {
-        statusText.textContent = 'Tracks queued and ready to play.';
-      }
-    }).catch(err => {
-      console.error('Webhook call failed:', err);
-    });
-  }
+  fetch('/webhook/payment-success', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tracks })
+  }).then(() => {
+    // Instead of alert, update a status element or do nothing
+    const statusText = document.getElementById('statusText');
+    if (statusText) {
+      statusText.textContent = 'Tracks queued and ready to play.';
+    }
+    // Or simply leave this block empty if you want no message at all
+  }).catch(err => {
+    console.error('Webhook call failed:', err);
+  });
 </script>
-
 
 <script>
 (async function handlePostPayment() {
@@ -2203,21 +2232,21 @@ async function pollStatusOnce(){
 function normalizeTrack(t, orderIndex = 0) {
   return {
     uri: t.uri,
-    title: t.title || t.name || 'Unknown',
-    artist: t.artist || (t.artists && t.artists.join(', ')) || '',
-    durationMs: t.duration_ms ?? t.durationMs ?? 0,
-    albumArt: t.albumArt || (t.album?.images?.[0]?.url) || '',
-    addedAt: t.addedAt || Date.now(),
-    played: !!t.played,
+    title: t.title || 'Unknown',
+    artist: t.artist || '',
+    durationMs: t.duration_ms ?? t.durationMs ?? 0, // handle both field names
+    albumArt: t.albumArt || '',
+    addedAt: Date.now(),
+    played: false,
     orderIndex
   };
 }
 
 (async function loadPaidTracks() {
   try {
-    let tracks = JSON.parse(sessionStorage.getItem('paidQueue') || '[]');
+    let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
-    // If no local queue, try checkoutId fetch
+    // If no local tracks, try fetching by checkoutId
     if ((!tracks || tracks.length === 0) && location.search) {
       const params = new URLSearchParams(location.search);
       const checkoutId = params.get('checkoutId');
@@ -2226,79 +2255,72 @@ function normalizeTrack(t, orderIndex = 0) {
         if (r.ok) {
           const json = await r.json();
           tracks = json.tracks || [];
+          // store sessionId for later use
+          sessionStorage.setItem('sessionId', checkoutId);
 
-          // Generate durable sessionId if missing
-          if (!sessionStorage.getItem('sessionId')) {
-            const today = new Date().toISOString().slice(0, 10);
-            const sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
-            sessionStorage.setItem('sessionId', sid);
-            sessionStorage.setItem('checkoutId', checkoutId);
-            sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
-          } else {
-            sessionStorage.setItem('checkoutId', checkoutId);
-          }
+          // Generate durable sessionId once
+          const today = new Date().toISOString().slice(0, 10);
+          const sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
+          sessionStorage.setItem('sessionId', sid);
+          sessionStorage.setItem('checkoutId', checkoutId);
+        } else {
+          console.warn('Failed to fetch checkout tracks:', r.status);
         }
       }
     }
 
-    if (!tracks || tracks.length === 0) {
-      console.info('No paid tracks found to load.');
-      return;
-    }
+    if (tracks && tracks.length > 0) {
+      paidQueue.push(...tracks.map(t => ({
+        uri: t.uri,
+        title: t.title || 'Unknown',
+        artist: t.artist || '',
+        duration_ms: t.duration_ms || 0,
+        albumArt: t.albumArt || '',
+        addedAt: Date.now()
+      })));
+      // Normalize and push into paidQueue
+      paidQueue.push(...tracks.map((t, i) => normalizeTrack(t, i + 1)));
 
-    // Normalize and dedupe by URI
-    const seen = new Set();
-    const unique = [];
-    tracks.forEach((t, i) => {
-      const nt = normalizeTrack(t, i + 1);
-      if (nt.uri && !seen.has(nt.uri)) {
-        seen.add(nt.uri);
-        unique.push(nt);
-      }
-    });
+      renderQueue();
+      if (typeof renderQueue === 'function') renderQueue();
 
-    // Replace queue with canonical unique list
-    paidQueue = unique;
-    sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
-
-    if (typeof renderQueue === 'function') renderQueue();
-
-    const sid = sessionStorage.getItem('sessionId');
-
-    // Always notify backend (server handles idempotency)
-    try {
+      // Notify backend webhook
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sid, tracks: paidQueue })
+        body: JSON.stringify({ sessionId: sessionStorage.getItem('sessionId'), tracks })
       });
-    } catch (err) {
-      console.warn('Webhook call failed:', err);
-    }
-
-    // Start playback if not already marked
-    const startMarkerKey = `paidStarted_${sid}`;
-    if (!sessionStorage.getItem(startMarkerKey)) {
-      if (statusText) statusText.textContent = 'Starting paid playback...';
+      // Notify backend webhook with normalized tracks
       try {
-        await startPaidQueuePlayback(sid);
-        sessionStorage.setItem(startMarkerKey, 'true');
+        await fetch('/webhook/payment-success', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: sessionStorage.getItem('sessionId'),
+            tracks: paidQueue
+          })
+        });
       } catch (err) {
-        console.error('startPaidQueuePlayback failed', err);
-        if (statusText) statusText.textContent = 'Failed to start paid playback — will retry';
-        sessionStorage.removeItem(startMarkerKey);
+        console.warn('Webhook call failed:', err);
       }
-    }
 
-    if (typeof pollStatusOnce === 'function') {
-      try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
+      // Auto‑start playback
+      statusText.textContent = 'Starting paid playback...';
+      if (statusText) statusText.textContent = 'Starting paid playback...';
+      await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
+
+      pollStatusOnce();
+      if (typeof pollStatusOnce === 'function') {
+        try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
+      }
+    } else {
+      console.info('No paid tracks found to load.');
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
   }
 })();
 </script>
-
 
 <script>
 // Read-only UI refresh. Never enqueue or post anything here.
@@ -2331,5 +2353,13 @@ refreshStatus();
 
 
 </script>
+
+
+
+
+
+
+
+
 </body>
 </html>
