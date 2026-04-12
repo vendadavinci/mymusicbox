@@ -133,114 +133,6 @@ async function refreshAndGetActiveDevice() {
 }
 
 
-async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
-  let session = await PaidSession.findOne({ sessionId });
-  if (!session) throw new Error('Session not found');
-
-  await refreshAccessTokenIfNeeded();
-
-  // Resolve deviceId
-  const devicesRes = await fetch('https://api.spotify.com/v1/me/player/devices', {
-    headers: { Authorization: `Bearer ${tokens.access_token}` }
-  });
-  const devicesJson = await devicesRes.json();
-  const activeDevice = devicesJson.devices.find(d => d.is_active);
-  if (!activeDevice) throw new Error('No active Spotify device found. Please open Spotify and start playback once.');
-  const deviceId = activeDevice.id;
-
-  // --- APPEND MODE ---
-  if (session.active && session.playbackStartedAt) {
-    const newTracks = [];
-    for (const track of tracks) {
-      if (!session.tracks.some(t => t.uri === track.uri)) {
-        const normalized = normalizeTrack(track, session.tracks.length + 1);
-        session.tracks.push(normalized);
-        session.songsAdded++;
-        newTracks.push(normalized);
-      }
-    }
-    await session.save();
-
-    // Queue only the new tracks
-    for (const track of newTracks) {
-      const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}&device_id=${encodeURIComponent(deviceId)}`;
-      const qRes = await fetch(queueUrl, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${tokens.access_token}` }
-      });
-      if (!qRes.ok) {
-        console.warn('Spotify queue failed', track.uri, await qRes.text());
-      }
-    }
-
-    return { queued: true };
-  }
-
-  // --- FIRST START MODE ---
-  session.active = true;
-  session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
-  session.songsAdded = session.tracks.length;
-  await session.save();
-
-  // Play the first track
-  const firstTrack = session.tracks[0];
-  const playUrl = `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`;
-  const playRes = await fetch(playUrl, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ uris: [firstTrack.uri] })
-  });
-  if (!playRes.ok) {
-    console.warn('Spotify play failed', await playRes.text());
-  }
-
-  // Queue the rest of the tracks
-  for (const track of session.tracks.slice(1)) {
-    const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}&device_id=${encodeURIComponent(deviceId)}`;
-    const qRes = await fetch(queueUrl, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
-    if (!qRes.ok) {
-      console.warn('Spotify queue failed', track.uri, await qRes.text());
-    }
-  }
-
-  session.playbackStartedAt = new Date();
-  await session.save();
-
-  // Schedule session end check
-  if (!estimatedTotalMs) {
-    const perTrackMs = 3.5 * 60 * 1000;
-    estimatedTotalMs = session.tracks.length * perTrackMs;
-  }
-  setTimeout(async () => {
-    const freshSession = await PaidSession.findOne({ sessionId });
-    if (!freshSession) return;
-    const remaining = freshSession.tracks.filter(t => !t.played);
-    if (remaining.length === 0) {
-      freshSession.active = false;
-      await freshSession.save();
-      try {
-        await refreshAccessTokenIfNeeded();
-        const defaultPlaylistUri = process.env.DEFAULT_PLAYLIST_URI || null;
-        const body = defaultPlaylistUri ? { context_uri: defaultPlaylistUri } : {};
-        await fetch('https://api.spotify.com/v1/me/player/play', {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
-      } catch (err) {
-        console.warn('Error resuming default playlist after paid session', err);
-      }
-    }
-  }, estimatedTotalMs + 2000);
-
-  return { started: true };
-}
-
-
-
 app.post('/api/play', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
@@ -382,27 +274,113 @@ app.post('/api/play', async (req, res) => {
 });
 
 
-// Pause/Resume/Skip protection
-app.post('/api/pause', async (req, res) => {
-  if (await isPaidSessionActive()) {
-    return res.status(403).json({ success: false, error: 'Cannot pause during paid session' });
-  }
-  res.json({ success: true });
-});
+async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
+  let session = await PaidSession.findOne({ sessionId });
+  if (!session) throw new Error('Session not found');
 
-app.post('/api/resume', async (req, res) => {
-  if (await isPaidSessionActive()) {
-    return res.status(403).json({ success: false, error: 'Cannot resume during paid session' });
-  }
-  res.json({ success: true });
-});
+  await refreshAccessTokenIfNeeded();
 
-app.post('/api/skip', async (req, res) => {
-  if (await isPaidSessionActive()) {
-    return res.status(403).json({ success: false, error: 'Cannot skip during paid session' });
+  // Resolve deviceId
+  const devicesRes = await fetch('https://api.spotify.com/v1/me/player/devices', {
+    headers: { Authorization: `Bearer ${tokens.access_token}` }
+  });
+  const devicesJson = await devicesRes.json();
+  const activeDevice = devicesJson.devices.find(d => d.is_active);
+  if (!activeDevice) throw new Error('No active Spotify device found. Please open Spotify and start playback once.');
+  const deviceId = activeDevice.id;
+
+  // --- APPEND MODE ---
+  if (session.active && session.playbackStartedAt) {
+    const newTracks = [];
+    for (const track of tracks) {
+      if (!session.tracks.some(t => t.uri === track.uri)) {
+        const normalized = normalizeTrack(track, session.tracks.length + 1);
+        session.tracks.push(normalized);
+        session.songsAdded++;
+        newTracks.push(normalized);
+      }
+    }
+    await session.save();
+
+    // Queue only the new tracks
+    for (const track of newTracks) {
+      const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}&device_id=${encodeURIComponent(deviceId)}`;
+      const qRes = await fetch(queueUrl, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokens.access_token}` }
+      });
+      if (!qRes.ok) {
+        console.warn('Spotify queue failed', track.uri, await qRes.text());
+      }
+    }
+
+    return { queued: true };
   }
-  res.json({ success: true });
-});
+
+  // --- FIRST START MODE ---
+  session.active = true;
+  session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
+  session.songsAdded = session.tracks.length;
+  await session.save();
+
+  // Play the first track
+  const firstTrack = session.tracks[0];
+  const playUrl = `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`;
+  const playRes = await fetch(playUrl, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uris: [firstTrack.uri] })
+  });
+  if (!playRes.ok) {
+    console.warn('Spotify play failed', await playRes.text());
+  }
+
+  // Queue the rest of the tracks
+  for (const track of session.tracks.slice(1)) {
+    const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}&device_id=${encodeURIComponent(deviceId)}`;
+    const qRes = await fetch(queueUrl, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+    if (!qRes.ok) {
+      console.warn('Spotify queue failed', track.uri, await qRes.text());
+    }
+  }
+
+  session.playbackStartedAt = new Date();
+  await session.save();
+
+  // Schedule session end check
+  if (!estimatedTotalMs) {
+    const perTrackMs = 3.5 * 60 * 1000;
+    estimatedTotalMs = session.tracks.length * perTrackMs;
+  }
+  setTimeout(async () => {
+    const freshSession = await PaidSession.findOne({ sessionId });
+    if (!freshSession) return;
+    const remaining = freshSession.tracks.filter(t => !t.played);
+    if (remaining.length === 0) {
+      freshSession.active = false;
+      await freshSession.save();
+      try {
+        await refreshAccessTokenIfNeeded();
+        const defaultPlaylistUri = process.env.DEFAULT_PLAYLIST_URI || null;
+        const body = defaultPlaylistUri ? { context_uri: defaultPlaylistUri } : {};
+        await fetch('https://api.spotify.com/v1/me/player/play', {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+      } catch (err) {
+        console.warn('Error resuming default playlist after paid session', err);
+      }
+    }
+  }, estimatedTotalMs + 2000);
+
+  return { started: true };
+}
+
+
 
 app.get('/api/status', async (req, res) => {
   try {
