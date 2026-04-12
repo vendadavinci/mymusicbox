@@ -1724,6 +1724,7 @@ function startAddFlow(){
 }
 
 
+
 (function () {
   let appendBatch = [];
   let appendTimer = null;
@@ -1746,10 +1747,9 @@ function startAddFlow(){
     } catch (err) {
       console.error('Failed to append batch to backend:', err);
       if (statusText) statusText.textContent = 'Append failed — will retry shortly';
+      // requeue and retry
       appendBatch = batch.concat(appendBatch);
-      if (!appendTimer) {
-        appendTimer = setTimeout(() => flushAppendBatch(sessionId), 3000);
-      }
+      if (!appendTimer) appendTimer = setTimeout(() => flushAppendBatch(sessionId), 3000);
     }
   }
 
@@ -1770,24 +1770,7 @@ function startAddFlow(){
         return;
       }
 
-      const normalized = normalizeTrack(track, paidQueue.length + 1);
-
-      if (paidQueue.some(t => t.uri === normalized.uri)) {
-        console.info('Track already in local paidQueue, skipping:', normalized.uri);
-        if (statusText) statusText.textContent = 'Track already in paid queue';
-        return;
-      }
-
-      paidQueue.push(normalized);
-      try {
-        sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
-      } catch (e) {
-        console.warn('Could not persist paidQueue to sessionStorage', e);
-      }
-
-      songsAddedThisSession++;
-      if (typeof renderQueue === 'function') renderQueue();
-
+      // Ensure durable sessionId exists
       let sid = sessionId || sessionStorage.getItem('sessionId');
       let checkoutId = sessionStorage.getItem('checkoutId');
       if (!sid) {
@@ -1799,6 +1782,27 @@ function startAddFlow(){
         sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
       }
 
+      // Normalize and dedupe against current paidQueue
+      const normalized = normalizeTrack(track, paidQueue.length + 1);
+      const existingUris = new Set(paidQueue.map(t => t.uri));
+      if (existingUris.has(normalized.uri)) {
+        console.info('Track already in local paidQueue, skipping:', normalized.uri);
+        if (statusText) statusText.textContent = 'Track already in paid queue';
+        return;
+      }
+
+      // Add to canonical queue and persist (replace behavior)
+      paidQueue.push(normalized);
+      try {
+        sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
+      } catch (e) {
+        console.warn('Could not persist paidQueue to sessionStorage', e);
+      }
+
+      songsAddedThisSession++;
+      if (typeof renderQueue === 'function') renderQueue();
+
+      // If session not active, start it (idempotent via start marker)
       if (!paidSessionActive) {
         const startMarkerKey = `paidStarted_${sid}`;
         if (!sessionStorage.getItem(startMarkerKey)) {
@@ -1819,13 +1823,15 @@ function startAddFlow(){
         return;
       }
 
-      appendBatch.push(normalized);
-      if (!appendTimer) {
-        appendTimer = setTimeout(() => flushAppendBatch(sid), APPEND_BATCH_MS);
+      // Append batching: avoid duplicate URIs inside the batch
+      const batchUris = new Set(appendBatch.map(t => t.uri));
+      if (!batchUris.has(normalized.uri)) {
+        appendBatch.push(normalized);
       }
 
-      if (statusText) statusText.textContent = 'Track added to paid queue';
+      if (!appendTimer) appendTimer = setTimeout(() => flushAppendBatch(sid), APPEND_BATCH_MS);
 
+      if (statusText) statusText.textContent = 'Track added to paid queue';
     } catch (err) {
       console.error('addToPaidQueue error', err);
       alert('Something went wrong adding the track. Please try again.');
@@ -2215,7 +2221,7 @@ function normalizeTrack(t, orderIndex = 0) {
 
 (async function loadPaidTracks() {
   try {
-    // Load any persisted queue (canonical source on client)
+    // Load canonical queue from sessionStorage first (preferred)
     const persisted = JSON.parse(sessionStorage.getItem('paidQueue') || 'null');
     let tracks = Array.isArray(persisted) ? persisted : JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
@@ -2229,7 +2235,7 @@ function normalizeTrack(t, orderIndex = 0) {
           const json = await r.json();
           tracks = json.tracks || [];
 
-          // Generate durable sessionId once (if not already present)
+          // Generate durable sessionId once (if not present)
           if (!sessionStorage.getItem('sessionId')) {
             const today = new Date().toISOString().slice(0, 10);
             const sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
@@ -2237,7 +2243,6 @@ function normalizeTrack(t, orderIndex = 0) {
             sessionStorage.setItem('checkoutId', checkoutId);
             sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
           } else {
-            // ensure checkoutId is stored
             sessionStorage.setItem('checkoutId', checkoutId);
           }
         } else {
@@ -2246,62 +2251,69 @@ function normalizeTrack(t, orderIndex = 0) {
       }
     }
 
-    // If we have tracks, replace the in-memory queue with the canonical normalized list
-    if (tracks && tracks.length > 0) {
-      // Normalize and replace paidQueue (prevents duplicates on refresh)
-      paidQueue = tracks.map((t, i) => normalizeTrack(t, i + 1));
+    if (!tracks || tracks.length === 0) {
+      console.info('No paid tracks found to load.');
+      return;
+    }
 
-      // Persist canonical queue so reloads use this list
-      try {
-        sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
-      } catch (e) {
-        console.warn('Could not persist paidQueue to sessionStorage', e);
-      }
+    // Normalize incoming tracks and deduplicate by uri (preserve order)
+    const normalized = tracks.map((t, i) => normalizeTrack(t, i + 1));
+    const seen = new Set();
+    const unique = [];
+    for (const t of normalized) {
+      if (!t.uri) continue;
+      if (seen.has(t.uri)) continue;
+      seen.add(t.uri);
+      unique.push(t);
+    }
 
-      if (typeof renderQueue === 'function') renderQueue();
+    // Replace in-memory queue with canonical unique list
+    paidQueue = unique.slice();
 
-      // Only call webhook once per sessionId (avoid duplicate processing on refresh)
-      const sid = sessionStorage.getItem('sessionId');
-      const webhookFlag = sid ? `webhookSent_${sid}` : null;
-      if (sid && (!webhookFlag || !sessionStorage.getItem(webhookFlag))) {
+    // Persist canonical queue
+    try {
+      sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
+    } catch (e) {
+      console.warn('Could not persist paidQueue to sessionStorage', e);
+    }
+
+    if (typeof renderQueue === 'function') renderQueue();
+
+    // Send webhook once per sessionId (avoid duplicate webhook on refresh)
+    const sid = sessionStorage.getItem('sessionId');
+    if (sid) {
+      const webhookFlag = `webhookSent_${sid}`;
+      if (!sessionStorage.getItem(webhookFlag)) {
         try {
           const resp = await fetch('/webhook/payment-success', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessionId: sid,
-              tracks: paidQueue
-            })
+            body: JSON.stringify({ sessionId: sid, tracks: paidQueue })
           });
-          if (resp.ok) {
-            sessionStorage.setItem(webhookFlag, 'true');
-          } else {
-            console.warn('Webhook returned non-ok:', resp.status);
-          }
+          if (resp.ok) sessionStorage.setItem(webhookFlag, 'true');
+          else console.warn('Webhook returned non-ok:', resp.status);
         } catch (err) {
           console.warn('Webhook call failed:', err);
         }
       }
+    }
 
-      // Auto‑start playback if not already started
-      const startMarkerKey = sid ? `paidStarted_${sid}` : null;
-      if (sid && (!startMarkerKey || !sessionStorage.getItem(startMarkerKey))) {
-        if (statusText) statusText.textContent = 'Starting paid playback...';
-        try {
-          await startPaidQueuePlayback(sid);
-          if (startMarkerKey) sessionStorage.setItem(startMarkerKey, 'true');
-        } catch (err) {
-          console.error('startPaidQueuePlayback failed', err);
-          if (statusText) statusText.textContent = 'Failed to start paid playback — will retry';
-          if (startMarkerKey) sessionStorage.removeItem(startMarkerKey);
-        }
+    // Auto-start playback if not already started for this session
+    const startMarkerKey = sid ? `paidStarted_${sid}` : null;
+    if (sid && (!startMarkerKey || !sessionStorage.getItem(startMarkerKey))) {
+      if (statusText) statusText.textContent = 'Starting paid playback...';
+      try {
+        await startPaidQueuePlayback(sid);
+        if (startMarkerKey) sessionStorage.setItem(startMarkerKey, 'true');
+      } catch (err) {
+        console.error('startPaidQueuePlayback failed', err);
+        if (statusText) statusText.textContent = 'Failed to start paid playback — will retry';
+        if (startMarkerKey) sessionStorage.removeItem(startMarkerKey);
       }
+    }
 
-      if (typeof pollStatusOnce === 'function') {
-        try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
-      }
-    } else {
-      console.info('No paid tracks found to load.');
+    if (typeof pollStatusOnce === 'function') {
+      try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
