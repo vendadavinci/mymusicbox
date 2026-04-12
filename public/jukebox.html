@@ -1745,7 +1745,7 @@ function startAddFlow(){
       console.log('Appended batch to backend:', batch.map(t => t.uri));
     } catch (err) {
       console.error('Failed to append batch to backend:', err);
-      statusText && (statusText.textContent = 'Append failed — will retry shortly');
+      if (statusText) statusText.textContent = 'Append failed — will retry shortly';
       appendBatch = batch.concat(appendBatch);
       if (!appendTimer) {
         appendTimer = setTimeout(() => flushAppendBatch(sessionId), 3000);
@@ -1770,18 +1770,11 @@ function startAddFlow(){
         return;
       }
 
-      const normalized = {
-        uri: track.uri,
-        title: track.title || track.name || 'Unknown',
-        artist: track.artist || (track.artists && track.artists.join(', ')) || '',
-        duration_ms: track.duration_ms || track.durationMs || 0,
-        albumArt: track.albumArt || (track.album?.images?.[0]?.url) || '',
-        addedAt: Date.now()
-      };
+      const normalized = normalizeTrack(track, paidQueue.length + 1);
 
       if (paidQueue.some(t => t.uri === normalized.uri)) {
         console.info('Track already in local paidQueue, skipping:', normalized.uri);
-        statusText && (statusText.textContent = 'Track already in paid queue');
+        if (statusText) statusText.textContent = 'Track already in paid queue';
         return;
       }
 
@@ -1793,7 +1786,7 @@ function startAddFlow(){
       }
 
       songsAddedThisSession++;
-      renderQueue && renderQueue();
+      if (typeof renderQueue === 'function') renderQueue();
 
       let sid = sessionId || sessionStorage.getItem('sessionId');
       let checkoutId = sessionStorage.getItem('checkoutId');
@@ -1810,18 +1803,18 @@ function startAddFlow(){
         const startMarkerKey = `paidStarted_${sid}`;
         if (!sessionStorage.getItem(startMarkerKey)) {
           sessionStorage.setItem(startMarkerKey, 'true');
-          statusText && (statusText.textContent = 'Starting paid playback...');
+          if (statusText) statusText.textContent = 'Starting paid playback...';
           try {
             await startPaidQueuePlayback(sid, false);
             paidSessionActive = true;
-            statusText && (statusText.textContent = 'Paid playback started');
+            if (statusText) statusText.textContent = 'Paid playback started';
           } catch (err) {
             console.error('startPaidQueuePlayback failed', err);
-            statusText && (statusText.textContent = 'Failed to start paid playback — will retry');
+            if (statusText) statusText.textContent = 'Failed to start paid playback — will retry';
             sessionStorage.removeItem(startMarkerKey);
           }
         } else {
-          statusText && (statusText.textContent = 'Paid playback starting (in progress)');
+          if (statusText) statusText.textContent = 'Paid playback starting (in progress)';
         }
         return;
       }
@@ -1831,7 +1824,7 @@ function startAddFlow(){
         appendTimer = setTimeout(() => flushAppendBatch(sid), APPEND_BATCH_MS);
       }
 
-      statusText && (statusText.textContent = 'Track added to paid queue');
+      if (statusText) statusText.textContent = 'Track added to paid queue';
 
     } catch (err) {
       console.error('addToPaidQueue error', err);
@@ -1839,6 +1832,7 @@ function startAddFlow(){
     }
   };
 })();
+
 
 
 /* ====== Optional: expose some functions for payment page to call ====== */
@@ -2071,22 +2065,24 @@ async function pollStatusOnce(){
 
 <script>
   const tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+  const sid = sessionStorage.getItem('sessionId');
 
-  fetch('/webhook/payment-success', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tracks })
-  }).then(() => {
-    // Instead of alert, update a status element or do nothing
-    const statusText = document.getElementById('statusText');
-    if (statusText) {
-      statusText.textContent = 'Tracks queued and ready to play.';
-    }
-    // Or simply leave this block empty if you want no message at all
-  }).catch(err => {
-    console.error('Webhook call failed:', err);
-  });
+  if (sid && tracks.length > 0) {
+    fetch('/webhook/payment-success', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: sid, tracks })
+    }).then(() => {
+      const statusText = document.getElementById('statusText');
+      if (statusText) {
+        statusText.textContent = 'Tracks queued and ready to play.';
+      }
+    }).catch(err => {
+      console.error('Webhook call failed:', err);
+    });
+  }
 </script>
+
 
 <script>
 (async function handlePostPayment() {
@@ -2207,10 +2203,10 @@ async function pollStatusOnce(){
 function normalizeTrack(t, orderIndex = 0) {
   return {
     uri: t.uri,
-    title: t.title || 'Unknown',
-    artist: t.artist || '',
-    durationMs: t.duration_ms ?? t.durationMs ?? 0, // handle both field names
-    albumArt: t.albumArt || '',
+    title: t.title || t.name || 'Unknown',
+    artist: t.artist || (t.artists && t.artists.join(', ')) || '',
+    durationMs: t.duration_ms ?? t.durationMs ?? 0,
+    albumArt: t.albumArt || (t.album?.images?.[0]?.url) || '',
     addedAt: Date.now(),
     played: false,
     orderIndex
