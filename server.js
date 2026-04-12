@@ -460,27 +460,6 @@ app.get('/api/session-status', async (req, res) => {
   }
 });
 
-// Return checkout status
-app.get('/api/checkout-status', async (req, res) => {
-  try {
-    const { checkoutId } = req.query;
-    if (!checkoutId) return res.status(400).json({ error: 'Missing checkoutId' });
-
-    const checkout = await Checkout.findOne({ checkoutId }).lean();
-    if (!checkout) return res.status(404).json({ error: 'Checkout not found' });
-
-    res.json({
-      ok: true,
-      checkoutId: checkout.checkoutId,
-      sessionRef: checkout.sessionRef || null,
-      processedAt: checkout.processedAt || null,
-      playbackStartedAt: checkout.playbackStartedAt || null
-    });
-  } catch (err) {
-    console.error('/api/checkout-status error', err);
-    res.status(500).json({ error: 'checkout-status failed', details: err.message });
-  }
-});
 
 
 // Reserve tracks
@@ -506,16 +485,6 @@ app.post('/webhook/payment-success', async (req, res) => {
     }
 
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.durationMs || t.duration_ms || 210000), 0);
-    const estimatedTotalMs = tracks.reduce(
-      (s, t) => s + (t.durationMs || t.duration_ms || 210000),
-      0
-    );
-
-    // Deactivate any old active sessions
-    await PaidSession.updateMany(
-      { active: true, sessionId: { $ne: sessionId } },
-      { $set: { active: false } }
-    );
 
     let session = await PaidSession.findOne({ sessionId });
     if (!session) {
@@ -538,26 +507,15 @@ app.post('/webhook/payment-success', async (req, res) => {
     }
 
     if (tracks.length > 0) {
-      // Normalize and replace tracks
       session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
       session.songsAdded = tracks.length;
-      session.songsAdded = session.tracks.length;
       session.active = true;
       await session.save();
 
       // Mark checkout as processed
-      // Always overwrite checkout linkage
       await Checkout.findOneAndUpdate(
         { checkoutId: sessionId.split('-')[1] },
         { $set: { sessionRef: session._id, processedAt: new Date() } }
-        {
-          $set: {
-            sessionRef: session._id,
-            processedAt: new Date(),
-            playbackStartedAt: null // reset until playback starts
-          }
-        },
-        { upsert: true }
       );
 
       try {
