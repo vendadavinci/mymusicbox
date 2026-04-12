@@ -580,7 +580,54 @@ function clearPendingSubmission() {
       }
     }
 
-      
+// Utility: close search results if selectedList has items
+function maybeCloseSearchResults(){
+  const selectedList = document.getElementById('selectedList');
+  const searchResults = document.getElementById('searchResults');
+  const searchRow = document.getElementById('searchRow');
+
+  if (selectedList && selectedList.children.length > 0) {
+    if (searchResults) {
+      searchResults.innerHTML = '';
+      searchResults.style.display = 'none';
+    }
+    if (searchRow) {
+      searchRow.style.display = 'none';
+    }
+  }
+}
+
+// Hook into your selection flow
+function selectTrackForSlot(slotIndex, track){
+  const slot = slots[slotIndex];
+  slot.selected = {
+    uri: track.uri,
+    title: track.title,
+    artist: track.artist,
+    duration_ms: track.duration_ms || 0,
+    albumArt: track.albumArt || ''
+  };
+
+  const info = document.getElementById(`selectedInfo-${slotIndex}`);
+  info.textContent = `${track.title} — ${track.artist}`;
+  updateSelectedList();
+
+  // Force close search results if selectedList has items
+  maybeCloseSearchResults();
+
+  // Also hide this slot’s own results/input
+  const resultsEl = document.getElementById(`results-${slotIndex}`);
+  if (resultsEl) {
+    resultsEl.innerHTML = '';
+    resultsEl.style.display = 'none';
+  }
+  const inputEl = document.getElementById(`input-${slotIndex}`);
+  if (inputEl) {
+    inputEl.value = '';
+    inputEl.blur();
+  }
+}
+
 function renderSearchResults(slotIndex, results){
   const resultsEl = document.getElementById(`results-${slotIndex}`);
   resultsEl.innerHTML = '';
@@ -604,49 +651,16 @@ function renderSearchResults(slotIndex, results){
       </div>
     `;
 
-    // Clicking the Select button chooses the track
     div.querySelector('button').addEventListener('click', (e) => {
       e.stopPropagation();
       selectTrackForSlot(slotIndex, r);
     });
-
-    // Clicking anywhere on the result also chooses the track
     div.addEventListener('click', ()=> selectTrackForSlot(slotIndex, r));
 
     resultsEl.appendChild(div);
   });
 
-  // Show results when rendering
   resultsEl.style.display = 'block';
-}
-
-function selectTrackForSlot(slotIndex, track){
-  const slot = slots[slotIndex];
-  slot.selected = {
-    uri: track.uri,
-    title: track.title,
-    artist: track.artist,
-    duration_ms: track.duration_ms || 0,
-    albumArt: track.albumArt || ''
-  };
-
-  const info = document.getElementById(`selectedInfo-${slotIndex}`);
-  info.textContent = `${track.title} — ${track.artist}`;
-  updateSelectedList();
-
-  // Hide results after selection
-  const resultsEl = document.getElementById(`results-${slotIndex}`);
-  if (resultsEl) {
-    resultsEl.innerHTML = '';
-    resultsEl.style.display = 'none';   // <-- actually collapses the results box
-  }
-
-  // Clear the search input
-  const inputEl = document.getElementById(`input-${slotIndex}`);
-  if (inputEl) {
-    inputEl.value = '';
-    inputEl.blur();
-  }
 }
 
 // Called when user clicks "Add Songs" again
@@ -656,26 +670,19 @@ function reopenSlot(slotIndex){
   const inputEl = document.getElementById(`input-${slotIndex}`);
   const infoEl = document.getElementById(`selectedInfo-${slotIndex}`);
 
-  if (slotWrapper) {
-    slotWrapper.style.display = 'block';   // show the whole slot again
-  }
+  if (slotWrapper) slotWrapper.style.display = 'block';
   if (resultsEl) {
     resultsEl.innerHTML = '';
-    resultsEl.style.display = 'block';     // make results area visible again
+    resultsEl.style.display = 'block';
   }
   if (inputEl) {
     inputEl.value = '';
-    inputEl.focus();                       // put cursor back in search box
+    inputEl.focus();
   }
-  if (infoEl) {
-    infoEl.textContent = 'No track selected'; // reset info text
-  }
+  if (infoEl) infoEl.textContent = 'No track selected';
 
-  // reset slot state if needed
   slots[slotIndex].selected = null;
 }
-
-
 
 function setNowPlaying({ title, artist, albumArtUrl, mode }) {
   const nowArt = document.getElementById('nowArt');
