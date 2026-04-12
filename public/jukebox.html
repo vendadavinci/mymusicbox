@@ -413,7 +413,7 @@
 
   <script>
 /* ====== Paid queue app (fixed) ====== */
-const paidQueue = [];
+let paidQueue = [];
 const slots = []; 
 let paidSessionActive = false;
 let redirectTimeoutHandle = null;
@@ -1122,8 +1122,8 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       console.info('startPaidQueuePlayback already attempted for', sid);
       paidSessionActive = true;
       nowMode.textContent = 'Mode: PAID';
-      renderPaidQueueControls();
-      updateStartPlayButton();
+      if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
+      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
       return;
     }
     sessionStorage.setItem(startMarker, 'true');
@@ -1137,9 +1137,9 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     // Set UI state
     paidSessionActive = true;
     nowMode.textContent = 'Mode: PAID';
-    statusText && (statusText.textContent = 'Playing paid queue');
-    renderPaidQueueControls && renderPaidQueueControls();
-    updateStartPlayButton && updateStartPlayButton();
+    if (statusText) statusText.textContent = 'Playing paid queue';
+    if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
+    if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
     // Pause default playback
     if (typeof backendPause === 'function') {
@@ -1171,9 +1171,9 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       console.error('startPaidQueuePlayback backendPlayTracks failed', err);
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
-      statusText && (statusText.textContent = 'Playback/queue failed. Please try again.');
-      renderPaidQueueControls && renderPaidQueueControls();
-      updateStartPlayButton && updateStartPlayButton();
+      if (statusText) statusText.textContent = 'Playback/queue failed. Please try again.';
+      if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
+      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
       sessionStorage.removeItem(startMarker);
       throw err;
     }
@@ -1183,16 +1183,16 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
     }
 
-    renderQueue && renderQueue();
+    if (typeof renderQueue === 'function') renderQueue();
 
     // Schedule fallback
     const clamp = ms => Math.max(5000, Math.min(ms, 1000 * 60 * 60));
     const waitMs = clamp(totalMs + 2000);
 
     setTimeout(async () => {
-      if (paidSessionActive && readSentUris(sid).length > 0) {
+      if (paidSessionActive && typeof readSentUris === 'function' && readSentUris(sid).length > 0) {
         if (paidQueue.length > 0) {
-          statusText && (statusText.textContent = 'Starting next paid queue...');
+          if (statusText) statusText.textContent = 'Starting next paid queue...';
           try { await startPaidQueuePlayback(sid); } catch (e) { console.warn('restart next paid queue failed', e); }
           return;
         }
@@ -1201,9 +1201,9 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       // End paid session locally and resume default playback
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
-      statusText && (statusText.textContent = 'Resuming default playlist');
-      renderPaidQueueControls && renderPaidQueueControls();
-      updateStartPlayButton && updateStartPlayButton();
+      if (statusText) statusText.textContent = 'Resuming default playlist';
+      if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
+      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
       try {
         if (typeof backendResume === 'function') {
@@ -1226,9 +1226,9 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     console.error('startPaidQueuePlayback error', err);
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
-    statusText && (statusText.textContent = 'Playback error');
-    renderPaidQueueControls && renderPaidQueueControls();
-    updateStartPlayButton && updateStartPlayButton();
+    if (statusText) statusText.textContent = 'Playback error';
+    if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
+    if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
   }
 }
 
