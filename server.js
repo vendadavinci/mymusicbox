@@ -481,16 +481,7 @@ app.post('/webhook/payment-success', async (req, res) => {
       return res.status(400).json({ error: 'Missing sessionId' });
     }
 
-    const estimatedTotalMs = tracks.reduce(
-      (s, t) => s + (t.durationMs || t.duration_ms || 210000),
-      0
-    );
-
-    // Deactivate any old active sessions
-    await PaidSession.updateMany(
-      { active: true, sessionId: { $ne: sessionId } },
-      { $set: { active: false } }
-    );
+    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.durationMs || t.duration_ms || 210000), 0);
 
     let session = await PaidSession.findOne({ sessionId });
     if (!session) {
@@ -513,23 +504,15 @@ app.post('/webhook/payment-success', async (req, res) => {
     }
 
     if (tracks.length > 0) {
-      // Normalize and replace tracks
       session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
-      session.songsAdded = session.tracks.length;
+      session.songsAdded = tracks.length;
       session.active = true;
       await session.save();
 
-      // Always overwrite checkout linkage
+      // Mark checkout as processed
       await Checkout.findOneAndUpdate(
         { checkoutId: sessionId.split('-')[1] },
-        {
-          $set: {
-            sessionRef: session._id,
-            processedAt: new Date(),
-            playbackStartedAt: null // reset until playback starts
-          }
-        },
-        { upsert: true }
+        { $set: { sessionRef: session._id, processedAt: new Date() } }
       );
 
       try {
@@ -554,6 +537,7 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
+
 
 // Check if there is an active paid session
 // Return the active paid session object (or null)
