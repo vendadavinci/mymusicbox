@@ -1,4 +1,3 @@
-// server.js
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -374,16 +373,17 @@ app.get('/api/status', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    // Ask Spotify for current playback
+    if (!tokens?.access_token) {
+      throw new Error('Missing Spotify access token');
+    }
+
     const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // If no active device / nothing playing
     if (r.status === 204) {
-      // Still return canonical session info if any
       const activeSession = await PaidSession.findOne({ active: true }).lean();
-      const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
+      const playedCount = activeSession?.tracks ? activeSession.tracks.filter(t => t.played).length : 0;
       return res.json({
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
@@ -397,15 +397,20 @@ app.get('/api/status', async (req, res) => {
 
     if (!r.ok) {
       const text = await r.text().catch(() => '<no body>');
+      console.error('Spotify status failed', r.status, text);
       return res.status(r.status).json({ success: false, error: 'Spotify status failed', details: text });
     }
 
-    const data = await r.json();
+    let data;
+    try {
+      data = await r.json();
+    } catch (e) {
+      console.error('Failed to parse Spotify response', e);
+      return res.status(500).json({ success: false, error: 'Spotify parse failed', details: e.message });
+    }
 
-    // Get canonical paid session from DB
     const activeSession = await PaidSession.findOne({ active: true }).lean();
-
-    const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
+    const playedCount = activeSession?.tracks ? activeSession.tracks.filter(t => t.played).length : 0;
 
     return res.json({
       success: true,
@@ -413,9 +418,7 @@ app.get('/api/status', async (req, res) => {
       sessionId: activeSession?.sessionId || null,
       playedCount,
       totalTracks: activeSession?.tracks?.length || 0,
-      // include full server-side track list so client can merge and mark played
       tracks: activeSession?.tracks || [],
-      // Spotify playback info
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
@@ -427,6 +430,54 @@ app.get('/api/status', async (req, res) => {
   } catch (err) {
     console.error('/api/status error', err);
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
+  }
+});
+
+// Return canonical paid session status
+app.get('/api/session-status', async (req, res) => {
+  try {
+    const { sessionId } = req.query;
+    if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
+
+    const session = await PaidSession.findOne({ sessionId }).lean();
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    const playedCount = (session.tracks || []).filter(t => t.played).length;
+
+    res.json({
+      ok: true,
+      sessionId: session.sessionId,
+      active: session.active,
+      playedCount,
+      totalTracks: session.tracks?.length || 0,
+      tracks: session.tracks || [],
+      playbackStartedAt: session.playbackStartedAt || null
+    });
+  } catch (err) {
+    console.error('/api/session-status error', err);
+    res.status(500).json({ error: 'session-status failed', details: err.message });
+  }
+});
+
+// Return checkout status
+app.get('/api/checkout-status', async (req, res) => {
+  try {
+    const { checkoutId } = req.query;
+    if (!checkoutId) return res.status(400).json({ error: 'Missing checkoutId' });
+
+    const checkout = await Checkout.findOne({ checkoutId }).lean();
+    if (!checkout) return res.status(404).json({ error: 'Checkout not found' });
+
+    res.json({
+      ok: true,
+      checkoutId: checkout.checkoutId,
+      sessionRef: checkout.sessionRef || null,
+      processedAt: checkout.processedAt || null,
+      playbackStartedAt: checkout.playbackStartedAt || null
+    });
+  } catch (err) {
+    console.error('/api/checkout-status error', err);
+    res.status(500).json({ error: 'checkout-status failed', details: err.message });
   }
 });
 
@@ -446,7 +497,6 @@ app.post('/api/reserve-tracks', async (req, res) => {
   }
 });
 
-
 app.post('/webhook/payment-success', async (req, res) => {
   try {
     const { sessionId, tracks = [], userId } = req.body;
@@ -454,8 +504,17 @@ app.post('/webhook/payment-success', async (req, res) => {
       return res.status(400).json({ error: 'Missing sessionId' });
     }
 
-    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.durationMs || t.duration_ms || 210000), 0);
+    const estimatedTotalMs = tracks.reduce(
+      (s, t) => s + (t.durationMs || t.duration_ms || 210000),
+      0
+    );
+
+    // Deactivate any old active sessions
+    await PaidSession.updateMany(
+      { active: true, sessionId: { $ne: sessionId } },
+      { $set: { active: false } }
+    );
 
     let session = await PaidSession.findOne({ sessionId });
     if (!session) {
@@ -478,19 +537,29 @@ app.post('/webhook/payment-success', async (req, res) => {
     }
 
     if (tracks.length > 0) {
+      // Normalize and replace tracks
       session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
       session.songsAdded = tracks.length;
+      session.songsAdded = session.tracks.length;
       session.active = true;
       await session.save();
 
       // Mark checkout as processed
+      // Always overwrite checkout linkage
       await Checkout.findOneAndUpdate(
         { checkoutId: sessionId.split('-')[1] },
         { $set: { sessionRef: session._id, processedAt: new Date() } }
+        {
+          $set: {
+            sessionRef: session._id,
+            processedAt: new Date(),
+            playbackStartedAt: null // reset until playback starts
+          }
+        },
+        { upsert: true }
       );
 
       try {
-        await startPaidSession(sessionId, tracks, estimatedTotalMs);
         await startPaidSession(sessionId, session.tracks, estimatedTotalMs);
         session.playbackStartedAt = new Date(); // mark playback triggered
         await session.save();
@@ -512,7 +581,6 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
-
 
 
 // Check if there is an active paid session
@@ -970,4 +1038,3 @@ setInterval(async () => {
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-});
