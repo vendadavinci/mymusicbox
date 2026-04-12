@@ -2207,17 +2207,19 @@ function normalizeTrack(t, orderIndex = 0) {
     artist: t.artist || (t.artists && t.artists.join(', ')) || '',
     durationMs: t.duration_ms ?? t.durationMs ?? 0,
     albumArt: t.albumArt || (t.album?.images?.[0]?.url) || '',
-    addedAt: Date.now(),
-    played: false,
+    addedAt: t.addedAt || Date.now(),
+    played: !!t.played,
     orderIndex
   };
 }
 
 (async function loadPaidTracks() {
   try {
-    let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+    // Load any persisted queue (canonical source on client)
+    const persisted = JSON.parse(sessionStorage.getItem('paidQueue') || 'null');
+    let tracks = Array.isArray(persisted) ? persisted : JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
-    // If no local tracks, try fetching by checkoutId
+    // If no local tracks and there's a checkoutId in the URL, fetch them
     if ((!tracks || tracks.length === 0) && location.search) {
       const params = new URLSearchParams(location.search);
       const checkoutId = params.get('checkoutId');
@@ -2227,40 +2229,73 @@ function normalizeTrack(t, orderIndex = 0) {
           const json = await r.json();
           tracks = json.tracks || [];
 
-          // Generate durable sessionId once
-          const today = new Date().toISOString().slice(0, 10);
-          const sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
-          sessionStorage.setItem('sessionId', sid);
-          sessionStorage.setItem('checkoutId', checkoutId);
+          // Generate durable sessionId once (if not already present)
+          if (!sessionStorage.getItem('sessionId')) {
+            const today = new Date().toISOString().slice(0, 10);
+            const sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
+            sessionStorage.setItem('sessionId', sid);
+            sessionStorage.setItem('checkoutId', checkoutId);
+            sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
+          } else {
+            // ensure checkoutId is stored
+            sessionStorage.setItem('checkoutId', checkoutId);
+          }
         } else {
           console.warn('Failed to fetch checkout tracks:', r.status);
         }
       }
     }
 
+    // If we have tracks, replace the in-memory queue with the canonical normalized list
     if (tracks && tracks.length > 0) {
-      // Normalize and push into paidQueue
-      paidQueue.push(...tracks.map((t, i) => normalizeTrack(t, i + 1)));
+      // Normalize and replace paidQueue (prevents duplicates on refresh)
+      paidQueue = tracks.map((t, i) => normalizeTrack(t, i + 1));
+
+      // Persist canonical queue so reloads use this list
+      try {
+        sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
+      } catch (e) {
+        console.warn('Could not persist paidQueue to sessionStorage', e);
+      }
 
       if (typeof renderQueue === 'function') renderQueue();
 
-      // Notify backend webhook with normalized tracks
-      try {
-        await fetch('/webhook/payment-success', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: sessionStorage.getItem('sessionId'),
-            tracks: paidQueue
-          })
-        });
-      } catch (err) {
-        console.warn('Webhook call failed:', err);
+      // Only call webhook once per sessionId (avoid duplicate processing on refresh)
+      const sid = sessionStorage.getItem('sessionId');
+      const webhookFlag = sid ? `webhookSent_${sid}` : null;
+      if (sid && (!webhookFlag || !sessionStorage.getItem(webhookFlag))) {
+        try {
+          const resp = await fetch('/webhook/payment-success', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: sid,
+              tracks: paidQueue
+            })
+          });
+          if (resp.ok) {
+            sessionStorage.setItem(webhookFlag, 'true');
+          } else {
+            console.warn('Webhook returned non-ok:', resp.status);
+          }
+        } catch (err) {
+          console.warn('Webhook call failed:', err);
+        }
       }
 
-      // Auto‑start playback
-      if (statusText) statusText.textContent = 'Starting paid playback...';
-      await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
+      // Auto‑start playback if not already started
+      const startMarkerKey = sid ? `paidStarted_${sid}` : null;
+      if (sid && (!startMarkerKey || !sessionStorage.getItem(startMarkerKey))) {
+        if (statusText) statusText.textContent = 'Starting paid playback...';
+        try {
+          await startPaidQueuePlayback(sid);
+          if (startMarkerKey) sessionStorage.setItem(startMarkerKey, 'true');
+        } catch (err) {
+          console.error('startPaidQueuePlayback failed', err);
+          if (statusText) statusText.textContent = 'Failed to start paid playback — will retry';
+          if (startMarkerKey) sessionStorage.removeItem(startMarkerKey);
+        }
+      }
 
       if (typeof pollStatusOnce === 'function') {
         try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
