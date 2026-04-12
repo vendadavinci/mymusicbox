@@ -1109,7 +1109,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     let checkoutId = sessionStorage.getItem('checkoutId');
     if (!sid) {
       checkoutId = checkoutId || crypto.randomUUID();
-      const today = new Date().toISOString().slice(0,10);
+      const today = new Date().toISOString().slice(0, 10);
       sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
       sessionStorage.setItem('sessionId', sid);
       sessionStorage.setItem('checkoutId', checkoutId);
@@ -1126,7 +1126,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
       return;
     }
-    sessionStorage.setItem(startMarker, 'true');
 
     // Clear redirect timeout
     if (typeof redirectTimeoutHandle !== 'undefined' && redirectTimeoutHandle) {
@@ -1148,7 +1147,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
 
     // Snapshot local queue
     const snapshotQueue = paidQueue.slice();
-    const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
+    const totalMs = snapshotQueue.reduce((s, i) => s + (i.duration_ms || 210000), 0);
 
     // Update now playing UI
     const first = snapshotQueue[0];
@@ -1157,9 +1156,8 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     }
 
     // Send tracks to backend once, with durable identifiers
-    let result = null;
     try {
-      result = await backendPlayTracks(snapshotQueue, {
+      const result = await backendPlayTracks(snapshotQueue, {
         sessionId: sid,
         checkoutId,
         append: false
@@ -1167,6 +1165,8 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       if (result && result.ok === false) {
         throw new Error('Backend reported failure when starting paid playback');
       }
+      // Only mark start after backend success
+      sessionStorage.setItem(startMarker, 'true');
     } catch (err) {
       console.error('startPaidQueuePlayback backendPlayTracks failed', err);
       paidSessionActive = false;
@@ -1190,6 +1190,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     const waitMs = clamp(totalMs + 2000);
 
     setTimeout(async () => {
+      // If still active and queue has more tracks, restart playback
       if (paidSessionActive && typeof readSentUris === 'function' && readSentUris(sid).length > 0) {
         if (paidQueue.length > 0) {
           if (statusText) statusText.textContent = 'Starting next paid queue...';
@@ -1231,6 +1232,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
   }
 }
+
 
 function showResumePaymentNotice(pending) {
   let notice = document.getElementById('pendingNotice');
