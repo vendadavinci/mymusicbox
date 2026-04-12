@@ -649,6 +649,33 @@ function selectTrackForSlot(slotIndex, track){
   }
 }
 
+// Called when user clicks "Add Songs" again
+function reopenSlot(slotIndex){
+  const slotWrapper = document.getElementById(`slot-${slotIndex}`);
+  const resultsEl = document.getElementById(`results-${slotIndex}`);
+  const inputEl = document.getElementById(`input-${slotIndex}`);
+  const infoEl = document.getElementById(`selectedInfo-${slotIndex}`);
+
+  if (slotWrapper) {
+    slotWrapper.style.display = 'block';   // show the whole slot again
+  }
+  if (resultsEl) {
+    resultsEl.innerHTML = '';
+    resultsEl.style.display = 'block';     // make results area visible again
+  }
+  if (inputEl) {
+    inputEl.value = '';
+    inputEl.focus();                       // put cursor back in search box
+  }
+  if (infoEl) {
+    infoEl.textContent = 'No track selected'; // reset info text
+  }
+
+  // reset slot state if needed
+  slots[slotIndex].selected = null;
+}
+
+
 
 function setNowPlaying({ title, artist, albumArtUrl, mode }) {
   const nowArt = document.getElementById('nowArt');
