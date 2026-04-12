@@ -496,23 +496,10 @@ app.post('/webhook/payment-success', async (req, res) => {
       session.active = true;
       await session.save();
 
-      // Mark checkout as processed
-      const checkoutId = sessionId.split('-')[1];
-      await Checkout.findOneAndUpdate(
-        { checkoutId },
-        { $set: { sessionRef: session._id, processedAt: new Date() } }
-      );
-
       try {
         await startPaidSession(sessionId, tracks, estimatedTotalMs);
         session.playbackStartedAt = new Date(); // mark playback triggered
         await session.save();
-
-        // Mark checkout playback started
-        await Checkout.findOneAndUpdate(
-          { checkoutId },
-          { $set: { playbackStartedAt: new Date() } }
-        );
       } catch (err) {
         console.error('startPaidSession error', err);
         return res.status(500).json({ error: 'playback failed', details: err.message });
