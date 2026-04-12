@@ -393,7 +393,7 @@
         <div id="paidQueueControls"></div>
       </div>
     </div>
-      
+
         <!-- Played history -->
   <div class="card" aria-label="Played history" style="margin-top:12px;">
     <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -413,7 +413,7 @@
 
   <script>
 /* ====== Paid queue app (fixed) ====== */
-const paidQueue = [];
+let paidQueue = [];
 const slots = []; 
 let paidSessionActive = false;
 let redirectTimeoutHandle = null;
@@ -577,7 +577,7 @@ function clearPendingSubmission() {
             <button class="btn ghost">Select</button>
           </div>
         `;
-   
+
         div.addEventListener('click', ()=> selectTrackForSlot(slotIndex, r));
         resultsEl.appendChild(div);
       });
@@ -895,7 +895,10 @@ function renderQueue() {
   try {
     if (!paidQueueEl) return;
 
-    if (!Array.isArray(paidQueue)) paidQueue = [];
+    // Ensure paidQueue is always an array
+    if (!Array.isArray(paidQueue)) {
+      paidQueue = [];
+    }
 
     // Persist local queue so refresh doesn't lose it
     try {
@@ -907,6 +910,7 @@ function renderQueue() {
     // Only show tracks that are not yet played
     const activeTracks = paidQueue.filter(t => !t.played);
 
+    // Clear existing queue safely
     paidQueueEl.innerHTML = '';
     const frag = document.createDocumentFragment();
 
@@ -917,10 +921,12 @@ function renderQueue() {
 
       const wrapper = document.createElement('div');
       wrapper.className = 'queue-item';
-      wrapper.style.display = 'flex';
-      wrapper.style.justifyContent = 'space-between';
-      wrapper.style.alignItems = 'center';
-      wrapper.style.gap = '12px';
+      Object.assign(wrapper.style, {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: '12px'
+      });
       wrapper.dataset.index = String(index);
 
       // Left column: title + artist
@@ -929,16 +935,20 @@ function renderQueue() {
       left.style.flex = '1';
 
       const titleDiv = document.createElement('div');
-      titleDiv.style.fontWeight = '700';
-      titleDiv.style.whiteSpace = 'nowrap';
-      titleDiv.style.overflow = 'hidden';
-      titleDiv.style.textOverflow = 'ellipsis';
+      Object.assign(titleDiv.style, {
+        fontWeight: '700',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis'
+      });
       titleDiv.textContent = item.title || 'Unknown';
 
       const metaDiv = document.createElement('div');
       metaDiv.className = 'meta';
-      metaDiv.style.fontSize = '0.9em';
-      metaDiv.style.color = '#666';
+      Object.assign(metaDiv.style, {
+        fontSize: '0.9em',
+        color: '#666'
+      });
       metaDiv.textContent = item.artist || '';
 
       left.appendChild(titleDiv);
@@ -946,21 +956,29 @@ function renderQueue() {
 
       // Right column: duration + played indicator
       const right = document.createElement('div');
-      right.style.display = 'flex';
-      right.style.flexDirection = 'column';
-      right.style.gap = '6px';
-      right.style.alignItems = 'flex-end';
-      right.style.minWidth = '90px';
+      Object.assign(right.style, {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px',
+        alignItems: 'flex-end',
+        minWidth: '90px'
+      });
 
       const durationDiv = document.createElement('div');
       durationDiv.className = 'small';
-      durationDiv.style.fontSize = '0.85em';
-      durationDiv.style.color = '#333';
-      durationDiv.textContent = formatMs(item.duration_ms || 0);
+      Object.assign(durationDiv.style, {
+        fontSize: '0.85em',
+        color: '#333'
+      });
+      durationDiv.textContent = typeof formatMs === 'function'
+        ? formatMs(item.duration_ms || 0)
+        : `${Math.round((item.duration_ms || 0) / 1000)}s`;
 
       const playedDiv = document.createElement('div');
-      playedDiv.style.fontSize = '0.75em';
-      playedDiv.style.color = item.played ? '#0a0' : '#999';
+      Object.assign(playedDiv.style, {
+        fontSize: '0.75em',
+        color: item.played ? '#0a0' : '#999'
+      });
       playedDiv.textContent = item.played ? 'Played' : 'Queued';
 
       right.appendChild(durationDiv);
@@ -974,18 +992,21 @@ function renderQueue() {
 
     paidQueueEl.appendChild(frag);
 
+    // Update counters
     if (queueCount) queueCount.textContent = `Paid queue: ${activeTracks.length}`;
     if (queueDurationText) queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
 
+    // Update "next track" display
     if (nextTitleEl) {
       if (activeTracks.length > 0) {
         const next = activeTracks[0];
-        nextTitleEl.textContent = `${next.title} — ${next.artist}`;
+        nextTitleEl.textContent = `${next.title || 'Unknown'} — ${next.artist || ''}`;
       } else {
         nextTitleEl.textContent = 'No paid tracks queued';
       }
     }
 
+    // Optional UI hooks
     if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
@@ -1099,6 +1120,7 @@ async function backendPlayTracks(tracks, { sessionId, append } = {}) {
 }
 
 // Robust startPaidQueuePlayback: idempotent start, aligned with checkout/session durable link
+// Extra-robust startPaidQueuePlayback: idempotent start, durable session/checkout link
 async function startPaidQueuePlayback(sessionId, replace = false) {
   try {
     if (!Array.isArray(paidQueue) || paidQueue.length === 0) return;
@@ -1109,7 +1131,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     let checkoutId = sessionStorage.getItem('checkoutId');
     if (!sid) {
       checkoutId = checkoutId || crypto.randomUUID();
-      const today = new Date().toISOString().slice(0,10);
+      const today = new Date().toISOString().slice(0, 10);
       sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
       sessionStorage.setItem('sessionId', sid);
       sessionStorage.setItem('checkoutId', checkoutId);
@@ -1122,11 +1144,10 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       console.info('startPaidQueuePlayback already attempted for', sid);
       paidSessionActive = true;
       nowMode.textContent = 'Mode: PAID';
-      renderPaidQueueControls();
-      updateStartPlayButton();
+      if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
+      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
       return;
     }
-    sessionStorage.setItem(startMarker, 'true');
 
     // Clear redirect timeout
     if (typeof redirectTimeoutHandle !== 'undefined' && redirectTimeoutHandle) {
@@ -1137,18 +1158,28 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     // Set UI state
     paidSessionActive = true;
     nowMode.textContent = 'Mode: PAID';
-    statusText && (statusText.textContent = 'Playing paid queue');
-    renderPaidQueueControls && renderPaidQueueControls();
-    updateStartPlayButton && updateStartPlayButton();
+    if (statusText) statusText.textContent = 'Playing paid queue';
+    if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
+    if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
     // Pause default playback
     if (typeof backendPause === 'function') {
       try { await backendPause(); } catch (e) { console.warn('backendPause failed', e); }
     }
 
-    // Snapshot local queue
-    const snapshotQueue = paidQueue.slice();
-    const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
+    // Snapshot local queue and normalize
+    const snapshotQueue = paidQueue.map((t, i) => ({
+      uri: t.uri,
+      title: t.title || 'Unknown',
+      artist: t.artist || '',
+      durationMs: t.duration_ms || t.durationMs || 0,
+      albumArt: t.albumArt || '',
+      addedAt: t.addedAt || Date.now(),
+      played: t.played || false,
+      orderIndex: i + 1
+    }));
+
+    const totalMs = snapshotQueue.reduce((s, i) => s + (i.durationMs || 210000), 0);
 
     // Update now playing UI
     const first = snapshotQueue[0];
@@ -1157,9 +1188,8 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     }
 
     // Send tracks to backend once, with durable identifiers
-    let result = null;
     try {
-      result = await backendPlayTracks(snapshotQueue, {
+      const result = await backendPlayTracks(snapshotQueue, {
         sessionId: sid,
         checkoutId,
         append: false
@@ -1167,13 +1197,15 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       if (result && result.ok === false) {
         throw new Error('Backend reported failure when starting paid playback');
       }
+      // Only mark start after backend success
+      sessionStorage.setItem(startMarker, 'true');
     } catch (err) {
       console.error('startPaidQueuePlayback backendPlayTracks failed', err);
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
-      statusText && (statusText.textContent = 'Playback/queue failed. Please try again.');
-      renderPaidQueueControls && renderPaidQueueControls();
-      updateStartPlayButton && updateStartPlayButton();
+      if (statusText) statusText.textContent = 'Playback/queue failed. Please try again.';
+      if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
+      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
       sessionStorage.removeItem(startMarker);
       throw err;
     }
@@ -1183,16 +1215,17 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
     }
 
-    renderQueue && renderQueue();
+    if (typeof renderQueue === 'function') renderQueue();
 
     // Schedule fallback
     const clamp = ms => Math.max(5000, Math.min(ms, 1000 * 60 * 60));
     const waitMs = clamp(totalMs + 2000);
 
     setTimeout(async () => {
-      if (paidSessionActive && readSentUris(sid).length > 0) {
+      // If still active and queue has more tracks, restart playback
+      if (paidSessionActive && typeof readSentUris === 'function' && readSentUris(sid).length > 0) {
         if (paidQueue.length > 0) {
-          statusText && (statusText.textContent = 'Starting next paid queue...');
+          if (statusText) statusText.textContent = 'Starting next paid queue...';
           try { await startPaidQueuePlayback(sid); } catch (e) { console.warn('restart next paid queue failed', e); }
           return;
         }
@@ -1201,9 +1234,9 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       // End paid session locally and resume default playback
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
-      statusText && (statusText.textContent = 'Resuming default playlist');
-      renderPaidQueueControls && renderPaidQueueControls();
-      updateStartPlayButton && updateStartPlayButton();
+      if (statusText) statusText.textContent = 'Resuming default playlist';
+      if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
+      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
       try {
         if (typeof backendResume === 'function') {
@@ -1226,11 +1259,12 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     console.error('startPaidQueuePlayback error', err);
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
-    statusText && (statusText.textContent = 'Playback error');
-    renderPaidQueueControls && renderPaidQueueControls();
-    updateStartPlayButton && updateStartPlayButton();
+    if (statusText) statusText.textContent = 'Playback error';
+    if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
+    if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
   }
 }
+
 
 function showResumePaymentNotice(pending) {
   let notice = document.getElementById('pendingNotice');
@@ -1690,6 +1724,7 @@ function startAddFlow(){
 }
 
 
+
 (function () {
   let appendBatch = [];
   let appendTimer = null;
@@ -1711,11 +1746,13 @@ function startAddFlow(){
       console.log('Appended batch to backend:', batch.map(t => t.uri));
     } catch (err) {
       console.error('Failed to append batch to backend:', err);
-      statusText && (statusText.textContent = 'Append failed — will retry shortly');
+      if (statusText) statusText.textContent = 'Append failed — will retry shortly';
+      // requeue and retry
       appendBatch = batch.concat(appendBatch);
       if (!appendTimer) {
         appendTimer = setTimeout(() => flushAppendBatch(sessionId), 3000);
       }
+      if (!appendTimer) appendTimer = setTimeout(() => flushAppendBatch(sessionId), 3000);
     }
   }
 
@@ -1736,21 +1773,30 @@ function startAddFlow(){
         return;
       }
 
-      const normalized = {
-        uri: track.uri,
-        title: track.title || track.name || 'Unknown',
-        artist: track.artist || (track.artists && track.artists.join(', ')) || '',
-        duration_ms: track.duration_ms || track.durationMs || 0,
-        albumArt: track.albumArt || (track.album?.images?.[0]?.url) || '',
-        addedAt: Date.now()
-      };
+      const normalized = normalizeTrack(track, paidQueue.length + 1);
+      // Ensure durable sessionId exists
+      let sid = sessionId || sessionStorage.getItem('sessionId');
+      let checkoutId = sessionStorage.getItem('checkoutId');
+      if (!sid) {
+        checkoutId = checkoutId || crypto.randomUUID();
+        const today = new Date().toISOString().slice(0,10);
+        sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
+        sessionStorage.setItem('sessionId', sid);
+        sessionStorage.setItem('checkoutId', checkoutId);
+        sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
+      }
 
       if (paidQueue.some(t => t.uri === normalized.uri)) {
+      // Normalize and dedupe against current paidQueue
+      const normalized = normalizeTrack(track, paidQueue.length + 1);
+      const existingUris = new Set(paidQueue.map(t => t.uri));
+      if (existingUris.has(normalized.uri)) {
         console.info('Track already in local paidQueue, skipping:', normalized.uri);
-        statusText && (statusText.textContent = 'Track already in paid queue');
+        if (statusText) statusText.textContent = 'Track already in paid queue';
         return;
       }
 
+      // Add to canonical queue and persist (replace behavior)
       paidQueue.push(normalized);
       try {
         sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
@@ -1759,7 +1805,7 @@ function startAddFlow(){
       }
 
       songsAddedThisSession++;
-      renderQueue && renderQueue();
+      if (typeof renderQueue === 'function') renderQueue();
 
       let sid = sessionId || sessionStorage.getItem('sessionId');
       let checkoutId = sessionStorage.getItem('checkoutId');
@@ -1772,22 +1818,23 @@ function startAddFlow(){
         sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
       }
 
+      // If session not active, start it (idempotent via start marker)
       if (!paidSessionActive) {
         const startMarkerKey = `paidStarted_${sid}`;
         if (!sessionStorage.getItem(startMarkerKey)) {
           sessionStorage.setItem(startMarkerKey, 'true');
-          statusText && (statusText.textContent = 'Starting paid playback...');
+          if (statusText) statusText.textContent = 'Starting paid playback...';
           try {
             await startPaidQueuePlayback(sid, false);
             paidSessionActive = true;
-            statusText && (statusText.textContent = 'Paid playback started');
+            if (statusText) statusText.textContent = 'Paid playback started';
           } catch (err) {
             console.error('startPaidQueuePlayback failed', err);
-            statusText && (statusText.textContent = 'Failed to start paid playback — will retry');
+            if (statusText) statusText.textContent = 'Failed to start paid playback — will retry';
             sessionStorage.removeItem(startMarkerKey);
           }
         } else {
-          statusText && (statusText.textContent = 'Paid playback starting (in progress)');
+          if (statusText) statusText.textContent = 'Paid playback starting (in progress)';
         }
         return;
       }
@@ -1795,16 +1842,23 @@ function startAddFlow(){
       appendBatch.push(normalized);
       if (!appendTimer) {
         appendTimer = setTimeout(() => flushAppendBatch(sid), APPEND_BATCH_MS);
+      // Append batching: avoid duplicate URIs inside the batch
+      const batchUris = new Set(appendBatch.map(t => t.uri));
+      if (!batchUris.has(normalized.uri)) {
+        appendBatch.push(normalized);
       }
 
-      statusText && (statusText.textContent = 'Track added to paid queue');
+      if (statusText) statusText.textContent = 'Track added to paid queue';
+      if (!appendTimer) appendTimer = setTimeout(() => flushAppendBatch(sid), APPEND_BATCH_MS);
 
+      if (statusText) statusText.textContent = 'Track added to paid queue';
     } catch (err) {
       console.error('addToPaidQueue error', err);
       alert('Something went wrong adding the track. Please try again.');
     }
   };
 })();
+
 
 
 /* ====== Optional: expose some functions for payment page to call ====== */
@@ -2002,7 +2056,7 @@ async function pollStatusOnce(){
         title: obj.title || '',
         artist: obj.artist || '',
         duration_ms: obj.duration_ms || 0
-        
+
       };
     }
 
@@ -2037,22 +2091,24 @@ async function pollStatusOnce(){
 
 <script>
   const tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+  const sid = sessionStorage.getItem('sessionId');
 
-  fetch('/webhook/payment-success', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tracks })
-  }).then(() => {
-    // Instead of alert, update a status element or do nothing
-    const statusText = document.getElementById('statusText');
-    if (statusText) {
-      statusText.textContent = 'Tracks queued and ready to play.';
-    }
-    // Or simply leave this block empty if you want no message at all
-  }).catch(err => {
-    console.error('Webhook call failed:', err);
-  });
+  if (sid && tracks.length > 0) {
+    fetch('/webhook/payment-success', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: sid, tracks })
+    }).then(() => {
+      const statusText = document.getElementById('statusText');
+      if (statusText) {
+        statusText.textContent = 'Tracks queued and ready to play.';
+      }
+    }).catch(err => {
+      console.error('Webhook call failed:', err);
+    });
+  }
 </script>
+
 
 <script>
 (async function handlePostPayment() {
@@ -2168,12 +2224,29 @@ async function pollStatusOnce(){
 })();
 </script>
 
-    
+
 <script>
+function normalizeTrack(t, orderIndex = 0) {
+  return {
+    uri: t.uri,
+    title: t.title || t.name || 'Unknown',
+    artist: t.artist || (t.artists && t.artists.join(', ')) || '',
+    durationMs: t.duration_ms ?? t.durationMs ?? 0,
+    albumArt: t.albumArt || (t.album?.images?.[0]?.url) || '',
+    addedAt: t.addedAt || Date.now(),
+    played: !!t.played,
+    orderIndex
+  };
+}
+
 (async function loadPaidTracks() {
   try {
-    let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+    // Load any persisted queue (canonical source on client)
+    // Load canonical queue from sessionStorage first (preferred)
+    const persisted = JSON.parse(sessionStorage.getItem('paidQueue') || 'null');
+    let tracks = Array.isArray(persisted) ? persisted : JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
+    // If no local tracks and there's a checkoutId in the URL, fetch them
     if ((!tracks || tracks.length === 0) && location.search) {
       const params = new URLSearchParams(location.search);
       const checkoutId = params.get('checkoutId');
@@ -2182,36 +2255,129 @@ async function pollStatusOnce(){
         if (r.ok) {
           const json = await r.json();
           tracks = json.tracks || [];
-          // store sessionId for later use
-          sessionStorage.setItem('sessionId', checkoutId);
+
+          // Generate durable sessionId once (if not already present)
+          // Generate durable sessionId once (if not present)
+          if (!sessionStorage.getItem('sessionId')) {
+            const today = new Date().toISOString().slice(0, 10);
+            const sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
+            sessionStorage.setItem('sessionId', sid);
+            sessionStorage.setItem('checkoutId', checkoutId);
+            sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
+          } else {
+            // ensure checkoutId is stored
+            sessionStorage.setItem('checkoutId', checkoutId);
+          }
+        } else {
+          console.warn('Failed to fetch checkout tracks:', r.status);
         }
       }
     }
 
+    // If we have tracks, replace the in-memory queue with the canonical normalized list
     if (tracks && tracks.length > 0) {
-      paidQueue.push(...tracks.map(t => ({
-        uri: t.uri,
-        title: t.title || 'Unknown',
-        artist: t.artist || '',
-        duration_ms: t.duration_ms || 0,
-        albumArt: t.albumArt || '',
-        addedAt: Date.now()
-      })));
+      // Normalize and replace paidQueue (prevents duplicates on refresh)
+      paidQueue = tracks.map((t, i) => normalizeTrack(t, i + 1));
+    if (!tracks || tracks.length === 0) {
+      console.info('No paid tracks found to load.');
+      return;
+    }
 
-      renderQueue();
+      // Persist canonical queue so reloads use this list
+      try {
+        sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
+      } catch (e) {
+        console.warn('Could not persist paidQueue to sessionStorage', e);
+      }
+    // Normalize incoming tracks and deduplicate by uri (preserve order)
+    const normalized = tracks.map((t, i) => normalizeTrack(t, i + 1));
+    const seen = new Set();
+    const unique = [];
+    for (const t of normalized) {
+      if (!t.uri) continue;
+      if (seen.has(t.uri)) continue;
+      seen.add(t.uri);
+      unique.push(t);
+    }
 
-      // Notify backend webhook
-      await fetch('/webhook/payment-success', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sessionStorage.getItem('sessionId'), tracks })
-      });
+      if (typeof renderQueue === 'function') renderQueue();
+    // Replace in-memory queue with canonical unique list
+    paidQueue = unique.slice();
 
-      // Auto‑start playback
-      statusText.textContent = 'Starting paid playback...';
-      await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
+    // Persist canonical queue
+    try {
+      sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
+    } catch (e) {
+      console.warn('Could not persist paidQueue to sessionStorage', e);
+    }
 
-      pollStatusOnce();
+    if (typeof renderQueue === 'function') renderQueue();
+
+      // Only call webhook once per sessionId (avoid duplicate processing on refresh)
+      const sid = sessionStorage.getItem('sessionId');
+      const webhookFlag = sid ? `webhookSent_${sid}` : null;
+      if (sid && (!webhookFlag || !sessionStorage.getItem(webhookFlag))) {
+    // Send webhook once per sessionId (avoid duplicate webhook on refresh)
+    const sid = sessionStorage.getItem('sessionId');
+    if (sid) {
+      const webhookFlag = `webhookSent_${sid}`;
+      if (!sessionStorage.getItem(webhookFlag)) {
+        try {
+          const resp = await fetch('/webhook/payment-success', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: sid,
+              tracks: paidQueue
+            })
+            body: JSON.stringify({ sessionId: sid, tracks: paidQueue })
+          });
+          if (resp.ok) {
+            sessionStorage.setItem(webhookFlag, 'true');
+          } else {
+            console.warn('Webhook returned non-ok:', resp.status);
+          }
+          if (resp.ok) sessionStorage.setItem(webhookFlag, 'true');
+          else console.warn('Webhook returned non-ok:', resp.status);
+        } catch (err) {
+          console.warn('Webhook call failed:', err);
+        }
+      }
+    }
+
+      // Auto‑start playback if not already started
+      const startMarkerKey = sid ? `paidStarted_${sid}` : null;
+      if (sid && (!startMarkerKey || !sessionStorage.getItem(startMarkerKey))) {
+        if (statusText) statusText.textContent = 'Starting paid playback...';
+        try {
+          await startPaidQueuePlayback(sid);
+          if (startMarkerKey) sessionStorage.setItem(startMarkerKey, 'true');
+        } catch (err) {
+          console.error('startPaidQueuePlayback failed', err);
+          if (statusText) statusText.textContent = 'Failed to start paid playback — will retry';
+          if (startMarkerKey) sessionStorage.removeItem(startMarkerKey);
+        }
+    // Auto-start playback if not already started for this session
+    const startMarkerKey = sid ? `paidStarted_${sid}` : null;
+    if (sid && (!startMarkerKey || !sessionStorage.getItem(startMarkerKey))) {
+      if (statusText) statusText.textContent = 'Starting paid playback...';
+      try {
+        await startPaidQueuePlayback(sid);
+        if (startMarkerKey) sessionStorage.setItem(startMarkerKey, 'true');
+      } catch (err) {
+        console.error('startPaidQueuePlayback failed', err);
+        if (statusText) statusText.textContent = 'Failed to start paid playback — will retry';
+        if (startMarkerKey) sessionStorage.removeItem(startMarkerKey);
+      }
+    }
+
+      if (typeof pollStatusOnce === 'function') {
+        try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
+      }
+    } else {
+      console.info('No paid tracks found to load.');
+    if (typeof pollStatusOnce === 'function') {
+      try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
@@ -2255,8 +2421,8 @@ refreshStatus();
 
 
 
-   
-    
+
+
 
 </body>
 </html>
