@@ -579,6 +579,8 @@ function clearPendingSubmission() {
         resultsEl.innerHTML = '<div class="small">Search failed. Try again.</div>';
       }
     }
+
+      
 function renderSearchResults(slotIndex, results){
   const resultsEl = document.getElementById(`results-${slotIndex}`);
   resultsEl.innerHTML = '';
@@ -636,7 +638,7 @@ function selectTrackForSlot(slotIndex, track){
   const resultsEl = document.getElementById(`results-${slotIndex}`);
   if (resultsEl) {
     resultsEl.innerHTML = '';
-    resultsEl.style.display = 'none';   // <-- actually hides the container
+    resultsEl.style.display = 'none';   // <-- actually collapses the results box
   }
 
   // Clear the search input
@@ -1311,7 +1313,6 @@ function showResumePaymentNotice(pending) {
     notice.style.margin = '8px 0';
     document.querySelector('.right-col')?.prepend(notice);
   }
-  notice.innerHTML = `You have a pending payment for ${pending.tracks.length} tracks. `;
 }
 
 async function resumePendingPayment() {
