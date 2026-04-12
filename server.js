@@ -433,6 +433,8 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
+
+// Return canonical paid session status
 app.get('/api/session-status', async (req, res) => {
   try {
     const { sessionId } = req.query;
@@ -457,6 +459,7 @@ app.get('/api/session-status', async (req, res) => {
     res.status(500).json({ error: 'session-status failed', details: err.message });
   }
 });
+
 
 
 // Reserve tracks
