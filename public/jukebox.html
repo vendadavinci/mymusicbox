@@ -224,24 +224,29 @@
     color:#fff;
     outline:none;
   }
-  .search-results{
-    margin-top:10px;
-    max-height:220px;
-    overflow:auto;
-    display:flex;
-    flex-direction:column;
-    gap:8px;
-  }
-  .result-item{
-    display:flex;
-    gap:10px;
-    align-items:center;
-    padding:8px;
-    border-radius:6px;
-    background:rgba(255,255,255,0.02);
-    cursor:pointer;
-  }
-  .result-item:hover{ background:rgba(255,255,255,0.04); }
+.search-results {
+  margin-top: 10px;
+  max-height: 180px;       /* enough for ~3 items */
+  overflow-y: auto;        /* scroll inside if more than 3 */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.result-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.02);
+  cursor: pointer;
+  flex-shrink: 0;          /* prevent items from stretching */
+}
+
+.result-item:hover {
+  background: rgba(255,255,255,0.04);
+}
 
   .queue-list{
     display:flex;
