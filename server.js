@@ -434,6 +434,55 @@ app.get('/api/status', async (req, res) => {
   }
 });
 
+// Return canonical paid session status
+app.get('/api/session-status', async (req, res) => {
+  try {
+    const { sessionId } = req.query;
+    if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
+
+    const session = await PaidSession.findOne({ sessionId }).lean();
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    const playedCount = (session.tracks || []).filter(t => t.played).length;
+
+    res.json({
+      ok: true,
+      sessionId: session.sessionId,
+      active: session.active,
+      playedCount,
+      totalTracks: session.tracks?.length || 0,
+      tracks: session.tracks || [],
+      playbackStartedAt: session.playbackStartedAt || null
+    });
+  } catch (err) {
+    console.error('/api/session-status error', err);
+    res.status(500).json({ error: 'session-status failed', details: err.message });
+  }
+});
+
+// Return checkout status
+app.get('/api/checkout-status', async (req, res) => {
+  try {
+    const { checkoutId } = req.query;
+    if (!checkoutId) return res.status(400).json({ error: 'Missing checkoutId' });
+
+    const checkout = await Checkout.findOne({ checkoutId }).lean();
+    if (!checkout) return res.status(404).json({ error: 'Checkout not found' });
+
+    res.json({
+      ok: true,
+      checkoutId: checkout.checkoutId,
+      sessionRef: checkout.sessionRef || null,
+      processedAt: checkout.processedAt || null,
+      playbackStartedAt: checkout.playbackStartedAt || null
+    });
+  } catch (err) {
+    console.error('/api/checkout-status error', err);
+    res.status(500).json({ error: 'checkout-status failed', details: err.message });
+  }
+});
+
+
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
   try {
