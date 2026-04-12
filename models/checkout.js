@@ -20,14 +20,18 @@ const CheckoutSchema = new mongoose.Schema({
   successUrl: { type: String },
   cancelUrl: { type: String },
   createdAt: { type: Date, default: Date.now },
+  expiresAt: { type: Date }, // NEW: expiry marker for TTL
   tracks: [PaidTrackSchema],
 
   // Durable link back to the session
   sessionRef: { type: mongoose.Schema.Types.ObjectId, ref: 'PaidSession' },
 
-  // NEW: markers for idempotency and playback
+  // Markers for idempotency and playback
   processedAt: { type: Date },          // when this checkout was consumed into a session
   playbackStartedAt: { type: Date }     // when playback was triggered for this checkout
 });
+
+// TTL index: automatically remove expired checkouts
+CheckoutSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 export const Checkout = mongoose.model('Checkout', CheckoutSchema);
