@@ -579,12 +579,12 @@ function clearPendingSubmission() {
         resultsEl.innerHTML = '<div class="small">Search failed. Try again.</div>';
       }
     }
-
 function renderSearchResults(slotIndex, results){
   const resultsEl = document.getElementById(`results-${slotIndex}`);
   resultsEl.innerHTML = '';
   if(!results || results.length === 0){
     resultsEl.innerHTML = '<div class="small">No results</div>';
+    resultsEl.style.display = 'block';
     return;
   }
 
@@ -614,7 +614,7 @@ function renderSearchResults(slotIndex, results){
     resultsEl.appendChild(div);
   });
 
-  // Make sure results are visible when rendering
+  // Show results when rendering
   resultsEl.style.display = 'block';
 }
 
@@ -636,7 +636,7 @@ function selectTrackForSlot(slotIndex, track){
   const resultsEl = document.getElementById(`results-${slotIndex}`);
   if (resultsEl) {
     resultsEl.innerHTML = '';
-    resultsEl.style.display = 'none';
+    resultsEl.style.display = 'none';   // <-- actually hides the container
   }
 
   // Clear the search input
@@ -646,7 +646,6 @@ function selectTrackForSlot(slotIndex, track){
     inputEl.blur();
   }
 }
-
 
 
 function setNowPlaying({ title, artist, albumArtUrl, mode }) {
