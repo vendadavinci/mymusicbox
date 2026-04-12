@@ -56,6 +56,7 @@
     gap:12px;
   }
 
+  /* Player visual container */
   .player-visual{
     width:100%;
     height:608px;
@@ -64,27 +65,61 @@
     position:relative;
     overflow:hidden;
     background-color:#111; /* fallback */
+    display:block;
   }
 
+  /* Artwork fills the visual area */
   .art {
-    width: 100%;
-    height: 100%;
-    background: #222;
-    background-size: cover;
-    background-position: center;
-    border-radius: 0;
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    background: #222 center/cover no-repeat;
+    border-radius: 8px; /* keep rounded corners with container */
+    transform-origin:center;
+    will-change:background-image;
   }
 
-  /* Overlay strip for track info */
+  /* Optional subtle zoom for nicer look */
+  .art.img-zoom {
+    transition: transform 8s ease;
+    transform: scale(1.03);
+  }
+
+  /* Dark overlay so text remains readable */
+  .player-visual::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.25);
+    pointer-events: none;
+    z-index: 1;
+    border-radius: 8px;
+  }
+
+  /* Overlay strip for track info (separate from art) */
   .player-overlay {
     position:absolute;
     bottom:0;
     left:0;
     right:0;
-    padding:12px;
-    background:rgba(0,0,0,0.65);
-    z-index:2;
+    padding:12px 16px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.0), rgba(0,0,0,0.65));
+    z-index: 2;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    box-sizing:border-box;
+  }
+
+  /* Meta container centered and constrained */
+  .meta {
+    width:100%;
+    max-width:920px;
     text-align:center;
+    padding:6px 12px;
+    box-sizing:border-box;
+    backdrop-filter: blur(2px);
   }
 
   .meta .title{
@@ -94,10 +129,11 @@
     white-space:nowrap;
     overflow:hidden;
     text-overflow:ellipsis;
+    color:#fff;
   }
 
   .meta .artist{
-    margin:4px 0 0 0;
+    margin:6px 0 0 0;
     color:var(--muted);
     font-size:14px;
     white-space:nowrap;
@@ -106,9 +142,18 @@
   }
 
   .meta .small{
-    margin-top:4px;
+    margin-top:6px;
     font-size:12px;
-    color:#888;
+    color:#cfcfcf;
+  }
+
+  /* Keep track-info only for legacy layouts; not required for full-art layout */
+  .track-info {
+    display:flex;
+    gap:12px;
+    align-items:center;
+    justify-content:center;
+    min-width:0;
   }
 
   .player-controls{
@@ -116,6 +161,7 @@
     gap:10px;
     align-items:center;
   }
+
   .btn{
     background:var(--accent);
     color:#000;
@@ -230,10 +276,19 @@
     color:var(--muted);
   }
 
+  /* Responsive adjustments */
   @media (max-width:1200px){
     main{ padding:12px; gap:12px; }
     .player-visual{ height:420px; }
-    .art{ width:100%; height:100%; }
+    .meta .title{ font-size:18px; }
+    .meta .artist{ font-size:13px; }
+  }
+
+  @media (max-width:600px){
+    .player-visual{ height:320px; }
+    .meta{ padding:8px; }
+    .meta .title{ font-size:16px; }
+    .meta .artist{ font-size:12px; }
   }
 </style>
 
@@ -243,38 +298,37 @@
 
 <main>
   <!-- Left: Now Playing visual (up to 1080px block) -->
-  <section class="left-col card" aria-label="Now Playing">
-    <div class="player-visual" id="playerVisual">
-      <div id="playerPlaceholder"></div>
+<section class="left-col card" aria-label="Now Playing">
+  <div class="player-visual" id="playerVisual">
+    <!-- Artwork fills the visual and is controlled separately -->
+    <div class="art" id="nowArt" role="img" aria-label="Album artwork"></div>
 
-      <div class="player-overlay">
-        <div class="track-info">
-          <div class="art" id="nowArt"></div>
-          <div class="meta">
-            <div class="title" id="nowTitle">Idle</div>
-            <div class="artist" id="nowArtist">Default playlist</div>
-            <div class="small" id="nowMode">Mode: DEFAULT</div>
-          </div>
-        </div>
+    <!-- Overlay strip for track info (separate from the art) -->
+    <div class="player-overlay">
+      <div class="meta">
+        <div class="title" id="nowTitle">Idle</div>
+        <div class="artist" id="nowArtist">Default playlist</div>
+        <div class="small" id="nowMode">Mode: DEFAULT</div>
       </div>
-
     </div>
-<div id="progress-bar-container" style="width: 300px; background: #eee;">
-  <div id="progress-bar" style="height: 10px; background: #4caf50; width: 0%;"></div>
-</div>
-<span id="progress-text"></span>
+  </div>
 
+  <div id="progress-bar-container" style="width: 300px; background: #eee; margin-top:12px;">
+    <div id="progress-bar" style="height: 10px; background: #4caf50; width: 0%;"></div>
+  </div>
+  <span id="progress-text"></span>
 
-    <!-- Playing Next strip -->
-    <div class="playing-next" id="playingNext">
-      <div class="small" id="queueCount">Paid queue: 0</div>
-      <div class="small" id="nextTitle">No paid tracks queued</div>
-    </div>
+  <!-- Playing Next strip -->
+  <div class="playing-next" id="playingNext" style="margin-top:12px;">
+    <div class="small" id="queueCount">Paid queue: 0</div>
+    <div class="small" id="nextTitle">No paid tracks queued</div>
+  </div>
 
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
-      <div class="small" id="statusText">Status: idle</div>
-    </div>
-  </section>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+    <div class="small" id="statusText">Status: idle</div>
+  </div>
+</section>
+
 
 
   <aside class="right-col">
@@ -569,6 +623,27 @@ function clearPendingSubmission() {
       info.textContent = `${track.title} — ${track.artist}`;
       updateSelectedList();
     }
+
+
+function setNowPlaying({ title, artist, albumArtUrl, mode }) {
+  const nowArt = document.getElementById('nowArt');
+  const playerVisual = document.getElementById('playerVisual');
+  const nowTitle = document.getElementById('nowTitle');
+  const nowArtist = document.getElementById('nowArtist');
+  const nowMode = document.getElementById('nowMode');
+
+  nowTitle.textContent = title || 'Idle';
+  nowArtist.textContent = artist || 'Default playlist';
+  nowMode.textContent = mode ? `Mode: ${mode}` : 'Mode: DEFAULT';
+
+  if (albumArtUrl) {
+    nowArt.style.backgroundImage = `url(${albumArtUrl})`;
+    playerVisual.style.backgroundImage = `url(${albumArtUrl})`; // optional fallback
+  } else {
+    nowArt.style.backgroundImage = '';
+    playerVisual.style.backgroundImage = '';
+  }
+}
 
     function updateSelectedList(){
       const selected = slots.filter(s => s.selected).map(s => s.selected);
