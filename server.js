@@ -20,26 +20,12 @@ mongoose.connect(process.env.MONGO_URI)
 const app = express();
 app.use(express.json());
 
-
-// Replace storeCheckout with a durable DB write
-async function storeCheckout(checkoutId, payload, ttlMs = 1000 * 60 * 30) {
-  try {
-    await Checkout.create({
-      checkoutId,
-      amount: payload.amount,
-      currency: payload.currency || "ZAR",
-      description: payload.description || "Musicbox Paid Session",
-      successUrl: `https://mymusicbox.onrender.com/jukebox.html?checkoutId=${checkoutId}`,
-      cancelUrl: `https://mymusicbox.onrender.com/index.html`,
-      tracks: payload.tracks || [],
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + ttlMs) // TTL expiry
-    });
-  } catch (err) {
-    console.error("Failed to persist checkout", err);
-  }
+// In‑memory checkout store (optional fallback, can remove once you rely only on Mongo)
+const checkoutStore = new Map();
+function storeCheckout(checkoutId, payload, ttlMs = 1000 * 60 * 30) {
+  checkoutStore.set(checkoutId, { payload, expiresAt: Date.now() + ttlMs });
+  setTimeout(() => checkoutStore.delete(checkoutId), ttlMs + 1000);
 }
-
 
 // Static file serving
 const __filename = fileURLToPath(import.meta.url);
@@ -810,18 +796,8 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
       }
     );
 
-    // Persist checkout in MongoDB with 2-minute TTL
-    await Checkout.create({
-      checkoutId,
-      amount,
-      currency,
-      description,
-      successUrl: `https://mymusicbox.onrender.com/jukebox.html?checkoutId=${checkoutId}`,
-      cancelUrl: `https://mymusicbox.onrender.com/index.html`,
-      tracks,
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + 1000 * 60 * 2) // 2 minutes TTL
-    });
+    // persist tracks server-side keyed by checkoutId
+    storeCheckout(checkoutId, { tracks, amount, createdAt: Date.now() });
 
     res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId });
   } catch (err) {
@@ -832,6 +808,7 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
     });
   }
 });
+
 
 app.get('/api/checkout-tracks', async (req, res) => {
   try {
@@ -859,46 +836,6 @@ app.get('/api/checkout-tracks', async (req, res) => {
     return res.status(500).json({ error: 'server error', details: err.message });
   }
 });
-
-// Checkout status endpoint
-app.get('/api/checkout-status', async (req, res) => {
-  try {
-    const { checkoutId } = req.query;
-    if (!checkoutId) return res.status(400).json({ success: false, error: 'Missing checkoutId' });
-
-    const checkout = await Checkout.findOne({ checkoutId });
-    if (!checkout) return res.status(404).json({ success: false, error: 'Checkout not found' });
-
-    res.json({ success: true, checkoutId, sessionRef: checkout.sessionRef || null });
-  } catch (err) {
-    console.error('/api/checkout-status error', err);
-    res.status(500).json({ success: false, error: 'Internal error', details: err.message });
-  }
-});
-
-// Session status endpoint
-app.get('/api/session-status', async (req, res) => {
-  try {
-    const { sessionId } = req.query;
-    if (!sessionId) return res.status(400).json({ success: false, error: 'Missing sessionId' });
-
-    const session = await PaidSession.findOne({ sessionId });
-    if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
-
-    res.json({
-      success: true,
-      sessionId,
-      active: session.active,
-      songsAdded: session.songsAdded,
-      playbackStartedAt: session.playbackStartedAt || null,
-      tracks: session.tracks || []
-    });
-  } catch (err) {
-    console.error('/api/session-status error', err);
-    res.status(500).json({ success: false, error: 'Internal error', details: err.message });
-  }
-});
-
 
 app.post('/api/queue', async (req, res) => {
   try {
