@@ -413,7 +413,7 @@
 
   <script>
 /* ====== Paid queue app (fixed) ====== */
-let paidQueue = [];
+const paidQueue = [];
 const slots = []; 
 let paidSessionActive = false;
 let redirectTimeoutHandle = null;
@@ -1109,7 +1109,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     let checkoutId = sessionStorage.getItem('checkoutId');
     if (!sid) {
       checkoutId = checkoutId || crypto.randomUUID();
-      const today = new Date().toISOString().slice(0, 10);
+      const today = new Date().toISOString().slice(0,10);
       sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
       sessionStorage.setItem('sessionId', sid);
       sessionStorage.setItem('checkoutId', checkoutId);
@@ -1122,10 +1122,11 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       console.info('startPaidQueuePlayback already attempted for', sid);
       paidSessionActive = true;
       nowMode.textContent = 'Mode: PAID';
-      if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
-      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+      renderPaidQueueControls();
+      updateStartPlayButton();
       return;
     }
+    sessionStorage.setItem(startMarker, 'true');
 
     // Clear redirect timeout
     if (typeof redirectTimeoutHandle !== 'undefined' && redirectTimeoutHandle) {
@@ -1136,9 +1137,9 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     // Set UI state
     paidSessionActive = true;
     nowMode.textContent = 'Mode: PAID';
-    if (statusText) statusText.textContent = 'Playing paid queue';
-    if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
-    if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+    statusText && (statusText.textContent = 'Playing paid queue');
+    renderPaidQueueControls && renderPaidQueueControls();
+    updateStartPlayButton && updateStartPlayButton();
 
     // Pause default playback
     if (typeof backendPause === 'function') {
@@ -1147,7 +1148,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
 
     // Snapshot local queue
     const snapshotQueue = paidQueue.slice();
-    const totalMs = snapshotQueue.reduce((s, i) => s + (i.duration_ms || 210000), 0);
+    const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
 
     // Update now playing UI
     const first = snapshotQueue[0];
@@ -1156,8 +1157,9 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     }
 
     // Send tracks to backend once, with durable identifiers
+    let result = null;
     try {
-      const result = await backendPlayTracks(snapshotQueue, {
+      result = await backendPlayTracks(snapshotQueue, {
         sessionId: sid,
         checkoutId,
         append: false
@@ -1165,15 +1167,13 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       if (result && result.ok === false) {
         throw new Error('Backend reported failure when starting paid playback');
       }
-      // Only mark start after backend success
-      sessionStorage.setItem(startMarker, 'true');
     } catch (err) {
       console.error('startPaidQueuePlayback backendPlayTracks failed', err);
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
-      if (statusText) statusText.textContent = 'Playback/queue failed. Please try again.';
-      if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
-      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+      statusText && (statusText.textContent = 'Playback/queue failed. Please try again.');
+      renderPaidQueueControls && renderPaidQueueControls();
+      updateStartPlayButton && updateStartPlayButton();
       sessionStorage.removeItem(startMarker);
       throw err;
     }
@@ -1183,17 +1183,16 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
     }
 
-    if (typeof renderQueue === 'function') renderQueue();
+    renderQueue && renderQueue();
 
     // Schedule fallback
     const clamp = ms => Math.max(5000, Math.min(ms, 1000 * 60 * 60));
     const waitMs = clamp(totalMs + 2000);
 
     setTimeout(async () => {
-      // If still active and queue has more tracks, restart playback
-      if (paidSessionActive && typeof readSentUris === 'function' && readSentUris(sid).length > 0) {
+      if (paidSessionActive && readSentUris(sid).length > 0) {
         if (paidQueue.length > 0) {
-          if (statusText) statusText.textContent = 'Starting next paid queue...';
+          statusText && (statusText.textContent = 'Starting next paid queue...');
           try { await startPaidQueuePlayback(sid); } catch (e) { console.warn('restart next paid queue failed', e); }
           return;
         }
@@ -1202,9 +1201,9 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       // End paid session locally and resume default playback
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
-      if (statusText) statusText.textContent = 'Resuming default playlist';
-      if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
-      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+      statusText && (statusText.textContent = 'Resuming default playlist');
+      renderPaidQueueControls && renderPaidQueueControls();
+      updateStartPlayButton && updateStartPlayButton();
 
       try {
         if (typeof backendResume === 'function') {
@@ -1227,12 +1226,11 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     console.error('startPaidQueuePlayback error', err);
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
-    if (statusText) statusText.textContent = 'Playback error';
-    if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
-    if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+    statusText && (statusText.textContent = 'Playback error');
+    renderPaidQueueControls && renderPaidQueueControls();
+    updateStartPlayButton && updateStartPlayButton();
   }
 }
-
 
 function showResumePaymentNotice(pending) {
   let notice = document.getElementById('pendingNotice');
