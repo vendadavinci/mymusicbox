@@ -457,8 +457,12 @@ app.post('/webhook/payment-success', async (req, res) => {
       return res.status(400).json({ error: 'Missing sessionId' });
     }
 
-    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.durationMs || t.duration_ms || 210000), 0);
+    const estimatedTotalMs = tracks.reduce(
+      (s, t) => s + (t.durationMs || t.duration_ms || 210000),
+      0
+    );
 
+    // Find or create session
     let session = await PaidSession.findOne({ sessionId });
     if (!session) {
       session = new PaidSession({
@@ -474,29 +478,32 @@ app.post('/webhook/payment-success', async (req, res) => {
       });
     }
 
-    // Guard: if already processed, skip re‑adding and playback
-    if (session.songsAdded > 0 && session.playbackStartedAt) {
-      return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
-    }
-
     if (tracks.length > 0) {
-      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
-      session.songsAdded = tracks.length;
+      // Normalize and merge tracks into session
+      const normalizedTracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
+      session.tracks = normalizedTracks;
+      session.songsAdded = normalizedTracks.length;
       session.active = true;
       await session.save();
 
-      // Mark checkout as processed
+      // Update checkout linkage
       await Checkout.findOneAndUpdate(
         { checkoutId: sessionId.split('-')[1] },
-        { $set: { sessionRef: session._id, processedAt: new Date() } }
+        { $set: { sessionRef: session._id, processedAt: new Date() } },
+        { upsert: true }
       );
 
       try {
-        await startPaidSession(sessionId, session.tracks, estimatedTotalMs);
-        session.playbackStartedAt = new Date(); // mark playback triggered
-        await session.save();
+        // Always call startPaidSession (handles both start and append)
+        await startPaidSession(sessionId, normalizedTracks, estimatedTotalMs);
 
-        // Mark checkout playback started
+        // Mark playback started if not already
+        if (!session.playbackStartedAt) {
+          session.playbackStartedAt = new Date();
+          await session.save();
+        }
+
+        // Update checkout playback timestamp
         await Checkout.findOneAndUpdate(
           { checkoutId: sessionId.split('-')[1] },
           { $set: { playbackStartedAt: new Date() } }
@@ -513,7 +520,6 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
-
 
 // Check if there is an active paid session
 // Return the active paid session object (or null)
