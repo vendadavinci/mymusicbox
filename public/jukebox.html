@@ -393,7 +393,7 @@
         <div id="paidQueueControls"></div>
       </div>
     </div>
-
+      
         <!-- Played history -->
   <div class="card" aria-label="Played history" style="margin-top:12px;">
     <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -413,7 +413,6 @@
 
   <script>
 /* ====== Paid queue app (fixed) ====== */
-const paidQueue = [];
 let paidQueue = [];
 const slots = []; 
 let paidSessionActive = false;
@@ -578,7 +577,7 @@ function clearPendingSubmission() {
             <button class="btn ghost">Select</button>
           </div>
         `;
-
+   
         div.addEventListener('click', ()=> selectTrackForSlot(slotIndex, r));
         resultsEl.appendChild(div);
       });
@@ -896,7 +895,10 @@ function renderQueue() {
   try {
     if (!paidQueueEl) return;
 
-    if (!Array.isArray(paidQueue)) paidQueue = [];
+    // Ensure paidQueue is always an array
+    if (!Array.isArray(paidQueue)) {
+      paidQueue = [];
+    }
 
     // Persist local queue so refresh doesn't lose it
     try {
@@ -908,6 +910,7 @@ function renderQueue() {
     // Only show tracks that are not yet played
     const activeTracks = paidQueue.filter(t => !t.played);
 
+    // Clear existing queue safely
     paidQueueEl.innerHTML = '';
     const frag = document.createDocumentFragment();
 
@@ -918,10 +921,12 @@ function renderQueue() {
 
       const wrapper = document.createElement('div');
       wrapper.className = 'queue-item';
-      wrapper.style.display = 'flex';
-      wrapper.style.justifyContent = 'space-between';
-      wrapper.style.alignItems = 'center';
-      wrapper.style.gap = '12px';
+      Object.assign(wrapper.style, {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: '12px'
+      });
       wrapper.dataset.index = String(index);
 
       // Left column: title + artist
@@ -930,16 +935,20 @@ function renderQueue() {
       left.style.flex = '1';
 
       const titleDiv = document.createElement('div');
-      titleDiv.style.fontWeight = '700';
-      titleDiv.style.whiteSpace = 'nowrap';
-      titleDiv.style.overflow = 'hidden';
-      titleDiv.style.textOverflow = 'ellipsis';
+      Object.assign(titleDiv.style, {
+        fontWeight: '700',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis'
+      });
       titleDiv.textContent = item.title || 'Unknown';
 
       const metaDiv = document.createElement('div');
       metaDiv.className = 'meta';
-      metaDiv.style.fontSize = '0.9em';
-      metaDiv.style.color = '#666';
+      Object.assign(metaDiv.style, {
+        fontSize: '0.9em',
+        color: '#666'
+      });
       metaDiv.textContent = item.artist || '';
 
       left.appendChild(titleDiv);
@@ -947,21 +956,29 @@ function renderQueue() {
 
       // Right column: duration + played indicator
       const right = document.createElement('div');
-      right.style.display = 'flex';
-      right.style.flexDirection = 'column';
-      right.style.gap = '6px';
-      right.style.alignItems = 'flex-end';
-      right.style.minWidth = '90px';
+      Object.assign(right.style, {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px',
+        alignItems: 'flex-end',
+        minWidth: '90px'
+      });
 
       const durationDiv = document.createElement('div');
       durationDiv.className = 'small';
-      durationDiv.style.fontSize = '0.85em';
-      durationDiv.style.color = '#333';
-      durationDiv.textContent = formatMs(item.duration_ms || 0);
+      Object.assign(durationDiv.style, {
+        fontSize: '0.85em',
+        color: '#333'
+      });
+      durationDiv.textContent = typeof formatMs === 'function'
+        ? formatMs(item.duration_ms || 0)
+        : `${Math.round((item.duration_ms || 0) / 1000)}s`;
 
       const playedDiv = document.createElement('div');
-      playedDiv.style.fontSize = '0.75em';
-      playedDiv.style.color = item.played ? '#0a0' : '#999';
+      Object.assign(playedDiv.style, {
+        fontSize: '0.75em',
+        color: item.played ? '#0a0' : '#999'
+      });
       playedDiv.textContent = item.played ? 'Played' : 'Queued';
 
       right.appendChild(durationDiv);
@@ -975,18 +992,21 @@ function renderQueue() {
 
     paidQueueEl.appendChild(frag);
 
+    // Update counters
     if (queueCount) queueCount.textContent = `Paid queue: ${activeTracks.length}`;
     if (queueDurationText) queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
 
+    // Update "next track" display
     if (nextTitleEl) {
       if (activeTracks.length > 0) {
         const next = activeTracks[0];
-        nextTitleEl.textContent = `${next.title} — ${next.artist}`;
+        nextTitleEl.textContent = `${next.title || 'Unknown'} — ${next.artist || ''}`;
       } else {
         nextTitleEl.textContent = 'No paid tracks queued';
       }
     }
 
+    // Optional UI hooks
     if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
@@ -1147,9 +1167,19 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       try { await backendPause(); } catch (e) { console.warn('backendPause failed', e); }
     }
 
-    // Snapshot local queue
-    const snapshotQueue = paidQueue.slice();
-    const totalMs = snapshotQueue.reduce((s, i) => s + (i.duration_ms || 210000), 0);
+    // Snapshot local queue and normalize
+    const snapshotQueue = paidQueue.map((t, i) => ({
+      uri: t.uri,
+      title: t.title || 'Unknown',
+      artist: t.artist || '',
+      durationMs: t.duration_ms || t.durationMs || 0,
+      albumArt: t.albumArt || '',
+      addedAt: t.addedAt || Date.now(),
+      played: t.played || false,
+      orderIndex: i + 1
+    }));
+
+    const totalMs = snapshotQueue.reduce((s, i) => s + (i.durationMs || 210000), 0);
 
     // Update now playing UI
     const first = snapshotQueue[0];
@@ -1234,6 +1264,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
   }
 }
+
 
 function showResumePaymentNotice(pending) {
   let notice = document.getElementById('pendingNotice');
@@ -2005,7 +2036,7 @@ async function pollStatusOnce(){
         title: obj.title || '',
         artist: obj.artist || '',
         duration_ms: obj.duration_ms || 0
-
+        
       };
     }
 
@@ -2040,22 +2071,24 @@ async function pollStatusOnce(){
 
 <script>
   const tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+  const sid = sessionStorage.getItem('sessionId');
 
-  fetch('/webhook/payment-success', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tracks })
-  }).then(() => {
-    // Instead of alert, update a status element or do nothing
-    const statusText = document.getElementById('statusText');
-    if (statusText) {
-      statusText.textContent = 'Tracks queued and ready to play.';
-    }
-    // Or simply leave this block empty if you want no message at all
-  }).catch(err => {
-    console.error('Webhook call failed:', err);
-  });
+  if (sid && tracks.length > 0) {
+    fetch('/webhook/payment-success', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: sid, tracks })
+    }).then(() => {
+      const statusText = document.getElementById('statusText');
+      if (statusText) {
+        statusText.textContent = 'Tracks queued and ready to play.';
+      }
+    }).catch(err => {
+      console.error('Webhook call failed:', err);
+    });
+  }
 </script>
+
 
 <script>
 (async function handlePostPayment() {
@@ -2171,12 +2204,26 @@ async function pollStatusOnce(){
 })();
 </script>
 
-
+    
 <script>
+function normalizeTrack(t, orderIndex = 0) {
+  return {
+    uri: t.uri,
+    title: t.title || t.name || 'Unknown',
+    artist: t.artist || (t.artists && t.artists.join(', ')) || '',
+    durationMs: t.duration_ms ?? t.durationMs ?? 0,
+    albumArt: t.albumArt || (t.album?.images?.[0]?.url) || '',
+    addedAt: t.addedAt || Date.now(),
+    played: !!t.played,
+    orderIndex
+  };
+}
+
 (async function loadPaidTracks() {
   try {
-    let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+    let tracks = JSON.parse(sessionStorage.getItem('paidQueue') || '[]');
 
+    // If no local queue, try checkoutId fetch
     if ((!tracks || tracks.length === 0) && location.search) {
       const params = new URLSearchParams(location.search);
       const checkoutId = params.get('checkoutId');
@@ -2185,36 +2232,72 @@ async function pollStatusOnce(){
         if (r.ok) {
           const json = await r.json();
           tracks = json.tracks || [];
-          // store sessionId for later use
-          sessionStorage.setItem('sessionId', checkoutId);
+
+          // Generate durable sessionId if missing
+          if (!sessionStorage.getItem('sessionId')) {
+            const today = new Date().toISOString().slice(0, 10);
+            const sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
+            sessionStorage.setItem('sessionId', sid);
+            sessionStorage.setItem('checkoutId', checkoutId);
+            sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
+          } else {
+            sessionStorage.setItem('checkoutId', checkoutId);
+          }
         }
       }
     }
 
-    if (tracks && tracks.length > 0) {
-      paidQueue.push(...tracks.map(t => ({
-        uri: t.uri,
-        title: t.title || 'Unknown',
-        artist: t.artist || '',
-        duration_ms: t.duration_ms || 0,
-        albumArt: t.albumArt || '',
-        addedAt: Date.now()
-      })));
+    if (!tracks || tracks.length === 0) {
+      console.info('No paid tracks found to load.');
+      return;
+    }
 
-      renderQueue();
+    // Normalize and dedupe by URI
+    const seen = new Set();
+    const unique = [];
+    tracks.forEach((t, i) => {
+      const nt = normalizeTrack(t, i + 1);
+      if (nt.uri && !seen.has(nt.uri)) {
+        seen.add(nt.uri);
+        unique.push(nt);
+      }
+    });
 
-      // Notify backend webhook
+    // Replace queue with canonical unique list
+    paidQueue = unique;
+    sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
+
+    if (typeof renderQueue === 'function') renderQueue();
+
+    const sid = sessionStorage.getItem('sessionId');
+
+    // Always notify backend (server handles idempotency)
+    try {
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sessionStorage.getItem('sessionId'), tracks })
+        body: JSON.stringify({ sessionId: sid, tracks: paidQueue })
       });
+    } catch (err) {
+      console.warn('Webhook call failed:', err);
+    }
 
-      // Auto‑start playback
-      statusText.textContent = 'Starting paid playback...';
-      await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
+    // Start playback if not already marked
+    const startMarkerKey = `paidStarted_${sid}`;
+    if (!sessionStorage.getItem(startMarkerKey)) {
+      if (statusText) statusText.textContent = 'Starting paid playback...';
+      try {
+        await startPaidQueuePlayback(sid);
+        sessionStorage.setItem(startMarkerKey, 'true');
+      } catch (err) {
+        console.error('startPaidQueuePlayback failed', err);
+        if (statusText) statusText.textContent = 'Failed to start paid playback — will retry';
+        sessionStorage.removeItem(startMarkerKey);
+      }
+    }
 
-      pollStatusOnce();
+    if (typeof pollStatusOnce === 'function') {
+      try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
@@ -2253,6 +2336,13 @@ refreshStatus();
 
 
 </script>
+
+
+
+
+
+   
+    
 
 </body>
 </html>
