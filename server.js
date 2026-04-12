@@ -114,21 +114,9 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
     }
     await session.save();
 
-    // 🔑 Resolve deviceId before queuing
-    let deviceId;
-    const devicesRes = await fetch('https://api.spotify.com/v1/me/player/devices', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
-    const devicesJson = await devicesRes.json();
-    const activeDevice = devicesJson.devices.find(d => d.is_active);
-    if (!activeDevice) {
-      throw new Error('No active Spotify device found. Please open Spotify and start playback once.');
-    }
-    deviceId = activeDevice.id;
-
     // Queue only the new tracks in Spotify
     for (const track of newTracks) {
-      const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}&device_id=${encodeURIComponent(deviceId)}`;
+      const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}`;
       const qRes = await fetch(queueUrl, {
         method: 'POST',
         headers: { Authorization: `Bearer ${tokens.access_token}` }
@@ -149,20 +137,7 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
 
   try {
     await refreshAccessTokenIfNeeded();
-
-    // 🔑 Resolve deviceId before starting playback
-    let deviceId;
-    const devicesRes = await fetch('https://api.spotify.com/v1/me/player/devices', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
-    const devicesJson = await devicesRes.json();
-    const activeDevice = devicesJson.devices.find(d => d.is_active);
-    if (!activeDevice) {
-      throw new Error('No active Spotify device found. Please open Spotify and start playback once.');
-    }
-    deviceId = activeDevice.id;
-
-    const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`, {
+    const r = await fetch('https://api.spotify.com/v1/me/player/play', {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${tokens.access_token}`,
@@ -212,6 +187,7 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
 
   return { started: true };
 }
+
 // Helper to get or create a session
 function getSession(sessionId) {
   if (!paidSessions.has(sessionId)) {
@@ -260,7 +236,7 @@ app.post('/api/play', async (req, res) => {
 
     const effectiveCheckoutId = checkoutId || (typeof sessionId === 'string' && sessionId.split('-')[1]) || null;
 
-    // Idempotency check (replace mode only)
+    // 1) Idempotency by checkoutId: only short-circuit for replace mode
     if (effectiveCheckoutId && !append) {
       const existing = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
       if (existing) {
@@ -273,8 +249,13 @@ app.post('/api/play', async (req, res) => {
       }
     }
 
-    // Find or create session
-    let session = sessionId ? await PaidSession.findOne({ sessionId }) : null;
+    // 2) If sessionId provided, try to find session by sessionId
+    let session = null;
+    if (sessionId) {
+      session = await PaidSession.findOne({ sessionId });
+    }
+
+    // 3) If no session found, create new
     if (!session) {
       const newSessionId = sessionId || `${new Date().toISOString().slice(0,10)}-${effectiveCheckoutId || crypto.randomUUID()}-${Date.now().toString().slice(-6)}`;
       session = new PaidSession({
@@ -290,24 +271,7 @@ app.post('/api/play', async (req, res) => {
       });
     }
 
-    // Resolve deviceId
-    let deviceId = device_id;
-    if (!deviceId) {
-      const devicesRes = await fetch('https://api.spotify.com/v1/me/player/devices', {
-        headers: { Authorization: `Bearer ${tokens.access_token}` }
-      });
-      const devicesJson = await devicesRes.json();
-      const activeDevice = devicesJson.devices.find(d => d.is_active);
-      if (!activeDevice) {
-        return res.status(404).json({
-          success: false,
-          error: 'No active Spotify device found. Please open Spotify and start playback once.'
-        });
-      }
-      deviceId = activeDevice.id;
-    }
-
-    // Append mode
+    // 4) Append mode
     if (append) {
       const existingUris = new Set(session.tracks.map(t => t.uri));
       const toAdd = [];
@@ -327,14 +291,10 @@ app.post('/api/play', async (req, res) => {
         await session.save();
       }
 
-      // 🔑 Queue new tracks with resolved deviceId
       for (const track of toAdd) {
         try {
-          const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}&device_id=${encodeURIComponent(deviceId)}`;
-          const qRes = await fetch(queueUrl, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${tokens.access_token}` }
-          });
+          const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+          const qRes = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
           if (!qRes.ok) {
             const txt = await qRes.text().catch(() => '<no body>');
             console.warn('Spotify queue failed', track.uri, qRes.status, txt);
@@ -347,11 +307,12 @@ app.post('/api/play', async (req, res) => {
       return res.json({ success: true, mode: 'append', sessionId: session.sessionId, added: toAdd.length });
     }
 
-    // Replace mode
+    // 5) Replace mode
     if (session.active) {
       return res.json({ success: true, mode: 'already-active', sessionId: session.sessionId });
     }
 
+    // 6) Replace logic
     const seen = new Set();
     const normalized = [];
     let idx = 1;
@@ -368,9 +329,9 @@ app.post('/api/play', async (req, res) => {
     session.startedAt = session.startedAt || new Date();
     await session.save();
 
-    // Start playback
+    // 7) Attempt to start playback
     try {
-      const playUrl = `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`;
+      const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
       const playR = await fetch(playUrl, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
@@ -384,6 +345,7 @@ app.post('/api/play', async (req, res) => {
         return res.status(playR.status).json({ success: false, error: 'play failed', details: text });
       }
 
+      // Mark playback started
       session.playbackStartedAt = new Date();
       await session.save();
 
@@ -394,6 +356,7 @@ app.post('/api/play', async (req, res) => {
       return res.status(500).json({ success: false, error: 'play failed', details: e.message });
     }
 
+    // 8) Success
     return res.json({ success: true, mode: 'replace', sessionId: session.sessionId });
 
   } catch (err) {
@@ -401,6 +364,7 @@ app.post('/api/play', async (req, res) => {
     return res.status(500).json({ success: false, error: 'play failed', details: err.message });
   }
 });
+
 
 // Pause/Resume/Skip protection
 app.post('/api/pause', async (req, res) => {
