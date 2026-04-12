@@ -293,9 +293,12 @@
     .meta .artist{ font-size:12px; }
   }
 .logo-banner {
-  border-top: 2px solid var(--accent);
-  border-bottom: 2px solid var(--accent);
+  width: 100%;          /* stretch full width */
+  height: auto;         /* keep aspect ratio */
+  display: block;       /* remove inline spacing */
+  object-fit: cover;    /* ensures it fills nicely */
 }
+
 </style>
 
 </head>
@@ -322,9 +325,7 @@
     </div>
   </div>
 
-  <div id="progress-bar-container" style="width: 300px; background: #eee; margin-top:12px;">
-    <div id="progress-bar" style="height: 10px; background: #4caf50; width: 0%;"></div>
-  </div>
+
   <span id="progress-text"></span>
 
   <!-- Playing Next strip -->
