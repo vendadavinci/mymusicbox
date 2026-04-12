@@ -182,7 +182,7 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
   session.songsAdded = session.tracks.length;
   await session.save();
 
-  // Start playback with the first track
+  // Play the first track
   const firstTrack = session.tracks[0];
   const playUrl = `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`;
   const playRes = await fetch(playUrl, {
@@ -238,6 +238,7 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
 
   return { started: true };
 }
+
 
 
 app.post('/api/play', async (req, res) => {
