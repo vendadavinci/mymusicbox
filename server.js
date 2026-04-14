@@ -216,6 +216,20 @@ app.post('/api/play', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing tracks array' });
     }
 
+    // 🔑 Active device check
+    const devicesRes = await fetch('https://api.spotify.com/v1/me/player/devices', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+    const devices = await devicesRes.json();
+    const active = devices.devices.find(d => d.is_active);
+    if (!active && !device_id) {
+      return res.status(404).json({
+        success: false,
+        error: 'No active Spotify device found. Please open the Spotify app and start playback once.'
+      });
+    }
+    const effectiveDeviceId = device_id || active.id;
+
     const effectiveCheckoutId = checkoutId || (typeof sessionId === 'string' && sessionId.split('-')[1]) || null;
 
     // 1) Idempotency by checkoutId: only short-circuit for replace mode
@@ -275,7 +289,7 @@ app.post('/api/play', async (req, res) => {
 
       for (const track of toAdd) {
         try {
-          const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+          const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}&device_id=${encodeURIComponent(effectiveDeviceId)}`;
           const qRes = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
           if (!qRes.ok) {
             const txt = await qRes.text().catch(() => '<no body>');
@@ -313,7 +327,7 @@ app.post('/api/play', async (req, res) => {
 
     // 7) Attempt to start playback
     try {
-      const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
+      const playUrl = `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(effectiveDeviceId)}`;
       const playR = await fetch(playUrl, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
@@ -846,36 +860,35 @@ app.post('/api/queue', async (req, res) => {
       return res.status(400).json({ error: 'Missing track URI or sessionId' });
     }
 
+    // 🔑 Check for active device before queueing
+    const devicesRes = await fetch('https://api.spotify.com/v1/me/player/devices', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+    const devices = await devicesRes.json();
+    const active = devices.devices.find(d => d.is_active);
+    if (!active) {
+      return res.status(404).json({
+        error: 'No active Spotify device found. Please open the Spotify app and start playback once.'
+      });
+    }
+
     // Ensure shuffle is off
-    await fetch('https://api.spotify.com/v1/me/player/shuffle?state=false', {
+    await fetch(`https://api.spotify.com/v1/me/player/shuffle?state=false&device_id=${encodeURIComponent(active.id)}`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
     // Queue track in Spotify
-    const r = await fetch(
-      `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${tokens.access_token}` }
-      }
-    );
+    const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}&device_id=${encodeURIComponent(active.id)}`;
+    const r = await fetch(queueUrl, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
 
     if (!r.ok) {
       const text = await r.text();
       console.error('/api/queue failed', r.status, text);
-
-      if (r.status === 404 && text.includes('NO_ACTIVE_DEVICE')) {
-        return res.status(404).json({
-          error: 'No active Spotify device found. Please open the Spotify app and start playback once.',
-          details: text
-        });
-      }
-
-      return res.status(r.status).json({
-        error: 'Spotify queue request failed',
-        details: text
-      });
+      return res.status(r.status).json({ error: 'Spotify queue request failed', details: text });
     }
 
     // Find or create session
@@ -891,11 +904,13 @@ app.post('/api/queue', async (req, res) => {
       });
     }
 
-    // Use normalizeTrack helper
-    const orderIndex = session.tracks.length + 1;
-    session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
-    session.songsAdded += 1;
-    await session.save();
+    // Deduplicate: skip if track already in session
+    if (!session.tracks.some(t => t.uri === uri)) {
+      const orderIndex = session.tracks.length + 1;
+      session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
+      session.songsAdded += 1;
+      await session.save();
+    }
 
     res.json({ ok: true, sessionId, queued: uri });
   } catch (err) {
