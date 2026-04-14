@@ -1643,7 +1643,7 @@ async function pollStatus() {
 /* ====== Payment success handler ====== */
 // Robust onPaymentSuccess: idempotent, single /api/play call, prevents re-submits on refresh
 async function onPaymentSuccess() {
-  // Helpers
+  // --- Helpers ---
   const fetchWithTimeout = async (url, opts = {}, timeout = 10000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
@@ -1657,27 +1657,90 @@ async function onPaymentSuccess() {
     }
   };
 
-  const postPlay = async (payload) => {
-    // one retry on network failure
-    try {
-      return await fetchWithTimeout('/api/play', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }, 15000);
-    } catch (err) {
-      // retry once after short delay
-      await new Promise(r => setTimeout(r, 800));
-      return await fetchWithTimeout('/api/play', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }, 15000);
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // Post /api/play with network retry/backoff (returns Response or throws)
+  const postPlayWithBackoff = async (payload, attempts = 3) => {
+    let delay = 800;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        if (i > 1) {
+          const submitButton = document.querySelector('#payment-complete-button');
+          if (submitButton) submitButton.textContent = `Retrying (${i}/${attempts})...`;
+        }
+        const res = await fetchWithTimeout('/api/play', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }, 15000);
+        return res;
+      } catch (err) {
+        console.warn(`postPlay attempt ${i} failed`, err);
+        if (i === attempts) throw err;
+        await sleep(delay);
+        delay *= 2;
+      }
     }
   };
 
+  // Queue a single track via /api/queue with retries and structured error handling
+  const queueTrackWithRetries = async (track, sessionId, maxAttempts = 4) => {
+    let attempt = 0;
+    let delay = 600;
+    const payload = {
+      uri: track.uri,
+      sessionId,
+      userId: window.currentUserId || null,
+      title: track.title,
+      artist: track.artist,
+      duration_ms: track.duration_ms,
+      albumArt: track.albumArt
+    };
+
+    while (attempt < maxAttempts) {
+      attempt++;
+      try {
+        const res = await fetchWithTimeout('/api/queue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }, 10000);
+
+        // Try to parse JSON body
+        let body = null;
+        try { body = await res.json().catch(() => null); } catch (e) { body = null; }
+
+        // Handle structured NO_ACTIVE_DEVICE
+        if (!res.ok && body?.code === 'NO_ACTIVE_DEVICE') {
+          return { ok: false, code: 'NO_ACTIVE_DEVICE', details: body };
+        }
+
+        if (!res.ok) {
+          const txt = body || await res.text().catch(() => '<no body>');
+          console.warn('queueTrack failed', res.status, txt);
+          // Retry on 5xx or network-like errors; break on 4xx other than NO_ACTIVE_DEVICE
+          if (res.status >= 500 || res.status === 0) {
+            if (attempt < maxAttempts) await sleep(delay);
+            delay *= 2;
+            continue;
+          }
+          return { ok: false, code: 'FAILED', details: txt };
+        }
+
+        // success
+        return { ok: true, body };
+      } catch (err) {
+        console.warn(`queueTrack attempt ${attempt} error`, err);
+        if (attempt >= maxAttempts) throw err;
+        await sleep(delay);
+        delay *= 2;
+      }
+    }
+    return { ok: false, code: 'FAILED', details: 'Max attempts reached' };
+  };
+
   try {
-    // Read tracks saved during checkout flow
+    // --- Read tracks saved during checkout flow ---
     const tracksJson = sessionStorage.getItem('tracks');
     if (!tracksJson) {
       console.warn('No tracks found in sessionStorage after payment.');
@@ -1690,23 +1753,19 @@ async function onPaymentSuccess() {
       return;
     }
 
-    // Prevent double-submission: check a per-checkout flag
+    // --- Idempotency guard (per-checkout) ---
     const checkoutId = sessionStorage.getItem('checkoutId') || crypto.randomUUID();
-    // sessionId format: YYYY-MM-DD-checkoutId-timestampShort (guarantees uniqueness per payment)
     const today = new Date().toISOString().slice(0, 10);
     const sessionId = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
-
-    // If a submission marker exists for this checkout, do not re-submit
     const submissionMarkerKey = `paidSubmitted_${checkoutId}`;
+
     if (sessionStorage.getItem(submissionMarkerKey)) {
       console.info('Payment already submitted for this checkoutId; skipping re-submit.');
-      // still store sessionId so UI can attach to it if needed
       sessionStorage.setItem('sessionId', sessionStorage.getItem(`sessionId_${checkoutId}`) || sessionId);
       return;
     }
 
-    // Before calling /api/play, check if there's already an active paid session on the server
-    // If there is, attach to it instead of creating a new one
+    // --- Check server for active paid session to decide append vs replace ---
     let activeSessionId = null;
     try {
       const statusRes = await fetchWithTimeout('/api/status', { method: 'GET' }, 8000);
@@ -1720,30 +1779,36 @@ async function onPaymentSuccess() {
       console.warn('Could not fetch /api/status before /api/play; proceeding to submit payment result.', err);
     }
 
-    // If an active session exists, we should append only new tracks (or skip if duplicates)
     const payload = {
       sessionId: activeSessionId || sessionId,
       userId: window.currentUserId || null,
       tracks,
-      append: !!activeSessionId // append to existing session if present
+      append: !!activeSessionId
     };
 
-    // Disable UI controls that could re-trigger submission (example)
+    // --- UI: disable submit and show progress ---
     const submitButton = document.querySelector('#payment-complete-button');
     if (submitButton) {
       submitButton.disabled = true;
       submitButton.dataset.prevText = submitButton.textContent;
       submitButton.textContent = 'Adding tracks...';
     }
+    const statusText = document.querySelector('#paid-status-text');
 
-    // Send a single request with the full tracks array (idempotent on frontend)
-    const playRes = await postPlay(payload);
+    console.info('Submitting paid tracks', { sessionId: payload.sessionId, count: tracks.length, append: payload.append });
+
+    // --- Send batch request to /api/play ---
+    const playRes = await postPlayWithBackoff(payload, 3);
     if (!playRes) throw new Error('No response from /api/play');
-    if (!playRes.ok) {
-      const details = await playRes.text().catch(() => '<no body>');
-      console.error('/api/play failed', playRes.status, details);
-      alert('Could not add tracks to the paid queue. Please try again or contact support.');
-      // Re-enable UI
+
+    // Parse response body safely
+    let playBody = null;
+    try { playBody = await playRes.json().catch(() => null); } catch (e) { playBody = null; }
+
+    // If server indicates NO_ACTIVE_DEVICE (structured), surface clear message and do not mark submitted
+    if (!playRes.ok && playBody?.code === 'NO_ACTIVE_DEVICE') {
+      // Show staff-facing modal or alert
+      alert('Venue player is offline. Please start the venue Spotify player and retry. Tracks were not queued.');
       if (submitButton) {
         submitButton.disabled = false;
         submitButton.textContent = submitButton.dataset.prevText || 'Done';
@@ -1751,30 +1816,135 @@ async function onPaymentSuccess() {
       return;
     }
 
-    // Mark this checkout as submitted so refreshes won't re-submit
+    // If server returned non-ok and not NO_ACTIVE_DEVICE, show generic error
+    if (!playRes.ok) {
+      const details = playBody || await playRes.text().catch(() => '<no body>');
+      console.error('/api/play failed', playRes.status, details);
+      alert('Could not add tracks to the paid queue. Please try again or contact support.');
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      }
+      return;
+    }
+
+    // --- Success path: server accepted request but may have queued partially ---
+    // Expect server to return structured info when partial: { success:true, added: N, failedTracks: [{uri, reason}], queuedUris: [...] }
+    const queuedUris = Array.isArray(playBody?.queuedUris) ? playBody.queuedUris : [];
+    const failedTracks = Array.isArray(playBody?.failedTracks) ? playBody.failedTracks : [];
+
+    // If server reports all queued, mark submission and finish
+    if (queuedUris.length >= tracks.length && failedTracks.length === 0) {
+      sessionStorage.setItem(submissionMarkerKey, 'true');
+      sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
+      sessionStorage.setItem('sessionId', payload.sessionId);
+      sessionStorage.removeItem('tracks');
+      if (!activeSessionId) {
+        if (typeof startPaidQueuePlayback === 'function') {
+          try { startPaidQueuePlayback(payload.sessionId); } catch (e) { console.warn('startPaidQueuePlayback failed', e); }
+        }
+        if (statusText) statusText.textContent = 'Starting paid playback...';
+      } else {
+        if (statusText) statusText.textContent = 'Tracks appended to existing paid queue';
+      }
+      console.log('All tracks queued successfully', queuedUris.length);
+      if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      return;
+    }
+
+    // --- Partial or no queueing: attempt per-track retries for any tracks not confirmed queued ---
+    // Build map of requested URIs -> track objects
+    const uriToTrack = new Map(tracks.map(t => [t.uri, t]));
+    // Determine which URIs still need queuing
+    const stillToQueue = [];
+    for (const t of tracks) {
+      if (!queuedUris.includes(t.uri)) stillToQueue.push(t);
+    }
+
+    // If nothing to retry (edge case), mark submission and exit
+    if (stillToQueue.length === 0) {
+      sessionStorage.setItem(submissionMarkerKey, 'true');
+      sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
+      sessionStorage.setItem('sessionId', payload.sessionId);
+      sessionStorage.removeItem('tracks');
+      if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      return;
+    }
+
+    // Retry each remaining track individually via /api/queue
+    const perTrackResults = [];
+    for (const t of stillToQueue) {
+      // Avoid duplicate per-URI attempts within this client run
+      const alreadyQueuedMarker = sessionStorage.getItem(`queued_${payload.sessionId}_${t.uri}`);
+      if (alreadyQueuedMarker) {
+        perTrackResults.push({ uri: t.uri, ok: true, note: 'client-marked-queued' });
+        continue;
+      }
+
+      const result = await queueTrackWithRetries(t, payload.sessionId, 4).catch(err => ({ ok: false, code: 'EXCEPTION', details: err?.message || String(err) }));
+      if (result.ok) {
+        // mark locally to avoid re-submitting same URI on refresh
+        sessionStorage.setItem(`queued_${payload.sessionId}_${t.uri}`, 'true');
+      }
+      perTrackResults.push({ uri: t.uri, ...result });
+      // small gap to avoid bursts
+      await sleep(120);
+    }
+
+    // Analyze per-track results
+    const failedAfterRetries = perTrackResults.filter(r => !r.ok && r.code !== 'NO_ACTIVE_DEVICE');
+    const noDeviceHits = perTrackResults.filter(r => r.code === 'NO_ACTIVE_DEVICE');
+
+    if (noDeviceHits.length > 0) {
+      // If device offline during retries, inform staff and do not mark submission
+      alert('Venue player is currently offline. Some tracks were not queued. Please start the venue Spotify player and retry the failed submissions from the admin UI.');
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      }
+      return;
+    }
+
+    // If there are permanent failures, surface them but still mark submission so duplicates are avoided.
+    if (failedAfterRetries.length > 0) {
+      console.warn('Some tracks failed to queue after retries', failedAfterRetries);
+      // Mark submission so we don't duplicate; backend should track failed flags and worker will retry
+      sessionStorage.setItem(submissionMarkerKey, 'true');
+      sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
+      sessionStorage.setItem('sessionId', payload.sessionId);
+      sessionStorage.removeItem('tracks');
+      alert(`Some tracks could not be queued immediately (${failedAfterRetries.length}). They will be retried in the background. If the issue persists, contact support.`);
+      if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      return;
+    }
+
+    // All per-track retries succeeded
     sessionStorage.setItem(submissionMarkerKey, 'true');
-    // Persist the sessionId associated with this checkout so refreshes can re-attach
     sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
     sessionStorage.setItem('sessionId', payload.sessionId);
-    // Remove the transient tracks list (we've submitted them)
     sessionStorage.removeItem('tracks');
 
-    // Update UI and optionally start playback if no active session existed
     if (!activeSessionId) {
-      // startPaidQueuePlayback should be idempotent and check server state itself
       if (typeof startPaidQueuePlayback === 'function') {
         try { startPaidQueuePlayback(payload.sessionId); } catch (e) { console.warn('startPaidQueuePlayback failed', e); }
       }
-      statusText && (statusText.textContent = 'Starting paid playback...');
+      if (statusText) statusText.textContent = 'Starting paid playback...';
     } else {
-      statusText && (statusText.textContent = 'Tracks appended to existing paid queue');
+      if (statusText) statusText.textContent = 'Tracks appended to existing paid queue';
     }
 
-    console.log('Payment successful — tracks queued:', tracks.length, 'Session:', payload.sessionId);
+    console.log('Payment successful — tracks queued (after retries):', tracks.length, 'Session:', payload.sessionId);
+    if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
+
   } catch (e) {
     console.error('onPaymentSuccess error', e);
-    alert('Something went wrong adding your tracks after payment.');
-    // Re-enable submit button if present
+    // If the error message mentions device offline, show a clearer message
+    const msg = (e && e.message) ? e.message : 'Something went wrong adding your tracks after payment.';
+    if (msg.toLowerCase().includes('no active') || msg.toLowerCase().includes('device')) {
+      alert('Venue player appears offline. Please start the venue Spotify player and retry.');
+    } else {
+      alert('Something went wrong adding your tracks after payment. Please try again or contact support.');
+    }
     const submitButton = document.querySelector('#payment-complete-button');
     if (submitButton) {
       submitButton.disabled = false;
@@ -1782,7 +1952,6 @@ async function onPaymentSuccess() {
     }
   }
 }
-
 
 function applyPackageFromQuery({ autoMarkPaid = false } = {}){
   const params = new URLSearchParams(window.location.search);
@@ -1808,34 +1977,239 @@ function startAddFlow(){
 
 
 (function () {
+  // --- Config ---
+  const APPEND_BATCH_MS = 800;
+  const BATCH_RETRY_BASE_MS = 1000;
+  const MAX_BATCH_RETRIES = 4;
+  const PER_TRACK_RETRY_ATTEMPTS = 4;
+  const MAX_BATCH_SIZE = 12; // safety cap
+
+  // --- State ---
   let appendBatch = [];
   let appendTimer = null;
-  const APPEND_BATCH_MS = 800;
+  let flushInProgress = false;
 
-  async function flushAppendBatch(sessionId) {
-    if (!appendBatch.length) return;
-    const batch = appendBatch.slice();
-    appendBatch = [];
-    clearTimeout(appendTimer);
-    appendTimer = null;
+  // --- Helpers ---
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+  const fetchWithTimeout = async (url, opts = {}, timeout = 10000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
     try {
-      await backendPlayTracks(batch, {
-        sessionId,
-        checkoutId: sessionStorage.getItem('checkoutId'),
-        append: true
-      });
-      console.log('Appended batch to backend:', batch.map(t => t.uri));
+      const res = await fetch(url, { ...opts, signal: controller.signal });
+      clearTimeout(id);
+      return res;
     } catch (err) {
-      console.error('Failed to append batch to backend:', err);
-      statusText && (statusText.textContent = 'Append failed — will retry shortly');
-      appendBatch = batch.concat(appendBatch);
-      if (!appendTimer) {
-        appendTimer = setTimeout(() => flushAppendBatch(sessionId), 3000);
-      }
+      clearTimeout(id);
+      throw err;
+    }
+  };
+
+  function persistPaidQueue(paidQueue) {
+    try {
+      sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
+    } catch (e) {
+      console.warn('Could not persist paidQueue to sessionStorage', e);
     }
   }
 
+  function markClientQueued(sessionId, uri) {
+    try {
+      sessionStorage.setItem(`queued_${sessionId}_${uri}`, 'true');
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function isClientMarkedQueued(sessionId, uri) {
+    return !!sessionStorage.getItem(`queued_${sessionId}_${uri}`);
+  }
+
+  // --- Core: flush batch to backend with retries and partial handling ---
+  async function flushAppendBatch(sessionId) {
+    if (!appendBatch.length) return;
+    if (flushInProgress) return; // avoid concurrent flushes
+    flushInProgress = true;
+
+    // take up to MAX_BATCH_SIZE items
+    const batch = appendBatch.slice(0, MAX_BATCH_SIZE);
+    // keep remainder in queue
+    appendBatch = appendBatch.slice(batch.length);
+    clearTimeout(appendTimer);
+    appendTimer = null;
+
+    // build payload
+    const payload = {
+      sessionId,
+      checkoutId: sessionStorage.getItem('checkoutId') || null,
+      append: true,
+      tracks: batch
+    };
+
+    let attempt = 0;
+    let delay = BATCH_RETRY_BASE_MS;
+
+    while (attempt < MAX_BATCH_RETRIES) {
+      attempt++;
+      try {
+        const res = await fetchWithTimeout('/api/play', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }, 15000);
+
+        // try parse JSON
+        let body = null;
+        try { body = await res.json().catch(() => null); } catch (e) { body = null; }
+
+        // If backend signals NO_ACTIVE_DEVICE, push batch back and stop retries
+        if (!res.ok && body?.code === 'NO_ACTIVE_DEVICE') {
+          // requeue batch at front and notify staff
+          appendBatch = batch.concat(appendBatch);
+          if (typeof statusText !== 'undefined' && statusText) {
+            statusText.textContent = 'Venue player offline. Start the player and retry.';
+          }
+          flushInProgress = false;
+          return;
+        }
+
+        if (!res.ok) {
+          const details = body || await res.text().catch(() => '<no body>');
+          console.warn('Batch append failed', res.status, details);
+          if (attempt < MAX_BATCH_RETRIES) {
+            await sleep(delay);
+            delay *= 2;
+            continue;
+          } else {
+            // give up for now: requeue and schedule retry
+            appendBatch = batch.concat(appendBatch);
+            scheduleFlushRetry(sessionId, delay);
+            flushInProgress = false;
+            return;
+          }
+        }
+
+        // Success: backend accepted. Backend should return structured queuedUris and failedTracks
+        const queuedUris = Array.isArray(body?.queuedUris) ? body.queuedUris : [];
+        const failedTracks = Array.isArray(body?.failedTracks) ? body.failedTracks : [];
+
+        // Mark client-side queued URIs to avoid re-submission
+        queuedUris.forEach(uri => markClientQueued(sessionId, uri));
+
+        // If there are failedTracks, attempt per-track retries (best-effort)
+        if (failedTracks.length > 0) {
+          // Map failed URIs to track objects from the batch
+          const failedUris = failedTracks.map(f => f.uri);
+          const toRetry = batch.filter(t => failedUris.includes(t.uri));
+          // Requeue other failed items to appendBatch front so they will be retried later
+          const permanentlyFailed = []; // collect those that still fail after per-track retries
+          for (const t of toRetry) {
+            const r = await retryQueueTrack(t, sessionId);
+            if (!r.ok) {
+              permanentlyFailed.push({ uri: t.uri, reason: r.details || r.code || 'unknown' });
+            } else {
+              markClientQueued(sessionId, t.uri);
+            }
+            // small gap to avoid bursts
+            await sleep(120);
+          }
+
+          if (permanentlyFailed.length > 0) {
+            console.warn('Some tracks permanently failed to queue in this attempt', permanentlyFailed);
+            // Requeue permanently failed tracks for background worker; keep them out of immediate appendBatch
+            // For now, append them back so they will be retried later by client or worker
+            appendBatch = permanentlyFailed.map(pf => {
+              const original = batch.find(b => b.uri === pf.uri);
+              return original || { uri: pf.uri };
+            }).concat(appendBatch);
+            scheduleFlushRetry(sessionId, BATCH_RETRY_BASE_MS * 4);
+          }
+        }
+
+        // If backend queued some or all, log and finish
+        console.log('Appended batch result queuedUris:', queuedUris, 'failed:', failedTracks);
+        flushInProgress = false;
+
+        // If there are still items in appendBatch, schedule immediate flush
+        if (appendBatch.length > 0) {
+          if (!appendTimer) appendTimer = setTimeout(() => flushAppendBatch(sessionId), APPEND_BATCH_MS);
+        }
+        return;
+      } catch (err) {
+        console.warn(`flushAppendBatch attempt ${attempt} error`, err);
+        if (attempt >= MAX_BATCH_RETRIES) {
+          // requeue and schedule retry
+          appendBatch = batch.concat(appendBatch);
+          scheduleFlushRetry(sessionId, delay);
+          flushInProgress = false;
+          return;
+        }
+        await sleep(delay);
+        delay *= 2;
+      }
+    }
+    flushInProgress = false;
+  }
+
+  // schedule a delayed flush if immediate attempts fail
+  function scheduleFlushRetry(sessionId, delayMs) {
+    if (appendTimer) clearTimeout(appendTimer);
+    appendTimer = setTimeout(() => flushAppendBatch(sessionId), delayMs || 3000);
+  }
+
+  // retry a single track via /api/queue with exponential backoff
+  async function retryQueueTrack(track, sessionId) {
+    let attempt = 0;
+    let delay = 600;
+    const payload = {
+      uri: track.uri,
+      sessionId,
+      userId: window.currentUserId || null,
+      title: track.title,
+      artist: track.artist,
+      duration_ms: track.duration_ms,
+      albumArt: track.albumArt
+    };
+
+    while (attempt < PER_TRACK_RETRY_ATTEMPTS) {
+      attempt++;
+      try {
+        const res = await fetchWithTimeout('/api/queue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }, 10000);
+
+        let body = null;
+        try { body = await res.json().catch(() => null); } catch (e) { body = null; }
+
+        if (!res.ok && body?.code === 'NO_ACTIVE_DEVICE') {
+          return { ok: false, code: 'NO_ACTIVE_DEVICE', details: body };
+        }
+
+        if (!res.ok) {
+          const details = body || await res.text().catch(() => '<no body>');
+          console.warn('retryQueueTrack failed', res.status, details);
+          if (res.status >= 500 && attempt < PER_TRACK_RETRY_ATTEMPTS) {
+            await sleep(delay);
+            delay *= 2;
+            continue;
+          }
+          return { ok: false, code: 'FAILED', details };
+        }
+
+        return { ok: true, body };
+      } catch (err) {
+        console.warn(`retryQueueTrack attempt ${attempt} error`, err);
+        if (attempt >= PER_TRACK_RETRY_ATTEMPTS) return { ok: false, code: 'EXCEPTION', details: err.message || String(err) };
+        await sleep(delay);
+        delay *= 2;
+      }
+    }
+    return { ok: false, code: 'FAILED', details: 'max attempts reached' };
+  }
+
+  // --- Public API: addToPaidQueue ---
   window.addToPaidQueue = async function addToPaidQueue(track, sessionId) {
     try {
       if (!paymentComplete || !currentPackage) {
@@ -1862,22 +2236,21 @@ function startAddFlow(){
         addedAt: Date.now()
       };
 
-      if (paidQueue.some(t => t.uri === normalized.uri)) {
-        console.info('Track already in local paidQueue, skipping:', normalized.uri);
+      // local dedupe against paidQueue and appendBatch
+      if (paidQueue.some(t => t.uri === normalized.uri) || appendBatch.some(t => t.uri === normalized.uri) || isClientMarkedQueued(sessionId || sessionStorage.getItem('sessionId'), normalized.uri)) {
+        console.info('Track already queued or pending, skipping:', normalized.uri);
         statusText && (statusText.textContent = 'Track already in paid queue');
         return;
       }
 
+      // push to local paidQueue and persist
       paidQueue.push(normalized);
-      try {
-        sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
-      } catch (e) {
-        console.warn('Could not persist paidQueue to sessionStorage', e);
-      }
+      persistPaidQueue(paidQueue);
 
       songsAddedThisSession++;
       renderQueue && renderQueue();
 
+      // ensure sessionId exists
       let sid = sessionId || sessionStorage.getItem('sessionId');
       let checkoutId = sessionStorage.getItem('checkoutId');
       if (!sid) {
@@ -1889,6 +2262,7 @@ function startAddFlow(){
         sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
       }
 
+      // If paid session not active, try to start it (idempotent)
       if (!paidSessionActive) {
         const startMarkerKey = `paidStarted_${sid}`;
         if (!sessionStorage.getItem(startMarkerKey)) {
@@ -1902,27 +2276,27 @@ function startAddFlow(){
             console.error('startPaidQueuePlayback failed', err);
             statusText && (statusText.textContent = 'Failed to start paid playback — will retry');
             sessionStorage.removeItem(startMarkerKey);
+            // still allow adding to appendBatch so it will be queued when player comes online
           }
         } else {
           statusText && (statusText.textContent = 'Paid playback starting (in progress)');
         }
-        return;
+        // still add to appendBatch so it will be queued once active
       }
 
+      // add to appendBatch and schedule flush
       appendBatch.push(normalized);
       if (!appendTimer) {
         appendTimer = setTimeout(() => flushAppendBatch(sid), APPEND_BATCH_MS);
       }
 
       statusText && (statusText.textContent = 'Track added to paid queue');
-
     } catch (err) {
       console.error('addToPaidQueue error', err);
       alert('Something went wrong adding the track. Please try again.');
     }
   };
 })();
-
 
 /* ====== Optional: expose some functions for payment page to call ====== */
 window.applyPackageFromQuery = applyPackageFromQuery;
