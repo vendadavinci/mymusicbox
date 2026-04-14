@@ -457,7 +457,6 @@ body::before {
 
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
         <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
-        <div id="paidQueueControls"></div>
       </div>
     </div>
       
@@ -1125,7 +1124,6 @@ function renderQueue() {
       }
     }
 
-    if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
   } catch (err) {
@@ -1261,7 +1259,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       console.info('startPaidQueuePlayback already attempted for', sid);
       paidSessionActive = true;
       nowMode.textContent = 'Mode: PAID';
-      renderPaidQueueControls();
       updateStartPlayButton();
       return;
     }
@@ -1277,7 +1274,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     paidSessionActive = true;
     nowMode.textContent = 'Mode: PAID';
     statusText && (statusText.textContent = 'Playing paid queue');
-    renderPaidQueueControls && renderPaidQueueControls();
     updateStartPlayButton && updateStartPlayButton();
 
     // Pause default playback
@@ -1311,7 +1307,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       statusText && (statusText.textContent = 'Playback/queue failed. Please try again.');
-      renderPaidQueueControls && renderPaidQueueControls();
       updateStartPlayButton && updateStartPlayButton();
       sessionStorage.removeItem(startMarker);
       throw err;
@@ -1341,7 +1336,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       statusText && (statusText.textContent = 'Resuming default playlist');
-      renderPaidQueueControls && renderPaidQueueControls();
       updateStartPlayButton && updateStartPlayButton();
 
       try {
@@ -1366,7 +1360,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
     statusText && (statusText.textContent = 'Playback error');
-    renderPaidQueueControls && renderPaidQueueControls();
     updateStartPlayButton && updateStartPlayButton();
   }
 }
@@ -2762,13 +2755,5 @@ refreshStatus();
 
 
 </script>
-
-
-
-
-
-   
-    
-
 </body>
 </html>
