@@ -1583,7 +1583,6 @@ async function pollStatus() {
     const checkoutId = sessionStorage.getItem('checkoutId');
     if (!checkoutId) return;
 
-    // Ask backend for canonical checkout/session status
     const res = await fetch(`/api/yoco/session-status?id=${encodeURIComponent(checkoutId)}`);
     if (!res.ok) {
       console.warn('session-status returned non-ok', res.status);
@@ -1591,33 +1590,28 @@ async function pollStatus() {
     }
     const data = await res.json();
 
-    // Expect backend to return { status: 'successful'|'pending'|'failed', enqueuedUris: [...], checkoutId: '...' }
     if (data.status !== 'successful') return;
 
-    // Get pending submission (preferred) or legacy tracks
-    const pending = getPendingSubmission();
-    let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length ? pending.tracks.slice() : JSON.parse(sessionStorage.getItem('tracks') || '[]');
+    const pending = typeof getPendingSubmission === 'function' ? getPendingSubmission() : null;
+    let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length
+      ? pending.tracks.slice()
+      : JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
-    // If backend already reports enqueuedUris, filter out already enqueued
     if (Array.isArray(data.enqueuedUris) && data.enqueuedUris.length) {
       const enqueuedSet = new Set(data.enqueuedUris);
       tracksToEnqueue = tracksToEnqueue.filter(t => !enqueuedSet.has(t.uri));
     }
 
-    // Also filter out any URIs already present in local paidQueue to avoid duplicates
     const localSet = new Set((paidQueue || []).map(t => t.uri));
     tracksToEnqueue = tracksToEnqueue.filter(t => !localSet.has(t.uri));
 
     if (tracksToEnqueue.length === 0) {
-      // Nothing new to add — clear pending and stop polling
-      clearPendingSubmission();
+      if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
       if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
-      // Refresh canonical queue from server
       if (typeof initPage === 'function') initPage();
       return;
     }
 
-    // Append new tracks to paidQueue with defensive normalization
     for (const t of tracksToEnqueue) {
       paidQueue.push({
         uri: t.uri,
@@ -1629,27 +1623,24 @@ async function pollStatus() {
         played: !!t.played,
         orderIndex: t.orderIndex || (paidQueue.length + 1)
       });
+      // optional: mark in sessionStorage to avoid re-submission on refresh
+      sessionStorage.setItem(`queued_${checkoutId}_${t.uri}`, 'true');
     }
 
-    // Persist and render
-    persistPaidQueue();
-    renderQueue && renderQueue();
+    if (typeof persistPaidQueue === 'function') persistPaidQueue();
+    if (typeof renderQueue === 'function') renderQueue();
 
-    // If playback not active, start it once
     if (!paidSessionActive && typeof startPaidQueuePlayback === 'function') {
       startPaidQueuePlayback();
     }
 
-    // Clear pending submission and stop polling
-    clearPendingSubmission();
+    if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
     if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
-
-    // Optionally refresh canonical server queue to pick up server ordering/flags
     if (typeof initPage === 'function') initPage();
 
   } catch (err) {
     console.error('pollStatus error:', err);
-    // keep polling; do not auto-submit or clear pending state on transient errors
+    // keep polling; optionally add retry/backoff logic here
   }
 }
 
