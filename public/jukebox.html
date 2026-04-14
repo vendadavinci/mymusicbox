@@ -2506,24 +2506,25 @@ async function pollStatusOnce(){
   </script>
 
 <script>
-  async function refreshStatus() {
-    const res = await fetch('/api/status');
-    const data = await res.json();
+async function refreshStatus() {
+  const res = await fetch('/api/status');
+  const data = await res.json();
 
-    if (data.success) {
-      const percent = data.durationMs > 0
-        ? (data.progressMs / data.durationMs) * 100
-        : 0;
+  if (data.success) {
+    const percent = data.durationMs > 0
+      ? (data.progressMs / data.durationMs) * 100
+      : 0;
 
-      document.getElementById('progress-bar').style.width = percent + '%';
-      document.getElementById('progress-text').textContent =
-        `${Math.floor(data.progressMs / 1000)}s / ${Math.floor(data.durationMs / 1000)}s`;
+    const bar = document.getElementById('progress-bar');
+    const text = document.getElementById('progress-text');
+
+    if (bar) bar.style.width = percent + '%';
+    if (text) {
+      text.textContent = `${Math.floor(data.progressMs / 1000)}s / ${Math.floor(data.durationMs / 1000)}s`;
     }
   }
+}
 
-  // Poll every 5 seconds for smoother progress updates
-  setInterval(refreshStatus, 5000);
-  refreshStatus();
 </script>
 
 <script>
