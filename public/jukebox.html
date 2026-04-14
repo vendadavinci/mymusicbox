@@ -21,21 +21,22 @@ html, body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: none;
+  background: none; /* remove previous background image */
 }
 
 /* background image layer (blurred) */
 body::before {
   content: "";
   position: fixed;
-  inset: 0;
+  inset: 0; /* top:0; right:0; bottom:0; left:0; */
   z-index: -1;
   background-image: url("pictures/backg.jpeg");
   background-repeat: no-repeat;
   background-position: center center;
   background-size: cover;
-  filter: blur(2px) brightness(0.6); /* reduced blur (50%) */
-  transform: scale(1.015); /* slight scale to avoid edge artifacts */
+  /* visual treatment */
+  filter: blur(4px) brightness(0.6);
+  transform: scale(1.03); /* avoid edge artifacts from blur */
   will-change: transform, filter;
 }
 
@@ -48,8 +49,8 @@ body::before {
 /* reduce blur on small screens for performance */
 @media (max-width: 720px) {
   body::before {
-    filter: blur(1px) brightness(0.65); /* reduced mobile blur */
-    transform: scale(1.01);
+    filter: blur(2px) brightness(0.65);
+    transform: scale(1.02);
   }
 }
 
@@ -1125,6 +1126,7 @@ function renderQueue() {
       }
     }
 
+    if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
   } catch (err) {
@@ -1260,6 +1262,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       console.info('startPaidQueuePlayback already attempted for', sid);
       paidSessionActive = true;
       nowMode.textContent = 'Mode: PAID';
+      renderPaidQueueControls();
       updateStartPlayButton();
       return;
     }
@@ -1275,6 +1278,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     paidSessionActive = true;
     nowMode.textContent = 'Mode: PAID';
     statusText && (statusText.textContent = 'Playing paid queue');
+    renderPaidQueueControls && renderPaidQueueControls();
     updateStartPlayButton && updateStartPlayButton();
 
     // Pause default playback
@@ -1308,6 +1312,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       statusText && (statusText.textContent = 'Playback/queue failed. Please try again.');
+      renderPaidQueueControls && renderPaidQueueControls();
       updateStartPlayButton && updateStartPlayButton();
       sessionStorage.removeItem(startMarker);
       throw err;
@@ -2758,5 +2763,13 @@ refreshStatus();
 
 
 </script>
+
+
+
+
+
+   
+    
+
 </body>
 </html>
