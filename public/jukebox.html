@@ -1259,7 +1259,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       console.info('startPaidQueuePlayback already attempted for', sid);
       paidSessionActive = true;
       nowMode.textContent = 'Mode: PAID';
-      updateStartPlayButton();
       return;
     }
     sessionStorage.setItem(startMarker, 'true');
@@ -1274,7 +1273,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     paidSessionActive = true;
     nowMode.textContent = 'Mode: PAID';
     statusText && (statusText.textContent = 'Playing paid queue');
-    updateStartPlayButton && updateStartPlayButton();
 
     // Pause default playback
     if (typeof backendPause === 'function') {
@@ -1307,7 +1305,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       statusText && (statusText.textContent = 'Playback/queue failed. Please try again.');
-      updateStartPlayButton && updateStartPlayButton();
       sessionStorage.removeItem(startMarker);
       throw err;
     }
@@ -1336,7 +1333,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       statusText && (statusText.textContent = 'Resuming default playlist');
-      updateStartPlayButton && updateStartPlayButton();
 
       try {
         if (typeof backendResume === 'function') {
@@ -1360,7 +1356,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
     statusText && (statusText.textContent = 'Playback error');
-    updateStartPlayButton && updateStartPlayButton();
   }
 }
 
