@@ -837,8 +837,6 @@ app.post('/api/create-payment', async (req, res) => {
 });
 
 
-// create checkout route (adapted)
-
 app.post("/api/yoco/create-checkout", async (req, res) => {
   const { amount, currency = "ZAR", description = "Musicbox Paid Session", tracks = [] } = req.body;
   const idempotencyKey = crypto.randomUUID();
@@ -862,47 +860,9 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
       }
     );
 
-    const checkoutId = response.data.id; // use Yoco’s ID
+    const checkoutId = response.data.id; // ✅ Yoco’s real ID
 
-    // persist tracks server-side keyed by checkoutId
-    storeCheckout(checkoutId, { tracks, amount, createdAt: Date.now() });
-
-    res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId });
-  } catch (err) {
-    console.error("Yoco Checkout API error:", err.response?.data || err.message);
-    res.status(500).json({
-      success: false,
-      error: err.response?.data?.error || "Checkout creation failed"
-    });
-  }
-});
-
-app.post("/api/yoco/create-checkout", async (req, res) => {
-  const { amount, currency = "ZAR", description = "Musicbox Paid Session", tracks = [] } = req.body;
-  const idempotencyKey = crypto.randomUUID();
-
-  try {
-    const response = await axios.post(
-      "https://payments.yoco.com/api/checkouts",
-      {
-        amount,
-        currency,
-        description,
-        successUrl: `https://mymusicbox.onrender.com/jukebox.html?checkoutId=${response.data.id}`,
-        cancelUrl: `https://mymusicbox.onrender.com/index.html`
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`,
-          "Content-Type": "application/json",
-          "Idempotency-Key": idempotencyKey
-        }
-      }
-    );
-
-    const checkoutId = response.data.id;
-
-    // ✅ Save to Mongo
+    // Save to Mongo
     const checkoutDoc = new Checkout({
       checkoutId,
       tracks,
@@ -911,10 +871,14 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
     });
     await checkoutDoc.save();
 
-    // optional: still keep in-memory store if you want
+    // Optional: also keep in memory
     storeCheckout(checkoutId, { tracks, amount, createdAt: Date.now() });
 
-    res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId });
+    res.json({
+      success: true,
+      checkoutUrl: response.data.redirectUrl,
+      checkoutId
+    });
   } catch (err) {
     console.error("Yoco Checkout API error:", err.response?.data || err.message);
     res.status(500).json({
