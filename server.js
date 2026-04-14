@@ -779,7 +779,7 @@ app.post('/api/create-payment', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid amount' });
     }
 
-    const checkoutId = crypto.randomUUID();
+    const checkoutId = response.data.id;
     const idempotencyKey = crypto.randomUUID();
 
     const body = {
