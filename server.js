@@ -12,6 +12,7 @@ import mongoose from 'mongoose';
 import { PaidSession } from './models/paid_queue.js';
 import { Checkout } from './models/checkout.js'; 
 
+
 // ✅ Connect to MongoDB Atlas
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB connected'))
@@ -191,6 +192,58 @@ function getSession(sessionId) {
   }
   return paidSessions.get(sessionId);
 }
+
+// Session status endpoint
+app.get('/api/yoco/session-status', async (req, res) => {
+  const checkoutId = req.query.id;
+  if (!checkoutId) {
+    return res.status(400).json({ success: false, error: 'Missing checkoutId' });
+  }
+
+  try {
+    // Call Yoco’s API with your secret key
+    const yocoRes = await fetch(`https://online.yoco.com/api/checkouts/${checkoutId}`, {
+      headers: {
+        Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`
+      }
+    });
+    if (!yocoRes.ok) {
+      return res.status(yocoRes.status).json({ success: false });
+    }
+    const yocoData = await yocoRes.json();
+
+    // Normalize response for your frontend
+    res.json({
+      success: true,
+      status: yocoData.status,          // 'successful' | 'pending' | 'failed'
+      checkoutId,
+      enqueuedUris: []                  // fill in if you track URIs server-side
+    });
+  } catch (err) {
+    console.error('session-status error', err);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+// Checkout status endpoint (if you need a separate one)
+app.get('/api/yoco/checkout-status', async (req, res) => {
+  const checkoutId = req.query.id;
+  if (!checkoutId) {
+    return res.status(400).json({ success: false, error: 'Missing checkoutId' });
+  }
+
+  try {
+    const yocoRes = await fetch(`https://online.yoco.com/api/checkouts/${checkoutId}`, {
+      headers: {
+        Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`
+      }
+    });
+    const yocoData = await yocoRes.json();
+    res.json({ success: true, data: yocoData });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
 
 
 // Helper: normalize incoming track shape
