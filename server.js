@@ -225,7 +225,7 @@ app.get('/api/yoco/session-status', async (req, res) => {
   }
 });
 
-// Checkout status endpoint (if you need a separate one)
+
 app.get('/api/yoco/checkout-status', async (req, res) => {
   const checkoutId = req.query.id;
   if (!checkoutId) {
@@ -842,7 +842,6 @@ app.post('/api/create-payment', async (req, res) => {
 app.post("/api/yoco/create-checkout", async (req, res) => {
   const { amount, currency = "ZAR", description = "Musicbox Paid Session", tracks = [] } = req.body;
   const idempotencyKey = crypto.randomUUID();
-  const checkoutId = crypto.randomUUID();
 
   try {
     const response = await axios.post(
@@ -851,7 +850,7 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
         amount,
         currency,
         description,
-        successUrl: `https://mymusicbox.onrender.com/jukebox.html?checkoutId=${checkoutId}`,
+        successUrl: `https://mymusicbox.onrender.com/jukebox.html?checkoutId=${response.data.id}`,
         cancelUrl: `https://mymusicbox.onrender.com/index.html`
       },
       {
@@ -862,6 +861,8 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
         }
       }
     );
+
+    const checkoutId = response.data.id; // use Yoco’s ID
 
     // persist tracks server-side keyed by checkoutId
     storeCheckout(checkoutId, { tracks, amount, createdAt: Date.now() });
@@ -876,33 +877,53 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
   }
 });
 
+app.post("/api/yoco/create-checkout", async (req, res) => {
+  const { amount, currency = "ZAR", description = "Musicbox Paid Session", tracks = [] } = req.body;
+  const idempotencyKey = crypto.randomUUID();
 
-app.get('/api/checkout-tracks', async (req, res) => {
   try {
-    const id = req.query.checkoutId;
-    if (!id) {
-      return res.status(400).json({ error: 'checkoutId required' });
-    }
-
-    const entry = await Checkout.findOne({ checkoutId: id });
-    if (!entry) {
-      return res.status(404).json({ error: 'checkout not found or expired' });
-    }
-
-    // Ensure tracks are normalized before returning
-    const normalizedTracks = (entry.tracks || []).map((track, i) =>
-      normalizeTrack(track, i + 1)
+    const response = await axios.post(
+      "https://payments.yoco.com/api/checkouts",
+      {
+        amount,
+        currency,
+        description,
+        successUrl: `https://mymusicbox.onrender.com/jukebox.html?checkoutId=${response.data.id}`,
+        cancelUrl: `https://mymusicbox.onrender.com/index.html`
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey
+        }
+      }
     );
 
-    return res.json({
-      success: true,
-      tracks: normalizedTracks
+    const checkoutId = response.data.id;
+
+    // ✅ Save to Mongo
+    const checkoutDoc = new Checkout({
+      checkoutId,
+      tracks,
+      amount,
+      createdAt: new Date()
     });
+    await checkoutDoc.save();
+
+    // optional: still keep in-memory store if you want
+    storeCheckout(checkoutId, { tracks, amount, createdAt: Date.now() });
+
+    res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId });
   } catch (err) {
-    console.error('/api/checkout-tracks error', err);
-    return res.status(500).json({ error: 'server error', details: err.message });
+    console.error("Yoco Checkout API error:", err.response?.data || err.message);
+    res.status(500).json({
+      success: false,
+      error: err.response?.data?.error || "Checkout creation failed"
+    });
   }
 });
+
 
 app.post('/api/queue', async (req, res) => {
   try {
