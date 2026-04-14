@@ -12,7 +12,6 @@ import mongoose from 'mongoose';
 import { PaidSession } from './models/paid_queue.js';
 import { Checkout } from './models/checkout.js'; 
 
-
 // ✅ Connect to MongoDB Atlas
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB connected'))
@@ -193,58 +192,6 @@ function getSession(sessionId) {
   return paidSessions.get(sessionId);
 }
 
-// Session status endpoint
-app.get('/api/yoco/session-status', async (req, res) => {
-  const checkoutId = req.query.id;
-  if (!checkoutId) {
-    return res.status(400).json({ success: false, error: 'Missing checkoutId' });
-  }
-
-  try {
-    // Call Yoco’s API with your secret key
-    const yocoRes = await fetch(`https://online.yoco.com/api/checkouts/${checkoutId}`, {
-      headers: {
-        Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`
-      }
-    });
-    if (!yocoRes.ok) {
-      return res.status(yocoRes.status).json({ success: false });
-    }
-    const yocoData = await yocoRes.json();
-
-    // Normalize response for your frontend
-    res.json({
-      success: true,
-      status: yocoData.status,          // 'successful' | 'pending' | 'failed'
-      checkoutId,
-      enqueuedUris: []                  // fill in if you track URIs server-side
-    });
-  } catch (err) {
-    console.error('session-status error', err);
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
-});
-
-
-app.get('/api/yoco/checkout-status', async (req, res) => {
-  const checkoutId = req.query.id;
-  if (!checkoutId) {
-    return res.status(400).json({ success: false, error: 'Missing checkoutId' });
-  }
-
-  try {
-    const yocoRes = await fetch(`https://online.yoco.com/api/checkouts/${checkoutId}`, {
-      headers: {
-        Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`
-      }
-    });
-    const yocoData = await yocoRes.json();
-    res.json({ success: true, data: yocoData });
-  } catch (err) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
-});
-
 
 // Helper: normalize incoming track shape
 function normalizeTrack(track, orderIndex) {
@@ -268,20 +215,6 @@ app.post('/api/play', async (req, res) => {
     if (!Array.isArray(tracks) || tracks.length === 0) {
       return res.status(400).json({ success: false, error: 'Missing tracks array' });
     }
-
-    // 🔑 Active device check
-    const devicesRes = await fetch('https://api.spotify.com/v1/me/player/devices', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
-    const devices = await devicesRes.json();
-    const active = devices.devices.find(d => d.is_active);
-    if (!active && !device_id) {
-      return res.status(404).json({
-        success: false,
-        error: 'No active Spotify device found. Please open the Spotify app and start playback once.'
-      });
-    }
-    const effectiveDeviceId = device_id || active.id;
 
     const effectiveCheckoutId = checkoutId || (typeof sessionId === 'string' && sessionId.split('-')[1]) || null;
 
@@ -342,7 +275,7 @@ app.post('/api/play', async (req, res) => {
 
       for (const track of toAdd) {
         try {
-          const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}&device_id=${encodeURIComponent(effectiveDeviceId)}`;
+          const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
           const qRes = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
           if (!qRes.ok) {
             const txt = await qRes.text().catch(() => '<no body>');
@@ -380,7 +313,7 @@ app.post('/api/play', async (req, res) => {
 
     // 7) Attempt to start playback
     try {
-      const playUrl = `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(effectiveDeviceId)}`;
+      const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
       const playR = await fetch(playUrl, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
@@ -779,7 +712,7 @@ app.post('/api/create-payment', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid amount' });
     }
 
-    const checkoutId = response.data.id;
+    const checkoutId = crypto.randomUUID();
     const idempotencyKey = crypto.randomUUID();
 
     const body = {
@@ -837,9 +770,12 @@ app.post('/api/create-payment', async (req, res) => {
 });
 
 
+// create checkout route (adapted)
+
 app.post("/api/yoco/create-checkout", async (req, res) => {
   const { amount, currency = "ZAR", description = "Musicbox Paid Session", tracks = [] } = req.body;
   const idempotencyKey = crypto.randomUUID();
+  const checkoutId = crypto.randomUUID();
 
   try {
     const response = await axios.post(
@@ -848,7 +784,7 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
         amount,
         currency,
         description,
-        successUrl: `https://mymusicbox.onrender.com/jukebox.html?checkoutId=${response.data.id}`,
+        successUrl: `https://mymusicbox.onrender.com/jukebox.html?checkoutId=${checkoutId}`,
         cancelUrl: `https://mymusicbox.onrender.com/index.html`
       },
       {
@@ -860,25 +796,10 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
       }
     );
 
-    const checkoutId = response.data.id; // ✅ Yoco’s real ID
-
-    // Save to Mongo
-    const checkoutDoc = new Checkout({
-      checkoutId,
-      tracks,
-      amount,
-      createdAt: new Date()
-    });
-    await checkoutDoc.save();
-
-    // Optional: also keep in memory
+    // persist tracks server-side keyed by checkoutId
     storeCheckout(checkoutId, { tracks, amount, createdAt: Date.now() });
 
-    res.json({
-      success: true,
-      checkoutUrl: response.data.redirectUrl,
-      checkoutId
-    });
+    res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId });
   } catch (err) {
     console.error("Yoco Checkout API error:", err.response?.data || err.message);
     res.status(500).json({
@@ -889,6 +810,33 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
 });
 
 
+app.get('/api/checkout-tracks', async (req, res) => {
+  try {
+    const id = req.query.checkoutId;
+    if (!id) {
+      return res.status(400).json({ error: 'checkoutId required' });
+    }
+
+    const entry = await Checkout.findOne({ checkoutId: id });
+    if (!entry) {
+      return res.status(404).json({ error: 'checkout not found or expired' });
+    }
+
+    // Ensure tracks are normalized before returning
+    const normalizedTracks = (entry.tracks || []).map((track, i) =>
+      normalizeTrack(track, i + 1)
+    );
+
+    return res.json({
+      success: true,
+      tracks: normalizedTracks
+    });
+  } catch (err) {
+    console.error('/api/checkout-tracks error', err);
+    return res.status(500).json({ error: 'server error', details: err.message });
+  }
+});
+
 app.post('/api/queue', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
@@ -898,35 +846,36 @@ app.post('/api/queue', async (req, res) => {
       return res.status(400).json({ error: 'Missing track URI or sessionId' });
     }
 
-    // 🔑 Check for active device before queueing
-    const devicesRes = await fetch('https://api.spotify.com/v1/me/player/devices', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
-    const devices = await devicesRes.json();
-    const active = devices.devices.find(d => d.is_active);
-    if (!active) {
-      return res.status(404).json({
-        error: 'No active Spotify device found. Please open the Spotify app and start playback once.'
-      });
-    }
-
     // Ensure shuffle is off
-    await fetch(`https://api.spotify.com/v1/me/player/shuffle?state=false&device_id=${encodeURIComponent(active.id)}`, {
+    await fetch('https://api.spotify.com/v1/me/player/shuffle?state=false', {
       method: 'PUT',
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
     // Queue track in Spotify
-    const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}&device_id=${encodeURIComponent(active.id)}`;
-    const r = await fetch(queueUrl, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
+    const r = await fetch(
+      `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokens.access_token}` }
+      }
+    );
 
     if (!r.ok) {
       const text = await r.text();
       console.error('/api/queue failed', r.status, text);
-      return res.status(r.status).json({ error: 'Spotify queue request failed', details: text });
+
+      if (r.status === 404 && text.includes('NO_ACTIVE_DEVICE')) {
+        return res.status(404).json({
+          error: 'No active Spotify device found. Please open the Spotify app and start playback once.',
+          details: text
+        });
+      }
+
+      return res.status(r.status).json({
+        error: 'Spotify queue request failed',
+        details: text
+      });
     }
 
     // Find or create session
@@ -942,13 +891,11 @@ app.post('/api/queue', async (req, res) => {
       });
     }
 
-    // Deduplicate: skip if track already in session
-    if (!session.tracks.some(t => t.uri === uri)) {
-      const orderIndex = session.tracks.length + 1;
-      session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
-      session.songsAdded += 1;
-      await session.save();
-    }
+    // Use normalizeTrack helper
+    const orderIndex = session.tracks.length + 1;
+    session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
+    session.songsAdded += 1;
+    await session.save();
 
     res.json({ ok: true, sessionId, queued: uri });
   } catch (err) {
