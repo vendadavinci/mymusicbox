@@ -12,17 +12,47 @@
     --muted: #d6d6d6;
   }
 
-  html,body{
-    height:100%;
-    margin:0;
-    font-family: Arial, Helvetica, sans-serif;
-    background: url("pictures/backg.jpeg") no-repeat center center fixed;
-    background-size: cover;
-    color:#fff;
-    display:flex;
-    flex-direction:column;
-    min-height:100vh;
+/* page layout */
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: none;
+}
+
+/* background image layer (blurred) */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image: url("pictures/backg.jpeg");
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: cover;
+  filter: blur(2px) brightness(0.6); /* reduced blur (50%) */
+  transform: scale(1.015); /* slight scale to avoid edge artifacts */
+  will-change: transform, filter;
+}
+
+/* content container sits above the blurred background */
+.app, main, #root {
+  position: relative;
+  z-index: 1;
+}
+
+/* reduce blur on small screens for performance */
+@media (max-width: 720px) {
+  body::before {
+    filter: blur(1px) brightness(0.65); /* reduced mobile blur */
+    transform: scale(1.01);
   }
+}
+
 
   header{
     background: rgba(0,0,0,0.6);
