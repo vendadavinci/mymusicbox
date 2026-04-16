@@ -21,6 +21,7 @@ html, body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  background: none; /* remove previous background image */
   background: none;
 }
 
@@ -28,12 +29,16 @@ html, body {
 body::before {
   content: "";
   position: fixed;
+  inset: 0; /* top:0; right:0; bottom:0; left:0; */
   inset: 0;
   z-index: -1;
   background-image: url("pictures/backg.jpeg");
   background-repeat: no-repeat;
   background-position: center center;
   background-size: cover;
+  /* visual treatment */
+  filter: blur(4px) brightness(0.6);
+  transform: scale(1.03); /* avoid edge artifacts from blur */
   filter: blur(2px) brightness(0.6); /* reduced blur (50%) */
   transform: scale(1.015); /* slight scale to avoid edge artifacts */
   will-change: transform, filter;
@@ -48,6 +53,8 @@ body::before {
 /* reduce blur on small screens for performance */
 @media (max-width: 720px) {
   body::before {
+    filter: blur(2px) brightness(0.65);
+    transform: scale(1.02);
     filter: blur(1px) brightness(0.65); /* reduced mobile blur */
     transform: scale(1.01);
   }
@@ -457,6 +464,7 @@ body::before {
 
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
         <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
+        <div id="paidQueueControls"></div>
       </div>
     </div>
 
@@ -467,6 +475,7 @@ body::before {
 
   <script>
 /* ====== Paid queue app (fixed) ====== */
+const paidQueue = [];
 let paidQueue = [];
 const slots = []; 
 let paidSessionActive = false;
@@ -583,12 +592,6 @@ function getPendingSubmission() {
 }
 function clearPendingSubmission() {
   try { sessionStorage.removeItem('pendingSubmission'); } catch (e) { /* ignore */ }
-}
-function showResumePaymentNotice() {
-  const el = document.getElementById('statusText');
-  if (el) {
-    el.textContent = 'Payment interrupted — please resume.';
-  }
 }
 
 
@@ -952,8 +955,10 @@ async function initPage() {
       if (pending && Array.isArray(pending.tracks) && (data.tracks || []).length > 0) {
         const serverUris = new Set((data.tracks || []).map(t => t.uri));
         const allPresent = pending.tracks.every(t => serverUris.has(t.uri));
+        // If server already has them, clear pending submission and UI
         if (allPresent || data.sessionId === pending.id) {
           clearPendingSubmission();
+          // clear selected UI
           selectedTracks = [];
           const selectedContainer = document.getElementById('selectedContainer');
           const selectedList = document.getElementById('selectedList');
@@ -963,14 +968,17 @@ async function initPage() {
       }
     } else {
       // no server session: restore any local queue persisted earlier
+      const local = sessionStorage.getItem('paidQueue');
       let local = sessionStorage.getItem('paidQueue');
       if (local) {
         try { paidQueue = JSON.parse(local); } catch (e) { paidQueue = []; }
       }
+      // filter out played tracks before rendering
       paidQueue = paidQueue.filter(t => !t.played);
       renderQueue();
       paidSessionActive = false;
 
+      // If there is a pending submission, show a resume notice instead of auto-posting
       if (pending) {
         showResumePaymentNotice(pending);
       }
@@ -978,6 +986,7 @@ async function initPage() {
   } catch (e) {
     console.warn('initPage /api/status failed', e);
     // fallback: restore local queue if available
+    const local = sessionStorage.getItem('paidQueue');
     let local = sessionStorage.getItem('paidQueue');
     if (local) {
       try { paidQueue = JSON.parse(local); } catch (err) { paidQueue = []; }
@@ -985,6 +994,7 @@ async function initPage() {
       renderQueue();
     }
 
+    // If pending submission exists, show resume notice
     const pending = getPendingSubmission();
     if (pending) showResumePaymentNotice(pending);
   }
@@ -993,10 +1003,15 @@ async function initPage() {
 // Run on initial page load
 window.addEventListener('load', () => {
   initPage();
+  // Poll status periodically to keep UI in sync
   setInterval(() => {
     initPage().catch(() => {});
+  }, 10000); // every 10s, adjust as needed
   }, 10000);
 });
+
+
+
 
 /* ====== Startup validation ====== */
 (function validateDomBindings(){
@@ -1029,18 +1044,6 @@ function escapeHtml(s){
 function renderQueue() {
   try {
     if (!paidQueueEl) return;
-
-    // Guard: if no active paid session, show empty state and reset
-    if (!paidSessionActive) {
-      paidQueue = [];
-      sessionStorage.removeItem('paidQueue');
-      paidQueueEl.innerHTML = '<div class="small">No paid tracks queued</div>';
-      if (queueCount) queueCount.textContent = 'Paid queue: 0';
-      if (queueDurationText) queueDurationText.textContent = '';
-      if (nextTitleEl) nextTitleEl.textContent = 'No paid tracks queued';
-      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
-      return;
-    }
 
     if (!Array.isArray(paidQueue)) paidQueue = [];
 
@@ -1133,6 +1136,7 @@ function renderQueue() {
       }
     }
 
+    if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
   } catch (err) {
@@ -1259,9 +1263,12 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     }
 
     if (!sid) {
+      checkoutId = checkoutId || crypto.randomUUID();
+      const today = new Date().toISOString().slice(0,10);
       const today = new Date().toISOString().slice(0, 10);
       sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
       sessionStorage.setItem('sessionId', sid);
+      sessionStorage.setItem('checkoutId', checkoutId);
       sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
     }
 
@@ -1271,6 +1278,8 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       console.info('startPaidQueuePlayback already attempted for', sid);
       paidSessionActive = true;
       nowMode.textContent = 'Mode: PAID';
+      renderPaidQueueControls();
+      updateStartPlayButton();
       return;
     }
     sessionStorage.setItem(startMarker, 'true');
@@ -1285,6 +1294,8 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     paidSessionActive = true;
     nowMode.textContent = 'Mode: PAID';
     statusText && (statusText.textContent = 'Playing paid queue');
+    renderPaidQueueControls && renderPaidQueueControls();
+    updateStartPlayButton && updateStartPlayButton();
 
     // Pause default playback
     if (typeof backendPause === 'function') {
@@ -1293,6 +1304,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
 
     // Snapshot local queue
     const snapshotQueue = paidQueue.slice();
+    const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
     const totalMs = snapshotQueue.reduce((s, i) => s + (i.duration_ms || 210000), 0);
 
     // Update now playing UI
@@ -1317,6 +1329,8 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       statusText && (statusText.textContent = 'Playback/queue failed. Please try again.');
+      renderPaidQueueControls && renderPaidQueueControls();
+      updateStartPlayButton && updateStartPlayButton();
       sessionStorage.removeItem(startMarker);
       throw err;
     }
@@ -1326,14 +1340,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
     }
 
-    // Guard: only render queue if paid session is active
-    if (paidSessionActive) {
-      renderQueue && renderQueue();
-    } else {
-      paidQueue = [];
-      sessionStorage.removeItem('paidQueue');
-      renderQueue && renderQueue();
-    }
+    renderQueue && renderQueue();
 
     // Schedule fallback
     const clamp = ms => Math.max(5000, Math.min(ms, 1000 * 60 * 60));
@@ -1352,6 +1359,8 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
       statusText && (statusText.textContent = 'Resuming default playlist');
+      renderPaidQueueControls && renderPaidQueueControls();
+      updateStartPlayButton && updateStartPlayButton();
 
       try {
         if (typeof backendResume === 'function') {
@@ -1361,11 +1370,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       } catch (e) {
         console.warn('backendResume failed', e);
       }
-
-      // Reset queue when session ends
-      paidQueue = [];
-      sessionStorage.removeItem('paidQueue');
-      renderQueue && renderQueue();
 
       if (typeof redirectTimeoutHandle !== 'undefined' && redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
       redirectTimeoutHandle = setTimeout(() => {
@@ -1380,10 +1384,8 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
     statusText && (statusText.textContent = 'Playback error');
-    // Reset queue on error
-    paidQueue = [];
-    sessionStorage.removeItem('paidQueue');
-    renderQueue && renderQueue();
+    renderPaidQueueControls && renderPaidQueueControls();
+    updateStartPlayButton && updateStartPlayButton();
   }
 }
 
@@ -1504,6 +1506,12 @@ async function startPaidCheckout(tracks) {
     }
 
     // Ensure a stable checkoutId for this payment flow
+    let checkoutId = sessionStorage.getItem('checkoutId');
+    if (!checkoutId) {
+      // If you have a server-provided checkout id earlier in the flow, set it here instead
+      checkoutId = crypto.randomUUID();
+      sessionStorage.setItem('checkoutId', checkoutId);
+    }
 let checkoutId = sessionStorage.getItem('checkoutId');
 if (!checkoutId) {
   throw new Error('Missing checkoutId from server. Cannot start checkout.');
@@ -1608,6 +1616,7 @@ async function pollStatus() {
     const checkoutId = sessionStorage.getItem('checkoutId');
     if (!checkoutId) return;
 
+    // Ask backend for canonical checkout/session status
     const res = await fetch(`/api/yoco/session-status?id=${encodeURIComponent(checkoutId)}`);
     if (!res.ok) {
       console.warn('session-status returned non-ok', res.status);
@@ -1615,28 +1624,38 @@ async function pollStatus() {
     }
     const data = await res.json();
 
+    // Expect backend to return { status: 'successful'|'pending'|'failed', enqueuedUris: [...], checkoutId: '...' }
     if (data.status !== 'successful') return;
 
+    // Get pending submission (preferred) or legacy tracks
+    const pending = getPendingSubmission();
+    let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length ? pending.tracks.slice() : JSON.parse(sessionStorage.getItem('tracks') || '[]');
     const pending = typeof getPendingSubmission === 'function' ? getPendingSubmission() : null;
     let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length
       ? pending.tracks.slice()
       : JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
+    // If backend already reports enqueuedUris, filter out already enqueued
     if (Array.isArray(data.enqueuedUris) && data.enqueuedUris.length) {
       const enqueuedSet = new Set(data.enqueuedUris);
       tracksToEnqueue = tracksToEnqueue.filter(t => !enqueuedSet.has(t.uri));
     }
 
+    // Also filter out any URIs already present in local paidQueue to avoid duplicates
     const localSet = new Set((paidQueue || []).map(t => t.uri));
     tracksToEnqueue = tracksToEnqueue.filter(t => !localSet.has(t.uri));
 
     if (tracksToEnqueue.length === 0) {
+      // Nothing new to add — clear pending and stop polling
+      clearPendingSubmission();
       if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
       if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
+      // Refresh canonical queue from server
       if (typeof initPage === 'function') initPage();
       return;
     }
 
+    // Append new tracks to paidQueue with defensive normalization
     for (const t of tracksToEnqueue) {
       paidQueue.push({
         uri: t.uri,
@@ -1652,19 +1671,28 @@ async function pollStatus() {
       sessionStorage.setItem(`queued_${checkoutId}_${t.uri}`, 'true');
     }
 
+    // Persist and render
+    persistPaidQueue();
+    renderQueue && renderQueue();
     if (typeof persistPaidQueue === 'function') persistPaidQueue();
     if (typeof renderQueue === 'function') renderQueue();
 
+    // If playback not active, start it once
     if (!paidSessionActive && typeof startPaidQueuePlayback === 'function') {
       startPaidQueuePlayback();
     }
 
+    // Clear pending submission and stop polling
+    clearPendingSubmission();
     if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
     if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
+
+    // Optionally refresh canonical server queue to pick up server ordering/flags
     if (typeof initPage === 'function') initPage();
 
   } catch (err) {
     console.error('pollStatus error:', err);
+    // keep polling; do not auto-submit or clear pending state on transient errors
     // keep polling; optionally add retry/backoff logic here
   }
 }
@@ -1784,12 +1812,7 @@ async function onPaymentSuccess() {
     }
 
     // --- Idempotency guard (per-checkout) ---
-    const checkoutId = sessionStorage.getItem('checkoutId');
-if (!checkoutId) {
-  console.error('No checkoutId found after payment. Cannot attach tracks.');
-  return;
-}
-
+    const checkoutId = sessionStorage.getItem('checkoutId') || crypto.randomUUID();
     const today = new Date().toISOString().slice(0, 10);
     const sessionId = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
     const submissionMarkerKey = `paidSubmitted_${checkoutId}`;
@@ -2286,6 +2309,16 @@ function startAddFlow(){
       renderQueue && renderQueue();
 
       // ensure sessionId exists
+      let sid = sessionId || sessionStorage.getItem('sessionId');
+      let checkoutId = sessionStorage.getItem('checkoutId');
+      if (!sid) {
+        checkoutId = checkoutId || crypto.randomUUID();
+        const today = new Date().toISOString().slice(0,10);
+        sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
+        sessionStorage.setItem('sessionId', sid);
+        sessionStorage.setItem('checkoutId', checkoutId);
+        sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
+      }
 let sid = sessionId || sessionStorage.getItem('sessionId');
 let checkoutId = sessionStorage.getItem('checkoutId');
 
@@ -2481,62 +2514,36 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
     async function backendResume(){
       try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
     }
-
-async function pollStatusOnce() {
-  try {
+// frontend: poll status and update UI; when paidSessionActive show next paid track if available
+// frontend: poll status and update UI; when paidSessionActive show next paid track if available
+async function pollStatusOnce(){
+  try{
     const res = await fetch('/api/status');
     if(!res.ok) return;
-    if (!res.ok) return;
     const data = await res.json();
 
     // Update now playing
     if(data.title) nowTitle.textContent = data.title;
     if(data.artist) nowArtist.textContent = data.artist;
     if(data.albumArt) nowArt.style.backgroundImage = data.albumArt ? `url(${data.albumArt})` : '';
-    if (data.title) nowTitle.textContent = data.title;
-    if (data.artist) nowArtist.textContent = data.artist;
-    if (data.albumArt) {
-      nowArt.style.backgroundImage = `url(${data.albumArt})`;
-    } else {
-      nowArt.style.backgroundImage = '';
-    }
 
     // Mode and status
     nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
     statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : (data.is_playing ? 'Playing' : 'Paused');
-    statusText.textContent =
-      data.mode === 'PAID'
-        ? 'Playing paid queue'
-        : (data.is_playing ? 'Playing' : 'Paused');
 
     // If we are in a paid session and the local paidQueue still has items,
     // show the next paid track in the UI (authoritative source is Spotify, but this helps UX)
-    // Guard: only show queue info if paid session is active
     if (paidSessionActive && paidQueue.length > 0) {
       nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
       queueCount.textContent = `Paid queue: ${paidQueue.length}`;
       queueDurationText.textContent = `Estimated duration: ${Math.round(paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0)/60000)} min`;
-      queueDurationText.textContent =
-        `Estimated duration: ${Math.round(
-          paidQueue.reduce((s, i) => s + (i.duration_ms || 210000), 0) / 60000
-        )} min`;
     } else {
       // If no local paid queue, fall back to server-provided next info if available
       if (data.next_title) nextTitleEl.textContent = data.next_title;
       queueCount.textContent = `Paid queue: ${paidQueue.length}`;
-      // Reset queue display when not in paid session
-      paidQueue = [];
-      sessionStorage.removeItem('paidQueue');
-      nextTitleEl.textContent = 'No paid tracks queued';
-      if (queueCount) queueCount.textContent = 'Paid queue: 0';
-      if (queueDurationText) queueDurationText.textContent = '';
     }
   }catch(e){ console.warn('pollStatusOnce', e); }
-  } catch (e) {
-    console.warn('pollStatusOnce', e);
-  }
 }
-
 
 
 
@@ -2571,6 +2578,9 @@ async function pollStatusOnce() {
   </script>
 
 <script>
+  async function refreshStatus() {
+    const res = await fetch('/api/status');
+    const data = await res.json();
 async function refreshStatus() {
   const res = await fetch('/api/status');
   const data = await res.json();
@@ -2580,9 +2590,16 @@ async function refreshStatus() {
       ? (data.progressMs / data.durationMs) * 100
       : 0;
 
+    if (data.success) {
+      const percent = data.durationMs > 0
+        ? (data.progressMs / data.durationMs) * 100
+        : 0;
     const bar = document.getElementById('progress-bar');
     const text = document.getElementById('progress-text');
 
+      document.getElementById('progress-bar').style.width = percent + '%';
+      document.getElementById('progress-text').textContent =
+        `${Math.floor(data.progressMs / 1000)}s / ${Math.floor(data.durationMs / 1000)}s`;
     if (bar) bar.style.width = percent + '%';
     if (text) {
       text.textContent = `${Math.floor(data.progressMs / 1000)}s / ${Math.floor(data.durationMs / 1000)}s`;
@@ -2590,6 +2607,9 @@ async function refreshStatus() {
   }
 }
 
+  // Poll every 5 seconds for smoother progress updates
+  setInterval(refreshStatus, 5000);
+  refreshStatus();
 </script>
 
 <script>
@@ -2807,4 +2827,13 @@ refreshStatus();
 
 
 </script>
+
+
+
+
+
+   
+    
+
 </body>
+</html>
