@@ -386,11 +386,11 @@ app.get('/api/status', async (req, res) => {
     if (r.status === 204) {
       return res.json({
         success: true,
-        mode: activeSession ? 'PAID' : 'DEFAULT',
-        sessionId: activeSession?.sessionId || null,
-        playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0,
-        totalTracks: activeSession?.tracks?.length || 0,
-        tracks: activeSession ? activeSession.tracks : [], // only return if active
+        mode: activeSession?.active ? 'PAID' : 'DEFAULT',
+        sessionId: activeSession?.active ? activeSession.sessionId : null,
+        playedCount: activeSession?.active ? (activeSession.tracks || []).filter(t => t.played).length : 0,
+        totalTracks: activeSession?.active ? activeSession.tracks?.length || 0 : 0,
+        tracks: activeSession?.active ? activeSession.tracks : [], // only return if still active
         isPlaying: false
       });
     }
@@ -404,11 +404,11 @@ app.get('/api/status', async (req, res) => {
 
     return res.json({
       success: true,
-      mode: activeSession ? 'PAID' : 'DEFAULT',
-      sessionId: activeSession?.sessionId || null,
-      playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0,
-      totalTracks: activeSession?.tracks?.length || 0,
-      tracks: activeSession ? activeSession.tracks : [], // reset to [] if no active session
+      mode: activeSession?.active ? 'PAID' : 'DEFAULT',
+      sessionId: activeSession?.active ? activeSession.sessionId : null,
+      playedCount: activeSession?.active ? (activeSession.tracks || []).filter(t => t.played).length : 0,
+      totalTracks: activeSession?.active ? activeSession.tracks?.length || 0 : 0,
+      tracks: activeSession?.active ? activeSession.tracks : [], // reset to [] if inactive
       // Spotify playback info
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
@@ -909,19 +909,16 @@ setInterval(async () => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // Handle 204 (no content)
     if (r.status === 204) {
       return; // nothing playing
     }
 
-    // Handle non-OK responses
     if (!r.ok) {
       const text = await r.text().catch(() => '<no body>');
       console.warn(`Spotify status failed ${r.status}: ${text}`);
       return;
     }
 
-    // Defensive JSON parse
     let data = null;
     try {
       const text = await r.text();
@@ -933,14 +930,22 @@ setInterval(async () => {
       return;
     }
 
-    // If we got valid data, mark track played
     if (data?.item?.uri) {
       await markTrackPlayed(activeSession.sessionId, data.item.uri);
+
+      // Check if all tracks are played
+      const refreshed = await PaidSession.findOne({ sessionId: activeSession.sessionId });
+      const allPlayed = refreshed.tracks.length > 0 && refreshed.tracks.every(t => t.played);
+      if (allPlayed) {
+        refreshed.active = false;
+        await refreshed.save();
+        console.info(`Session ${activeSession.sessionId} marked inactive (all tracks played).`);
+      }
     }
   } catch (err) {
     console.error('Poller error:', err);
   }
-}, 5000); // every 5 seconds
+}, 5000);
 
 
 /* -------------------------
