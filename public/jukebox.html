@@ -340,7 +340,7 @@ body::before {
 
 <main>
   <!-- Left: Now Playing visual (up to 1080px block) -->
-   
+
 <section class="left-col card" aria-label="Now Playing">
   <div class="player-visual" id="playerVisual">
     <!-- Artwork fills the visual and is controlled separately -->
@@ -348,9 +348,9 @@ body::before {
     <div class="art" id="nowArt" role="img" aria-label="Album artwork"></div>
 
     <!-- Overlay strip for track info (separate from the art) -->
-      
+
     <div class="player-overlay">
-        
+
       <div class="meta">
         <div class="title" id="nowPlaying">NOW PLAYING:</div>
         <div class="title" id="nowTitle">Idle</div>
@@ -459,7 +459,7 @@ body::before {
         <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
       </div>
     </div>
-      
+
 
   </aside>
 </main>
@@ -1024,6 +1024,18 @@ function renderQueue() {
   try {
     if (!paidQueueEl) return;
 
+    // Guard: if no active paid session, show empty state and reset
+    if (!paidSessionActive) {
+      paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
+      paidQueueEl.innerHTML = '<div class="small">No paid tracks queued</div>';
+      if (queueCount) queueCount.textContent = 'Paid queue: 0';
+      if (queueDurationText) queueDurationText.textContent = '';
+      if (nextTitleEl) nextTitleEl.textContent = 'No paid tracks queued';
+      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+      return;
+    }
+
     if (!Array.isArray(paidQueue)) paidQueue = [];
 
     // Persist local queue so refresh doesn't lose it
@@ -1308,7 +1320,14 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
     }
 
-    renderQueue && renderQueue();
+    // Guard: only render queue if paid session is active
+    if (paidSessionActive) {
+      renderQueue && renderQueue();
+    } else {
+      paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
+      renderQueue && renderQueue();
+    }
 
     // Schedule fallback
     const clamp = ms => Math.max(5000, Math.min(ms, 1000 * 60 * 60));
@@ -1337,6 +1356,11 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
         console.warn('backendResume failed', e);
       }
 
+      // Reset queue when session ends
+      paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
+      renderQueue && renderQueue();
+
       if (typeof redirectTimeoutHandle !== 'undefined' && redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
       redirectTimeoutHandle = setTimeout(() => {
         if (paidSessionActive) return;
@@ -1350,6 +1374,10 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
     statusText && (statusText.textContent = 'Playback error');
+    // Reset queue on error
+    paidQueue = [];
+    sessionStorage.removeItem('paidQueue');
+    renderQueue && renderQueue();
   }
 }
 
@@ -1750,7 +1778,12 @@ async function onPaymentSuccess() {
     }
 
     // --- Idempotency guard (per-checkout) ---
-    const checkoutId = sessionStorage.getItem('checkoutId') || crypto.randomUUID();
+    const checkoutId = sessionStorage.getItem('checkoutId');
+if (!checkoutId) {
+  console.error('No checkoutId found after payment. Cannot attach tracks.');
+  return;
+}
+
     const today = new Date().toISOString().slice(0, 10);
     const sessionId = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
     const submissionMarkerKey = `paidSubmitted_${checkoutId}`;
@@ -2442,36 +2475,64 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
     async function backendResume(){
       try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
     }
-// frontend: poll status and update UI; when paidSessionActive show next paid track if available
-// frontend: poll status and update UI; when paidSessionActive show next paid track if available
+
 async function pollStatusOnce(){
   try{
+async function pollStatusOnce() {
+  try {
     const res = await fetch('/api/status');
     if(!res.ok) return;
+    if (!res.ok) return;
     const data = await res.json();
 
     // Update now playing
     if(data.title) nowTitle.textContent = data.title;
     if(data.artist) nowArtist.textContent = data.artist;
     if(data.albumArt) nowArt.style.backgroundImage = data.albumArt ? `url(${data.albumArt})` : '';
+    if (data.title) nowTitle.textContent = data.title;
+    if (data.artist) nowArtist.textContent = data.artist;
+    if (data.albumArt) {
+      nowArt.style.backgroundImage = `url(${data.albumArt})`;
+    } else {
+      nowArt.style.backgroundImage = '';
+    }
 
     // Mode and status
     nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
     statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : (data.is_playing ? 'Playing' : 'Paused');
+    statusText.textContent =
+      data.mode === 'PAID'
+        ? 'Playing paid queue'
+        : (data.is_playing ? 'Playing' : 'Paused');
 
     // If we are in a paid session and the local paidQueue still has items,
     // show the next paid track in the UI (authoritative source is Spotify, but this helps UX)
+    // Guard: only show queue info if paid session is active
     if (paidSessionActive && paidQueue.length > 0) {
       nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
       queueCount.textContent = `Paid queue: ${paidQueue.length}`;
       queueDurationText.textContent = `Estimated duration: ${Math.round(paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0)/60000)} min`;
+      queueDurationText.textContent =
+        `Estimated duration: ${Math.round(
+          paidQueue.reduce((s, i) => s + (i.duration_ms || 210000), 0) / 60000
+        )} min`;
     } else {
       // If no local paid queue, fall back to server-provided next info if available
       if (data.next_title) nextTitleEl.textContent = data.next_title;
       queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+      // Reset queue display when not in paid session
+      paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
+      nextTitleEl.textContent = 'No paid tracks queued';
+      if (queueCount) queueCount.textContent = 'Paid queue: 0';
+      if (queueDurationText) queueDurationText.textContent = '';
     }
   }catch(e){ console.warn('pollStatusOnce', e); }
+  } catch (e) {
+    console.warn('pollStatusOnce', e);
+  }
 }
+
 
 
 
@@ -2493,7 +2554,7 @@ async function pollStatusOnce(){
         title: obj.title || '',
         artist: obj.artist || '',
         duration_ms: obj.duration_ms || 0
-        
+
       };
     }
 
@@ -2660,7 +2721,7 @@ async function refreshStatus() {
 })();
 </script>
 
-    
+
 <script>
 (async function loadPaidTracks() {
   try {
@@ -2743,4 +2804,3 @@ refreshStatus();
 
 </script>
 </body>
-</html>
