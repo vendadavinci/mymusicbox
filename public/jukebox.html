@@ -2509,6 +2509,15 @@ async function pollStatusOnce() {
     renderQueue();
     pollStatusOnce();
   </script>
+<script>
+function savePendingSubmission(data) {
+  try {
+    sessionStorage.setItem('pendingSubmission', JSON.stringify(data));
+  } catch (e) {
+    console.warn('Could not save pending submission', e);
+  }
+}
+</script>
 
 <script>
 async function refreshStatus() {
