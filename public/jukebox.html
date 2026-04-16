@@ -1024,6 +1024,18 @@ function renderQueue() {
   try {
     if (!paidQueueEl) return;
 
+    // Guard: if no active paid session, show empty state and reset
+    if (!paidSessionActive) {
+      paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
+      paidQueueEl.innerHTML = '<div class="small">No paid tracks queued</div>';
+      if (queueCount) queueCount.textContent = 'Paid queue: 0';
+      if (queueDurationText) queueDurationText.textContent = '';
+      if (nextTitleEl) nextTitleEl.textContent = 'No paid tracks queued';
+      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+      return;
+    }
+
     if (!Array.isArray(paidQueue)) paidQueue = [];
 
     // Persist local queue so refresh doesn't lose it
@@ -2464,34 +2476,49 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
       try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
     }
 
-async function pollStatusOnce(){
-  try{
+async function pollStatusOnce() {
+  try {
     const res = await fetch('/api/status');
-    if(!res.ok) return;
+    if (!res.ok) return;
     const data = await res.json();
 
     // Update now playing
-    if(data.title) nowTitle.textContent = data.title;
-    if(data.artist) nowArtist.textContent = data.artist;
-    if(data.albumArt) nowArt.style.backgroundImage = data.albumArt ? `url(${data.albumArt})` : '';
+    if (data.title) nowTitle.textContent = data.title;
+    if (data.artist) nowArtist.textContent = data.artist;
+    if (data.albumArt) {
+      nowArt.style.backgroundImage = `url(${data.albumArt})`;
+    } else {
+      nowArt.style.backgroundImage = '';
+    }
 
     // Mode and status
     nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
-    statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : (data.is_playing ? 'Playing' : 'Paused');
+    statusText.textContent =
+      data.mode === 'PAID'
+        ? 'Playing paid queue'
+        : (data.is_playing ? 'Playing' : 'Paused');
 
-    // If we are in a paid session and the local paidQueue still has items,
-    // show the next paid track in the UI (authoritative source is Spotify, but this helps UX)
+    // Guard: only show queue info if paid session is active
     if (paidSessionActive && paidQueue.length > 0) {
       nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
       queueCount.textContent = `Paid queue: ${paidQueue.length}`;
-      queueDurationText.textContent = `Estimated duration: ${Math.round(paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0)/60000)} min`;
+      queueDurationText.textContent =
+        `Estimated duration: ${Math.round(
+          paidQueue.reduce((s, i) => s + (i.duration_ms || 210000), 0) / 60000
+        )} min`;
     } else {
-      // If no local paid queue, fall back to server-provided next info if available
-      if (data.next_title) nextTitleEl.textContent = data.next_title;
-      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+      // Reset queue display when not in paid session
+      paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
+      nextTitleEl.textContent = 'No paid tracks queued';
+      if (queueCount) queueCount.textContent = 'Paid queue: 0';
+      if (queueDurationText) queueDurationText.textContent = '';
     }
-  }catch(e){ console.warn('pollStatusOnce', e); }
+  } catch (e) {
+    console.warn('pollStatusOnce', e);
+  }
 }
+
 
 
 
