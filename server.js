@@ -388,7 +388,7 @@ app.get('/api/status', async (req, res) => {
         sessionId: isActive ? activeSession.sessionId : null,
         playedCount: isActive ? activeSession.tracks.filter(t => t.played).length : 0,
         totalTracks: isActive ? activeSession.tracks.length : 0,
-        tracks: isActive ? activeSession.tracks : [],
+        tracks: isActive ? activeSession.tracks : [], // empty if inactive
         isPlaying: false
       });
     }
@@ -406,7 +406,7 @@ app.get('/api/status', async (req, res) => {
       sessionId: isActive ? activeSession.sessionId : null,
       playedCount: isActive ? activeSession.tracks.filter(t => t.played).length : 0,
       totalTracks: isActive ? activeSession.tracks.length : 0,
-      tracks: isActive ? activeSession.tracks : [],
+      tracks: isActive ? activeSession.tracks : [], // empty if inactive
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
