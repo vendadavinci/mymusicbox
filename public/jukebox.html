@@ -1992,6 +1992,14 @@ function startAddFlow(){
       console.warn('Could not persist paidQueue to sessionStorage', e);
     }
   }
+function savePendingSubmission(data) {
+  try {
+    sessionStorage.setItem('pendingSubmission', JSON.stringify(data));
+  } catch (e) {
+    console.warn('Could not save pending submission', e);
+  }
+}
+
 
   function markClientQueued(sessionId, uri) {
     try {
