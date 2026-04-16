@@ -1308,7 +1308,14 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
     }
 
-    renderQueue && renderQueue();
+    // Guard: only render queue if paid session is active
+    if (paidSessionActive) {
+      renderQueue && renderQueue();
+    } else {
+      paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
+      renderQueue && renderQueue();
+    }
 
     // Schedule fallback
     const clamp = ms => Math.max(5000, Math.min(ms, 1000 * 60 * 60));
@@ -1337,6 +1344,11 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
         console.warn('backendResume failed', e);
       }
 
+      // Reset queue when session ends
+      paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
+      renderQueue && renderQueue();
+
       if (typeof redirectTimeoutHandle !== 'undefined' && redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
       redirectTimeoutHandle = setTimeout(() => {
         if (paidSessionActive) return;
@@ -1350,6 +1362,10 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
     statusText && (statusText.textContent = 'Playback error');
+    // Reset queue on error
+    paidQueue = [];
+    sessionStorage.removeItem('paidQueue');
+    renderQueue && renderQueue();
   }
 }
 
@@ -1750,7 +1766,12 @@ async function onPaymentSuccess() {
     }
 
     // --- Idempotency guard (per-checkout) ---
-    const checkoutId = sessionStorage.getItem('checkoutId') || crypto.randomUUID();
+    const checkoutId = sessionStorage.getItem('checkoutId');
+if (!checkoutId) {
+  console.error('No checkoutId found after payment. Cannot attach tracks.');
+  return;
+}
+
     const today = new Date().toISOString().slice(0, 10);
     const sessionId = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
     const submissionMarkerKey = `paidSubmitted_${checkoutId}`;
@@ -2442,8 +2463,7 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
     async function backendResume(){
       try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
     }
-// frontend: poll status and update UI; when paidSessionActive show next paid track if available
-// frontend: poll status and update UI; when paidSessionActive show next paid track if available
+
 async function pollStatusOnce(){
   try{
     const res = await fetch('/api/status');
