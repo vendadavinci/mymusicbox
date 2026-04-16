@@ -376,28 +376,23 @@ app.get('/api/status', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
+    // Ask Spotify for current playback
     const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
     // If no active device / nothing playing
     if (r.status === 204) {
+      // Still return canonical session info if any
       const activeSession = await PaidSession.findOne({ active: true }).lean();
       const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
-
-      // Enrich tracks even in idle state
-      const enrichedTracks = (activeSession?.tracks || []).map(t => ({
-        ...t,
-        status: t.played ? 'Played' : 'Queued'
-      }));
-
       return res.json({
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
         sessionId: activeSession?.sessionId || null,
         playedCount,
         totalTracks: activeSession?.tracks?.length || 0,
-        tracks: enrichedTracks,
+        tracks: activeSession?.tracks || [],
         isPlaying: false
       });
     }
@@ -408,22 +403,11 @@ app.get('/api/status', async (req, res) => {
     }
 
     const data = await r.json();
+
+    // Get canonical paid session from DB
     const activeSession = await PaidSession.findOne({ active: true }).lean();
+
     const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
-
-    // Determine current track URI
-    const currentUri = data.item?.uri;
-
-    // Enrich tracks with status
-    const enrichedTracks = (activeSession?.tracks || []).map(t => {
-      if (t.uri === currentUri) {
-        return { ...t, status: 'Playing' };
-      }
-      if (t.played) {
-        return { ...t, status: 'Played' };
-      }
-      return { ...t, status: 'Queued' };
-    });
 
     return res.json({
       success: true,
@@ -431,7 +415,9 @@ app.get('/api/status', async (req, res) => {
       sessionId: activeSession?.sessionId || null,
       playedCount,
       totalTracks: activeSession?.tracks?.length || 0,
-      tracks: enrichedTracks,
+      // include full server-side track list so client can merge and mark played
+      tracks: activeSession?.tracks || [],
+      // Spotify playback info
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
@@ -445,6 +431,7 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
+
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
