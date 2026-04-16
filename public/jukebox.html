@@ -12,54 +12,17 @@
     --muted: #d6d6d6;
   }
 
-/* page layout */
-html, body {
-  height: 100%;
-  margin: 0;
-  font-family: Arial, Helvetica, sans-serif;
-  color: #fff;
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  background: none; /* remove previous background image */
-  background: none;
-}
-
-/* background image layer (blurred) */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0; /* top:0; right:0; bottom:0; left:0; */
-  inset: 0;
-  z-index: -1;
-  background-image: url("pictures/backg.jpeg");
-  background-repeat: no-repeat;
-  background-position: center center;
-  background-size: cover;
-  /* visual treatment */
-  filter: blur(4px) brightness(0.6);
-  transform: scale(1.03); /* avoid edge artifacts from blur */
-  filter: blur(2px) brightness(0.6); /* reduced blur (50%) */
-  transform: scale(1.015); /* slight scale to avoid edge artifacts */
-  will-change: transform, filter;
-}
-
-/* content container sits above the blurred background */
-.app, main, #root {
-  position: relative;
-  z-index: 1;
-}
-
-/* reduce blur on small screens for performance */
-@media (max-width: 720px) {
-  body::before {
-    filter: blur(2px) brightness(0.65);
-    transform: scale(1.02);
-    filter: blur(1px) brightness(0.65); /* reduced mobile blur */
-    transform: scale(1.01);
+  html,body{
+    height:100%;
+    margin:0;
+    font-family: Arial, Helvetica, sans-serif;
+    background: url("pictures/backg.jpeg") no-repeat center center fixed;
+    background-size: cover;
+    color:#fff;
+    display:flex;
+    flex-direction:column;
+    min-height:100vh;
   }
-}
-
 
   header{
     background: rgba(0,0,0,0.6);
@@ -347,19 +310,14 @@ body::before {
 
 <main>
   <!-- Left: Now Playing visual (up to 1080px block) -->
-
 <section class="left-col card" aria-label="Now Playing">
   <div class="player-visual" id="playerVisual">
     <!-- Artwork fills the visual and is controlled separately -->
-
     <div class="art" id="nowArt" role="img" aria-label="Album artwork"></div>
 
     <!-- Overlay strip for track info (separate from the art) -->
-
     <div class="player-overlay">
-
       <div class="meta">
-        <div class="title" id="nowPlaying">NOW PLAYING:</div>
         <div class="title" id="nowTitle">Idle</div>
         <div class="artist" id="nowArtist">Default playlist</div>
         <div class="small" id="nowMode">Mode: DEFAULT</div>
@@ -388,7 +346,8 @@ body::before {
     <!-- Add flow -->
     <div class="card" aria-label="Add to paid playlist">
       <div style="display:flex;justify-content:space-between;align-items:center;">
-
+        <div style="font-weight:700;">Add To Paid Playlist</div>
+        <div class="small">Users must select package & pay</div>
       </div>
 
       <!-- Add Songs button -->
@@ -451,6 +410,7 @@ body::before {
       </div>
 
       <div class="search-results" id="searchResults" aria-live="polite"></div>
+      <div class="small" style="margin-top:8px;">Tip: search unlocks after payment.</div>
     </div>
 
     <!-- Paid queue -->
@@ -467,16 +427,27 @@ body::before {
         <div id="paidQueueControls"></div>
       </div>
     </div>
+      
+        <!-- Played history -->
+  <div class="card" aria-label="Played history" style="margin-top:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:700;">Played History</div>
+      <div class="small" id="playedCount">Played tracks: 0</div>
+    </div>
 
-
+    <!-- History list (populated by renderPlayedHistory) -->
+    <div class="queue-list" id="playedHistory" style="margin-top:10px;"></div>
+  </div>
   </aside>
 </main>
-  <footer>Powered by TicketMetro</footer>
+
+
+
+  <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
 
   <script>
 /* ====== Paid queue app (fixed) ====== */
 const paidQueue = [];
-let paidQueue = [];
 const slots = []; 
 let paidSessionActive = false;
 let redirectTimeoutHandle = null;
@@ -969,7 +940,6 @@ async function initPage() {
     } else {
       // no server session: restore any local queue persisted earlier
       const local = sessionStorage.getItem('paidQueue');
-      let local = sessionStorage.getItem('paidQueue');
       if (local) {
         try { paidQueue = JSON.parse(local); } catch (e) { paidQueue = []; }
       }
@@ -987,7 +957,6 @@ async function initPage() {
     console.warn('initPage /api/status failed', e);
     // fallback: restore local queue if available
     const local = sessionStorage.getItem('paidQueue');
-    let local = sessionStorage.getItem('paidQueue');
     if (local) {
       try { paidQueue = JSON.parse(local); } catch (err) { paidQueue = []; }
       paidQueue = paidQueue.filter(t => !t.played);
@@ -1007,7 +976,6 @@ window.addEventListener('load', () => {
   setInterval(() => {
     initPage().catch(() => {});
   }, 10000); // every 10s, adjust as needed
-  }, 10000);
 });
 
 
@@ -1257,15 +1225,9 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     // Ensure sessionId and checkoutId exist
     let sid = sessionId || sessionStorage.getItem('sessionId');
     let checkoutId = sessionStorage.getItem('checkoutId');
-
-    if (!checkoutId) {
-      throw new Error('Missing checkoutId from server. Cannot start paid playback.');
-    }
-
     if (!sid) {
       checkoutId = checkoutId || crypto.randomUUID();
       const today = new Date().toISOString().slice(0,10);
-      const today = new Date().toISOString().slice(0, 10);
       sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
       sessionStorage.setItem('sessionId', sid);
       sessionStorage.setItem('checkoutId', checkoutId);
@@ -1305,7 +1267,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     // Snapshot local queue
     const snapshotQueue = paidQueue.slice();
     const totalMs = snapshotQueue.reduce((s,i)=>s + (i.duration_ms || 210000), 0);
-    const totalMs = snapshotQueue.reduce((s, i) => s + (i.duration_ms || 210000), 0);
 
     // Update now playing UI
     const first = snapshotQueue[0];
@@ -1512,12 +1473,6 @@ async function startPaidCheckout(tracks) {
       checkoutId = crypto.randomUUID();
       sessionStorage.setItem('checkoutId', checkoutId);
     }
-let checkoutId = sessionStorage.getItem('checkoutId');
-if (!checkoutId) {
-  throw new Error('Missing checkoutId from server. Cannot start checkout.');
-}
-
-
 
     // Prevent double-initiation of the same checkout
     const submissionMarkerKey = `checkoutInit_${checkoutId}`;
@@ -1590,8 +1545,6 @@ if (!checkoutId) {
 }
 
 
-
-
 // Helpers (place near other helpers)
 function getPendingSubmission() {
   try { return JSON.parse(sessionStorage.getItem('pendingSubmission') || 'null'); } catch (e) { return null; }
@@ -1630,10 +1583,6 @@ async function pollStatus() {
     // Get pending submission (preferred) or legacy tracks
     const pending = getPendingSubmission();
     let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length ? pending.tracks.slice() : JSON.parse(sessionStorage.getItem('tracks') || '[]');
-    const pending = typeof getPendingSubmission === 'function' ? getPendingSubmission() : null;
-    let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length
-      ? pending.tracks.slice()
-      : JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
     // If backend already reports enqueuedUris, filter out already enqueued
     if (Array.isArray(data.enqueuedUris) && data.enqueuedUris.length) {
@@ -1648,7 +1597,6 @@ async function pollStatus() {
     if (tracksToEnqueue.length === 0) {
       // Nothing new to add — clear pending and stop polling
       clearPendingSubmission();
-      if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
       if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
       // Refresh canonical queue from server
       if (typeof initPage === 'function') initPage();
@@ -1667,15 +1615,11 @@ async function pollStatus() {
         played: !!t.played,
         orderIndex: t.orderIndex || (paidQueue.length + 1)
       });
-      // optional: mark in sessionStorage to avoid re-submission on refresh
-      sessionStorage.setItem(`queued_${checkoutId}_${t.uri}`, 'true');
     }
 
     // Persist and render
     persistPaidQueue();
     renderQueue && renderQueue();
-    if (typeof persistPaidQueue === 'function') persistPaidQueue();
-    if (typeof renderQueue === 'function') renderQueue();
 
     // If playback not active, start it once
     if (!paidSessionActive && typeof startPaidQueuePlayback === 'function') {
@@ -1684,7 +1628,6 @@ async function pollStatus() {
 
     // Clear pending submission and stop polling
     clearPendingSubmission();
-    if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
     if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
 
     // Optionally refresh canonical server queue to pick up server ordering/flags
@@ -1693,7 +1636,6 @@ async function pollStatus() {
   } catch (err) {
     console.error('pollStatus error:', err);
     // keep polling; do not auto-submit or clear pending state on transient errors
-    // keep polling; optionally add retry/backoff logic here
   }
 }
 
@@ -2319,20 +2261,6 @@ function startAddFlow(){
         sessionStorage.setItem('checkoutId', checkoutId);
         sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
       }
-let sid = sessionId || sessionStorage.getItem('sessionId');
-let checkoutId = sessionStorage.getItem('checkoutId');
-
-if (!checkoutId) {
-  throw new Error('Missing checkoutId from server. Cannot continue paid playback.');
-}
-
-if (!sid) {
-  const today = new Date().toISOString().slice(0, 10);
-  sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
-  sessionStorage.setItem('sessionId', sid);
-  sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
-}
-
 
       // If paid session not active, try to start it (idempotent)
       if (!paidSessionActive) {
@@ -2565,7 +2493,7 @@ async function pollStatusOnce(){
         title: obj.title || '',
         artist: obj.artist || '',
         duration_ms: obj.duration_ms || 0
-
+        
       };
     }
 
@@ -2581,31 +2509,17 @@ async function pollStatusOnce(){
   async function refreshStatus() {
     const res = await fetch('/api/status');
     const data = await res.json();
-async function refreshStatus() {
-  const res = await fetch('/api/status');
-  const data = await res.json();
-
-  if (data.success) {
-    const percent = data.durationMs > 0
-      ? (data.progressMs / data.durationMs) * 100
-      : 0;
 
     if (data.success) {
       const percent = data.durationMs > 0
         ? (data.progressMs / data.durationMs) * 100
         : 0;
-    const bar = document.getElementById('progress-bar');
-    const text = document.getElementById('progress-text');
 
       document.getElementById('progress-bar').style.width = percent + '%';
       document.getElementById('progress-text').textContent =
         `${Math.floor(data.progressMs / 1000)}s / ${Math.floor(data.durationMs / 1000)}s`;
-    if (bar) bar.style.width = percent + '%';
-    if (text) {
-      text.textContent = `${Math.floor(data.progressMs / 1000)}s / ${Math.floor(data.durationMs / 1000)}s`;
     }
   }
-}
 
   // Poll every 5 seconds for smoother progress updates
   setInterval(refreshStatus, 5000);
@@ -2745,7 +2659,7 @@ async function refreshStatus() {
 })();
 </script>
 
-
+    
 <script>
 (async function loadPaidTracks() {
   try {
