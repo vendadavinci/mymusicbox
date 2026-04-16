@@ -4,305 +4,376 @@
   <meta charset="utf-8" />
   <title>Pub Jukebox — Playback</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <style>
-    :root{
-      --bg-overlay: rgba(0,0,0,0.65);
-      --card-bg: rgba(0,0,0,0.75);
-      --accent: #ffd700;
-      --muted: #d6d6d6;
-    }
+<style>
+  :root{
+    --bg-overlay: rgba(0,0,0,0.65);
+    --card-bg: rgba(0,0,0,0.75);
+    --accent: #ffd700;
+    --muted: #d6d6d6;
+  }
 
-    html,body{
-      height:100%;
-      margin:0;
-      font-family: Arial, Helvetica, sans-serif;
-      background: url("pictures/backg.jpeg") no-repeat center center fixed;
-      background-size: cover;
-      color:#fff;
-      display:flex;
-      flex-direction:column;
-      min-height:100vh;
-    }
-
-    header{
-      background: rgba(0,0,0,0.6);
-      padding:16px 20px;
-      text-align:center;
-      font-size:20px;
-      font-weight:700;
-    }
-
-    main{
-      flex:1;
-      padding:18px;
-      display:flex;
-      gap:18px;
-      box-sizing:border-box;
-      align-items:flex-start;
-      justify-content:center;
-      flex-wrap:wrap;
-    }
-
-    /* Left column: large Now Playing (up to 1080px wide) */
-    .left-col{
-      width:100%;
-      max-width:1080px;
-      background:var(--bg-overlay);
-      border-radius:10px;
-      padding:18px;
-      box-sizing:border-box;
-      display:flex;
-      flex-direction:column;
-      gap:12px;
-    }
-
-    .player-visual{
-      width:100%;
-      height:608px;
-      max-height:608px;
-      background:linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0.75));
-      border-radius:8px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      color:#bbb;
-      font-size:18px;
-      position:relative;
-      overflow:hidden;
-    }
-
-    .player-overlay {
-      position:absolute;
-      left:12px;
-      bottom:12px;
-      right:12px;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:12px;
-    }
-
-.track-info {
+/* page layout */
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  color: #fff;
   display: flex;
-  flex-direction: column; /* stack text below the art */
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
+  flex-direction: column;
+  min-height: 100vh;
+  background: none;
 }
 
-.art {
-  width: 304px;   /* half of player-visual height */
-  height: 304px;  /* half of player-visual height */
-  background: #222;
-  border-radius: 12px; /* slightly larger radius for bigger tile */
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #999;
-  font-size: 14px;
-  overflow: hidden;
-  background-size: cover;
-  background-position: center;
-}
-
-    .meta{
-      min-width:0;
-    }
-    .meta .title{ font-size:20px; font-weight:700; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .meta .artist{ margin:4px 0 0 0; color:var(--muted); font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
-    .player-controls{
-      display:flex;
-      gap:10px;
-      align-items:center;
-    }
-    .btn{
-      background:var(--accent);
-      color:#000;
-      border:none;
-      padding:10px 14px;
-      border-radius:6px;
-      cursor:pointer;
-      font-weight:700;
-    }
-    .btn.ghost{
-      background:transparent;
-      color:var(--muted);
-      border:1px solid rgba(255,255,255,0.06);
-    }
-
-/* Make the whole playerVisual show album art */
-#playerVisual {
-  position: relative;
-  background-color: #111; /* fallback */
-  background-position: center;
-  background-size: cover;
-  background-repeat: no-repeat;
-  transition: background-image 300ms ease-in-out;
-  overflow: hidden;
-}
-
-/* Dark overlay so text remains readable */
-#playerVisual::before {
+/* background image layer (blurred) */
+body::before {
   content: "";
-  position: absolute;
+  position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.45);
-  pointer-events: none;
+  z-index: -1;
+  background-image: url("pictures/backg.jpeg");
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: cover;
+  filter: blur(2px) brightness(0.6); /* reduced blur (50%) */
+  transform: scale(1.015); /* slight scale to avoid edge artifacts */
+  will-change: transform, filter;
+}
+
+/* content container sits above the blurred background */
+.app, main, #root {
+  position: relative;
   z-index: 1;
 }
 
-.player-overlay {
-  position: relative;
-  z-index: 2; /* keep text above overlay */
+/* reduce blur on small screens for performance */
+@media (max-width: 720px) {
+  body::before {
+    filter: blur(1px) brightness(0.65); /* reduced mobile blur */
+    transform: scale(1.01);
+  }
 }
 
 
-    /* small "Playing Next" strip under the visual */
-    .playing-next {
-      width:100%;
-      max-width:1080px;
-      background:rgba(0,0,0,0.55);
-      border-radius:8px;
-      padding:10px 12px;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      box-sizing:border-box;
-      color:var(--muted);
-      font-size:14px;
-    }
-    .playing-next .label{ color:var(--accent); font-weight:700; margin-right:12px; }
-    .playing-next .next-title{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80%; }
+  header{
+    background: rgba(0,0,0,0.6);
+    padding:16px 20px;
+    text-align:center;
+    font-size:20px;
+    font-weight:700;
+  }
 
-    /* Right column: search + queue */
-    .right-col{
-      width:100%;
-      max-width:420px;
-      display:flex;
-      flex-direction:column;
-      gap:12px;
-    }
+  main{
+    flex:1;
+    padding:18px;
+    display:flex;
+    gap:18px;
+    box-sizing:border-box;
+    align-items:flex-start;
+    justify-content:center;
+    flex-wrap:wrap;
+  }
 
-    .card{
-      background:var(--card-bg);
-      padding:14px;
-      border-radius:10px;
-      box-sizing:border-box;
-    }
+  /* Left column: large Now Playing (up to 1080px wide) */
+  .left-col{
+    width:100%;
+    max-width:1080px;
+    background:var(--bg-overlay);
+    border-radius:10px;
+    padding:18px;
+    box-sizing:border-box;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
 
-    .search-row{
-      display:flex;
-      gap:8px;
-      align-items:center;
-    }
-    .search-row input{
-      flex:1;
-      padding:10px;
-      border-radius:6px;
-      border:1px solid rgba(255,255,255,0.06);
-      background:transparent;
-      color:#fff;
-      outline:none;
-    }
-    .search-results{
-      margin-top:10px;
-      max-height:220px;
-      overflow:auto;
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-    }
-    .result-item{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      padding:8px;
-      border-radius:6px;
-      background:rgba(255,255,255,0.02);
-      cursor:pointer;
-    }
-    .result-item:hover{ background:rgba(255,255,255,0.04); }
+  /* Player visual container */
+  .player-visual{
+    width:100%;
+    height:608px;
+    max-height:608px;
+    border-radius:8px;
+    position:relative;
+    overflow:hidden;
+    background-color:#111; /* fallback */
+    display:block;
+  }
 
-    .queue-list{
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-      max-height:320px;
-      overflow:auto;
-      margin-top:8px;
-    }
-    .queue-item{
-      display:flex;
-      justify-content:space-between;
-      gap:8px;
-      align-items:center;
-      padding:8px;
-      border-radius:6px;
-      background:rgba(255,255,255,0.02);
-      font-size:14px;
-    }
-    .queue-item .meta{ color:var(--muted); font-size:13px; }
+  /* Artwork fills the visual area */
+  .art {
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    background: #222 center/cover no-repeat;
+    border-radius: 8px; /* keep rounded corners with container */
+    transform-origin:center;
+    will-change:background-image;
+  }
 
-    .small{
-      font-size:12px;
-      color:var(--muted);
-    }
+  /* Optional subtle zoom for nicer look */
+  .art.img-zoom {
+    transition: transform 8s ease;
+    transform: scale(1.03);
+  }
 
-    footer{
-      background: rgba(0,0,0,0.6);
-      text-align:center;
-      padding:10px;
-      font-size:14px;
-      color:var(--muted);
-    }
+  /* Dark overlay so text remains readable */
+  .player-visual::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.25);
+    pointer-events: none;
+    z-index: 1;
+    border-radius: 8px;
+  }
 
-    @media (max-width:1200px){
-      main{ padding:12px; gap:12px; }
-      .player-visual{ height:420px; }
-      .art{ width:96px; height:96px; }
-    }
+  /* Overlay strip for track info (separate from art) */
+  .player-overlay {
+    position:absolute;
+    bottom:0;
+    left:0;
+    right:0;
+    padding:12px 16px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.0), rgba(0,0,0,0.65));
+    z-index: 2;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    box-sizing:border-box;
+  }
 
-  </style>
+  /* Meta container centered and constrained */
+  .meta {
+    width:100%;
+    max-width:920px;
+    text-align:center;
+    padding:6px 12px;
+    box-sizing:border-box;
+    backdrop-filter: blur(2px);
+  }
+
+  .meta .title{
+    font-size:20px;
+    font-weight:700;
+    margin:0;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    color:#fff;
+  }
+
+  .meta .artist{
+    margin:6px 0 0 0;
+    color:var(--muted);
+    font-size:14px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .meta .small{
+    margin-top:6px;
+    font-size:12px;
+    color:#cfcfcf;
+  }
+
+  /* Keep track-info only for legacy layouts; not required for full-art layout */
+  .track-info {
+    display:flex;
+    gap:12px;
+    align-items:center;
+    justify-content:center;
+    min-width:0;
+  }
+
+  .player-controls{
+    display:flex;
+    gap:10px;
+    align-items:center;
+  }
+
+  .btn{
+    background:var(--accent);
+    color:#000;
+    border:none;
+    padding:10px 14px;
+    border-radius:6px;
+    cursor:pointer;
+    font-weight:700;
+  }
+  .btn.ghost{
+    background:transparent;
+    color:var(--muted);
+    border:1px solid rgba(255,255,255,0.06);
+  }
+
+  /* small "Playing Next" strip under the visual */
+  .playing-next {
+    width:100%;
+    max-width:1080px;
+    background:rgba(0,0,0,0.55);
+    border-radius:8px;
+    padding:10px 12px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    box-sizing:border-box;
+    color:var(--muted);
+    font-size:14px;
+  }
+  .playing-next .label{ color:var(--accent); font-weight:700; margin-right:12px; }
+  .playing-next .next-title{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80%; }
+
+  /* Right column: search + queue */
+  .right-col{
+    width:100%;
+    max-width:420px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+
+  .card{
+    background:var(--card-bg);
+    padding:14px;
+    border-radius:10px;
+    box-sizing:border-box;
+  }
+
+  .search-row{
+    display:flex;
+    gap:8px;
+    align-items:center;
+  }
+  .search-row input{
+    flex:1;
+    padding:10px;
+    border-radius:6px;
+    border:1px solid rgba(255,255,255,0.06);
+    background:transparent;
+    color:#fff;
+    outline:none;
+  }
+.search-results {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.result {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.02);
+  cursor: pointer;
+}
+.result:hover {
+  background: rgba(255,255,255,0.04);
+}
+
+
+  .queue-list{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    max-height:320px;
+    overflow:auto;
+    margin-top:8px;
+  }
+  .queue-item{
+    display:flex;
+    justify-content:space-between;
+    gap:8px;
+    align-items:center;
+    padding:8px;
+    border-radius:6px;
+    background:rgba(255,255,255,0.02);
+    font-size:14px;
+  }
+  .queue-item .meta{ color:var(--muted); font-size:13px; }
+
+  .small{
+    font-size:12px;
+    color:var(--muted);
+  }
+
+  footer{
+    background: rgba(0,0,0,0.6);
+    text-align:center;
+    padding:10px;
+    font-size:14px;
+    color:var(--muted);
+  }
+
+  /* Responsive adjustments */
+  @media (max-width:1200px){
+    main{ padding:12px; gap:12px; }
+    .player-visual{ height:420px; }
+    .meta .title{ font-size:18px; }
+    .meta .artist{ font-size:13px; }
+  }
+
+  @media (max-width:600px){
+    .player-visual{ height:320px; }
+    .meta{ padding:8px; }
+    .meta .title{ font-size:16px; }
+    .meta .artist{ font-size:12px; }
+  }
+.logo-banner {
+  width: 100%;          /* stretch full width */
+  height: auto;         /* keep aspect ratio */
+  display: block;       /* remove inline spacing */
+  object-fit: cover;    /* ensures it fills nicely */
+}
+
+</style>
+
 </head>
 <body>
-  <header>🎵 Pub Jukebox — Playback</header>
+  <header>
+  <img src="/pictures/wavecontrol.png" alt="WaveControl Logo" class="logo-banner" />
+</header>
+
 
 <main>
   <!-- Left: Now Playing visual (up to 1080px block) -->
-  <section class="left-col card" aria-label="Now Playing">
-    <div class="player-visual" id="playerVisual">
-      <div id="playerPlaceholder"></div>
 
-      <div class="player-overlay">
-        <div class="track-info">
-          <div class="art" id="nowArt"></div>
-          <div class="meta">
-            <div class="title" id="nowTitle">Idle</div>
-            <div class="artist" id="nowArtist">Default playlist</div>
-            <div class="small" id="nowMode">Mode: DEFAULT</div>
-          </div>
-        </div>
+<section class="left-col card" aria-label="Now Playing">
+  <div class="player-visual" id="playerVisual">
+    <!-- Artwork fills the visual and is controlled separately -->
+
+    <div class="art" id="nowArt" role="img" aria-label="Album artwork"></div>
+
+    <!-- Overlay strip for track info (separate from the art) -->
+
+    <div class="player-overlay">
+
+      <div class="meta">
+        <div class="title" id="nowPlaying">NOW PLAYING:</div>
+        <div class="title" id="nowTitle">Idle</div>
+        <div class="artist" id="nowArtist">Default playlist</div>
+        <div class="small" id="nowMode">Mode: DEFAULT</div>
       </div>
-
     </div>
-<div id="progress-bar-container" style="width: 300px; background: #eee;">
-  <div id="progress-bar" style="height: 10px; background: #4caf50; width: 0%;"></div>
-</div>
-<span id="progress-text"></span>
+  </div>
 
 
-    <!-- Playing Next strip -->
-    <div class="playing-next" id="playingNext">
-      <div class="small" id="queueCount">Paid queue: 0</div>
-      <div class="small" id="nextTitle">No paid tracks queued</div>
-    </div>
+  <span id="progress-text"></span>
 
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
-      <div class="small" id="statusText">Status: idle</div>
-    </div>
-  </section>
+  <!-- Playing Next strip -->
+  <div class="playing-next" id="playingNext" style="margin-top:12px;">
+    <div class="small" id="queueCount">Paid queue: 0</div>
+    <div class="small" id="nextTitle">No paid tracks queued</div>
+  </div>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+    <div class="small" id="statusText">Status: idle</div>
+  </div>
+</section>
+
 
 
   <aside class="right-col">
@@ -310,8 +381,7 @@
     <!-- Add flow -->
     <div class="card" aria-label="Add to paid playlist">
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-weight:700;">Add To Paid Playlist</div>
-        <div class="small">Users must select package & pay</div>
+
       </div>
 
       <!-- Add Songs button -->
@@ -336,7 +406,7 @@
         <!-- Dynamic form panel -->
         <div class="form-panel" id="formPanel">
           <h3>Select package to continue</h3>
-          <div class="note" id="instructionNote">Choose a package on the left. After selecting, use the search boxes to pick tracks (top 10 results shown per search box). When ready, press Pay to proceed to payment.</div>
+          <div class="note" id="instructionNote"></div>
 
           <!-- package summary -->
           <div class="form-row" id="packageSummary" style="display:none;">
@@ -362,9 +432,7 @@
             <div class="note" id="priceNote"></div>
           </div>
 
-          <div class="note" style="margin-top:12px;">
-            Payment flow: this page sends selected tracks and package info to your backend endpoint <code>/api/create-payment</code>. Your server should create the payment session and redirect the user to the payment gateway. After successful payment the backend should enqueue the paid tracks to the pub playback queue.
-          </div>
+          <div class="note" style="margin-top:12px;"></div>
         </div>
       </div>
 
@@ -376,7 +444,6 @@
       </div>
 
       <div class="search-results" id="searchResults" aria-live="polite"></div>
-      <div class="small" style="margin-top:8px;">Tip: search unlocks after payment.</div>
     </div>
 
     <!-- Paid queue -->
@@ -390,26 +457,13 @@
 
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
         <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
-        <div id="paidQueueControls"></div>
       </div>
     </div>
-      
-        <!-- Played history -->
-  <div class="card" aria-label="Played history" style="margin-top:12px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-      <div style="font-weight:700;">Played History</div>
-      <div class="small" id="playedCount">Played tracks: 0</div>
-    </div>
 
-    <!-- History list (populated by renderPlayedHistory) -->
-    <div class="queue-list" id="playedHistory" style="margin-top:10px;"></div>
-  </div>
+
   </aside>
 </main>
-
-
-
-  <footer>Powered by Spotify Premium • Pub Jukebox System</footer>
+  <footer>Powered by TicketMetro</footer>
 
   <script>
 /* ====== Paid queue app (fixed) ====== */
@@ -556,47 +610,131 @@ function clearPendingSubmission() {
       }
     }
 
-    function renderSearchResults(slotIndex, results){
-      const resultsEl = document.getElementById(`results-${slotIndex}`);
-      resultsEl.innerHTML = '';
-      if(!results || results.length === 0){
-        resultsEl.innerHTML = '<div class="small">No results</div>';
-        return;
-      }
+// Utility: close search results if selectedList has items
+function maybeCloseSearchResults(){
+  const selectedList = document.getElementById('selectedList');
+  const searchResults = document.getElementById('searchResults');
+  const searchRow = document.getElementById('searchRow');
 
-      results.forEach(r => {
-        const div = document.createElement('div');
-        div.className = 'result';
-        div.innerHTML = `
-          <div style="min-width:0">
-            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(r.title)}</div>
-            <div class="small">${escapeHtml(r.artist)}</div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
-            <div class="small">${formatMs(r.duration_ms)}</div>
-            <button class="btn ghost">Select</button>
-          </div>
-        `;
-   
-        div.addEventListener('click', ()=> selectTrackForSlot(slotIndex, r));
-        resultsEl.appendChild(div);
-      });
+  if (selectedList && selectedList.children.length > 0) {
+    if (searchResults) {
+      searchResults.innerHTML = '';
+      searchResults.style.display = 'none';
     }
-
-    function selectTrackForSlot(slotIndex, track){
-      const slot = slots[slotIndex];
-      slot.selected = {
-        uri: track.uri,
-        title: track.title,
-        artist: track.artist,
-        duration_ms: track.duration_ms || 0,
-        albumArt: track.albumArt || ''
-      };
-
-      const info = document.getElementById(`selectedInfo-${slotIndex}`);
-      info.textContent = `${track.title} — ${track.artist}`;
-      updateSelectedList();
+    if (searchRow) {
+      searchRow.style.display = 'none';
     }
+  }
+}
+
+// Hook into your selection flow
+function selectTrackForSlot(slotIndex, track){
+  const slot = slots[slotIndex];
+  slot.selected = {
+    uri: track.uri,
+    title: track.title,
+    artist: track.artist,
+    duration_ms: track.duration_ms || 0,
+    albumArt: track.albumArt || ''
+  };
+
+  const info = document.getElementById(`selectedInfo-${slotIndex}`);
+  info.textContent = `${track.title} — ${track.artist}`;
+  updateSelectedList();
+
+  // Force close search results if selectedList has items
+  maybeCloseSearchResults();
+
+  // Also hide this slot’s own results/input
+  const resultsEl = document.getElementById(`results-${slotIndex}`);
+  if (resultsEl) {
+    resultsEl.innerHTML = '';
+    resultsEl.style.display = 'none';
+  }
+  const inputEl = document.getElementById(`input-${slotIndex}`);
+  if (inputEl) {
+    inputEl.value = '';
+    inputEl.blur();
+  }
+}
+
+function renderSearchResults(slotIndex, results){
+  const resultsEl = document.getElementById(`results-${slotIndex}`);
+  resultsEl.innerHTML = '';
+  if(!results || results.length === 0){
+    resultsEl.innerHTML = '<div class="small">No results</div>';
+    resultsEl.style.display = 'block';
+    return;
+  }
+
+  // Only render the first 3 results
+  results.slice(0,3).forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'result';
+    div.innerHTML = `
+      <div style="min-width:0">
+        <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(r.title)}</div>
+        <div class="small">${escapeHtml(r.artist)}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+        <div class="small">${formatMs(r.duration_ms)}</div>
+        <button class="btn ghost">Select</button>
+      </div>
+    `;
+
+    div.querySelector('button').addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectTrackForSlot(slotIndex, r);
+    });
+    div.addEventListener('click', ()=> selectTrackForSlot(slotIndex, r));
+
+    resultsEl.appendChild(div);
+  });
+
+  resultsEl.style.display = 'block';
+}
+
+
+// Called when user clicks "Add Songs" again
+function reopenSlot(slotIndex){
+  const slotWrapper = document.getElementById(`slot-${slotIndex}`);
+  const resultsEl = document.getElementById(`results-${slotIndex}`);
+  const inputEl = document.getElementById(`input-${slotIndex}`);
+  const infoEl = document.getElementById(`selectedInfo-${slotIndex}`);
+
+  if (slotWrapper) slotWrapper.style.display = 'block';
+  if (resultsEl) {
+    resultsEl.innerHTML = '';
+    resultsEl.style.display = 'block';
+  }
+  if (inputEl) {
+    inputEl.value = '';
+    inputEl.focus();
+  }
+  if (infoEl) infoEl.textContent = 'No track selected';
+
+  slots[slotIndex].selected = null;
+}
+
+function setNowPlaying({ title, artist, albumArtUrl, mode }) {
+  const nowArt = document.getElementById('nowArt');
+  const playerVisual = document.getElementById('playerVisual');
+  const nowTitle = document.getElementById('nowTitle');
+  const nowArtist = document.getElementById('nowArtist');
+  const nowMode = document.getElementById('nowMode');
+
+  nowTitle.textContent = title || 'Idle';
+  nowArtist.textContent = artist || 'Default playlist';
+  nowMode.textContent = mode ? `Mode: ${mode}` : 'Mode: DEFAULT';
+
+  if (albumArtUrl) {
+    nowArt.style.backgroundImage = `url(${albumArtUrl})`;
+    playerVisual.style.backgroundImage = `url(${albumArtUrl})`; // optional fallback
+  } else {
+    nowArt.style.backgroundImage = '';
+    playerVisual.style.backgroundImage = '';
+  }
+}
 
     function updateSelectedList(){
       const selected = slots.filter(s => s.selected).map(s => s.selected);
@@ -808,10 +946,8 @@ async function initPage() {
       if (pending && Array.isArray(pending.tracks) && (data.tracks || []).length > 0) {
         const serverUris = new Set((data.tracks || []).map(t => t.uri));
         const allPresent = pending.tracks.every(t => serverUris.has(t.uri));
-        // If server already has them, clear pending submission and UI
         if (allPresent || data.sessionId === pending.id) {
           clearPendingSubmission();
-          // clear selected UI
           selectedTracks = [];
           const selectedContainer = document.getElementById('selectedContainer');
           const selectedList = document.getElementById('selectedList');
@@ -821,16 +957,14 @@ async function initPage() {
       }
     } else {
       // no server session: restore any local queue persisted earlier
-      const local = sessionStorage.getItem('paidQueue');
+      let local = sessionStorage.getItem('paidQueue');
       if (local) {
         try { paidQueue = JSON.parse(local); } catch (e) { paidQueue = []; }
       }
-      // filter out played tracks before rendering
       paidQueue = paidQueue.filter(t => !t.played);
       renderQueue();
       paidSessionActive = false;
 
-      // If there is a pending submission, show a resume notice instead of auto-posting
       if (pending) {
         showResumePaymentNotice(pending);
       }
@@ -838,14 +972,13 @@ async function initPage() {
   } catch (e) {
     console.warn('initPage /api/status failed', e);
     // fallback: restore local queue if available
-    const local = sessionStorage.getItem('paidQueue');
+    let local = sessionStorage.getItem('paidQueue');
     if (local) {
       try { paidQueue = JSON.parse(local); } catch (err) { paidQueue = []; }
       paidQueue = paidQueue.filter(t => !t.played);
       renderQueue();
     }
 
-    // If pending submission exists, show resume notice
     const pending = getPendingSubmission();
     if (pending) showResumePaymentNotice(pending);
   }
@@ -854,14 +987,10 @@ async function initPage() {
 // Run on initial page load
 window.addEventListener('load', () => {
   initPage();
-  // Poll status periodically to keep UI in sync
   setInterval(() => {
     initPage().catch(() => {});
-  }, 10000); // every 10s, adjust as needed
+  }, 10000);
 });
-
-
-
 
 /* ====== Startup validation ====== */
 (function validateDomBindings(){
@@ -895,10 +1024,19 @@ function renderQueue() {
   try {
     if (!paidQueueEl) return;
 
-    // Ensure paidQueue is always an array
-    if (!Array.isArray(paidQueue)) {
+    // Guard: if no active paid session, show empty state and reset
+    if (!paidSessionActive) {
       paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
+      paidQueueEl.innerHTML = '<div class="small">No paid tracks queued</div>';
+      if (queueCount) queueCount.textContent = 'Paid queue: 0';
+      if (queueDurationText) queueDurationText.textContent = '';
+      if (nextTitleEl) nextTitleEl.textContent = 'No paid tracks queued';
+      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+      return;
     }
+
+    if (!Array.isArray(paidQueue)) paidQueue = [];
 
     // Persist local queue so refresh doesn't lose it
     try {
@@ -910,7 +1048,6 @@ function renderQueue() {
     // Only show tracks that are not yet played
     const activeTracks = paidQueue.filter(t => !t.played);
 
-    // Clear existing queue safely
     paidQueueEl.innerHTML = '';
     const frag = document.createDocumentFragment();
 
@@ -921,12 +1058,10 @@ function renderQueue() {
 
       const wrapper = document.createElement('div');
       wrapper.className = 'queue-item';
-      Object.assign(wrapper.style, {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: '12px'
-      });
+      wrapper.style.display = 'flex';
+      wrapper.style.justifyContent = 'space-between';
+      wrapper.style.alignItems = 'center';
+      wrapper.style.gap = '12px';
       wrapper.dataset.index = String(index);
 
       // Left column: title + artist
@@ -935,20 +1070,16 @@ function renderQueue() {
       left.style.flex = '1';
 
       const titleDiv = document.createElement('div');
-      Object.assign(titleDiv.style, {
-        fontWeight: '700',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis'
-      });
+      titleDiv.style.fontWeight = '700';
+      titleDiv.style.whiteSpace = 'nowrap';
+      titleDiv.style.overflow = 'hidden';
+      titleDiv.style.textOverflow = 'ellipsis';
       titleDiv.textContent = item.title || 'Unknown';
 
       const metaDiv = document.createElement('div');
       metaDiv.className = 'meta';
-      Object.assign(metaDiv.style, {
-        fontSize: '0.9em',
-        color: '#666'
-      });
+      metaDiv.style.fontSize = '0.9em';
+      metaDiv.style.color = '#666';
       metaDiv.textContent = item.artist || '';
 
       left.appendChild(titleDiv);
@@ -956,29 +1087,21 @@ function renderQueue() {
 
       // Right column: duration + played indicator
       const right = document.createElement('div');
-      Object.assign(right.style, {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '6px',
-        alignItems: 'flex-end',
-        minWidth: '90px'
-      });
+      right.style.display = 'flex';
+      right.style.flexDirection = 'column';
+      right.style.gap = '6px';
+      right.style.alignItems = 'flex-end';
+      right.style.minWidth = '90px';
 
       const durationDiv = document.createElement('div');
       durationDiv.className = 'small';
-      Object.assign(durationDiv.style, {
-        fontSize: '0.85em',
-        color: '#333'
-      });
-      durationDiv.textContent = typeof formatMs === 'function'
-        ? formatMs(item.duration_ms || 0)
-        : `${Math.round((item.duration_ms || 0) / 1000)}s`;
+      durationDiv.style.fontSize = '0.85em';
+      durationDiv.style.color = '#333';
+      durationDiv.textContent = formatMs(item.duration_ms || 0);
 
       const playedDiv = document.createElement('div');
-      Object.assign(playedDiv.style, {
-        fontSize: '0.75em',
-        color: item.played ? '#0a0' : '#999'
-      });
+      playedDiv.style.fontSize = '0.75em';
+      playedDiv.style.color = item.played ? '#0a0' : '#999';
       playedDiv.textContent = item.played ? 'Played' : 'Queued';
 
       right.appendChild(durationDiv);
@@ -992,22 +1115,18 @@ function renderQueue() {
 
     paidQueueEl.appendChild(frag);
 
-    // Update counters
     if (queueCount) queueCount.textContent = `Paid queue: ${activeTracks.length}`;
     if (queueDurationText) queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
 
-    // Update "next track" display
     if (nextTitleEl) {
       if (activeTracks.length > 0) {
         const next = activeTracks[0];
-        nextTitleEl.textContent = `${next.title || 'Unknown'} — ${next.artist || ''}`;
+        nextTitleEl.textContent = `${next.title} — ${next.artist}`;
       } else {
         nextTitleEl.textContent = 'No paid tracks queued';
       }
     }
 
-    // Optional UI hooks
-    if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
   } catch (err) {
@@ -1120,7 +1239,6 @@ async function backendPlayTracks(tracks, { sessionId, append } = {}) {
 }
 
 // Robust startPaidQueuePlayback: idempotent start, aligned with checkout/session durable link
-// Extra-robust startPaidQueuePlayback: idempotent start, durable session/checkout link
 async function startPaidQueuePlayback(sessionId, replace = false) {
   try {
     if (!Array.isArray(paidQueue) || paidQueue.length === 0) return;
@@ -1129,12 +1247,15 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     // Ensure sessionId and checkoutId exist
     let sid = sessionId || sessionStorage.getItem('sessionId');
     let checkoutId = sessionStorage.getItem('checkoutId');
+
+    if (!checkoutId) {
+      throw new Error('Missing checkoutId from server. Cannot start paid playback.');
+    }
+
     if (!sid) {
-      checkoutId = checkoutId || crypto.randomUUID();
       const today = new Date().toISOString().slice(0, 10);
       sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
       sessionStorage.setItem('sessionId', sid);
-      sessionStorage.setItem('checkoutId', checkoutId);
       sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
     }
 
@@ -1144,10 +1265,9 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       console.info('startPaidQueuePlayback already attempted for', sid);
       paidSessionActive = true;
       nowMode.textContent = 'Mode: PAID';
-      if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
-      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
       return;
     }
+    sessionStorage.setItem(startMarker, 'true');
 
     // Clear redirect timeout
     if (typeof redirectTimeoutHandle !== 'undefined' && redirectTimeoutHandle) {
@@ -1158,28 +1278,16 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     // Set UI state
     paidSessionActive = true;
     nowMode.textContent = 'Mode: PAID';
-    if (statusText) statusText.textContent = 'Playing paid queue';
-    if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
-    if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+    statusText && (statusText.textContent = 'Playing paid queue');
 
     // Pause default playback
     if (typeof backendPause === 'function') {
       try { await backendPause(); } catch (e) { console.warn('backendPause failed', e); }
     }
 
-    // Snapshot local queue and normalize
-    const snapshotQueue = paidQueue.map((t, i) => ({
-      uri: t.uri,
-      title: t.title || 'Unknown',
-      artist: t.artist || '',
-      durationMs: t.duration_ms || t.durationMs || 0,
-      albumArt: t.albumArt || '',
-      addedAt: t.addedAt || Date.now(),
-      played: t.played || false,
-      orderIndex: i + 1
-    }));
-
-    const totalMs = snapshotQueue.reduce((s, i) => s + (i.durationMs || 210000), 0);
+    // Snapshot local queue
+    const snapshotQueue = paidQueue.slice();
+    const totalMs = snapshotQueue.reduce((s, i) => s + (i.duration_ms || 210000), 0);
 
     // Update now playing UI
     const first = snapshotQueue[0];
@@ -1188,8 +1296,9 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     }
 
     // Send tracks to backend once, with durable identifiers
+    let result = null;
     try {
-      const result = await backendPlayTracks(snapshotQueue, {
+      result = await backendPlayTracks(snapshotQueue, {
         sessionId: sid,
         checkoutId,
         append: false
@@ -1197,15 +1306,11 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       if (result && result.ok === false) {
         throw new Error('Backend reported failure when starting paid playback');
       }
-      // Only mark start after backend success
-      sessionStorage.setItem(startMarker, 'true');
     } catch (err) {
       console.error('startPaidQueuePlayback backendPlayTracks failed', err);
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
-      if (statusText) statusText.textContent = 'Playback/queue failed. Please try again.';
-      if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
-      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+      statusText && (statusText.textContent = 'Playback/queue failed. Please try again.');
       sessionStorage.removeItem(startMarker);
       throw err;
     }
@@ -1215,17 +1320,23 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
     }
 
-    if (typeof renderQueue === 'function') renderQueue();
+    // Guard: only render queue if paid session is active
+    if (paidSessionActive) {
+      renderQueue && renderQueue();
+    } else {
+      paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
+      renderQueue && renderQueue();
+    }
 
     // Schedule fallback
     const clamp = ms => Math.max(5000, Math.min(ms, 1000 * 60 * 60));
     const waitMs = clamp(totalMs + 2000);
 
     setTimeout(async () => {
-      // If still active and queue has more tracks, restart playback
-      if (paidSessionActive && typeof readSentUris === 'function' && readSentUris(sid).length > 0) {
+      if (paidSessionActive && readSentUris(sid).length > 0) {
         if (paidQueue.length > 0) {
-          if (statusText) statusText.textContent = 'Starting next paid queue...';
+          statusText && (statusText.textContent = 'Starting next paid queue...');
           try { await startPaidQueuePlayback(sid); } catch (e) { console.warn('restart next paid queue failed', e); }
           return;
         }
@@ -1234,9 +1345,7 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       // End paid session locally and resume default playback
       paidSessionActive = false;
       nowMode.textContent = 'Mode: DEFAULT';
-      if (statusText) statusText.textContent = 'Resuming default playlist';
-      if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
-      if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+      statusText && (statusText.textContent = 'Resuming default playlist');
 
       try {
         if (typeof backendResume === 'function') {
@@ -1246,6 +1355,11 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
       } catch (e) {
         console.warn('backendResume failed', e);
       }
+
+      // Reset queue when session ends
+      paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
+      renderQueue && renderQueue();
 
       if (typeof redirectTimeoutHandle !== 'undefined' && redirectTimeoutHandle) clearTimeout(redirectTimeoutHandle);
       redirectTimeoutHandle = setTimeout(() => {
@@ -1259,12 +1373,13 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     console.error('startPaidQueuePlayback error', err);
     paidSessionActive = false;
     nowMode.textContent = 'Mode: DEFAULT';
-    if (statusText) statusText.textContent = 'Playback error';
-    if (typeof renderPaidQueueControls === 'function') renderPaidQueueControls();
-    if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+    statusText && (statusText.textContent = 'Playback error');
+    // Reset queue on error
+    paidQueue = [];
+    sessionStorage.removeItem('paidQueue');
+    renderQueue && renderQueue();
   }
 }
-
 
 function showResumePaymentNotice(pending) {
   let notice = document.getElementById('pendingNotice');
@@ -1275,7 +1390,6 @@ function showResumePaymentNotice(pending) {
     notice.style.margin = '8px 0';
     document.querySelector('.right-col')?.prepend(notice);
   }
-  notice.innerHTML = `You have a pending payment for ${pending.tracks.length} tracks. `;
 }
 
 async function resumePendingPayment() {
@@ -1384,12 +1498,12 @@ async function startPaidCheckout(tracks) {
     }
 
     // Ensure a stable checkoutId for this payment flow
-    let checkoutId = sessionStorage.getItem('checkoutId');
-    if (!checkoutId) {
-      // If you have a server-provided checkout id earlier in the flow, set it here instead
-      checkoutId = crypto.randomUUID();
-      sessionStorage.setItem('checkoutId', checkoutId);
-    }
+let checkoutId = sessionStorage.getItem('checkoutId');
+if (!checkoutId) {
+  throw new Error('Missing checkoutId from server. Cannot start checkout.');
+}
+
+
 
     // Prevent double-initiation of the same checkout
     const submissionMarkerKey = `checkoutInit_${checkoutId}`;
@@ -1462,6 +1576,8 @@ async function startPaidCheckout(tracks) {
 }
 
 
+
+
 // Helpers (place near other helpers)
 function getPendingSubmission() {
   try { return JSON.parse(sessionStorage.getItem('pendingSubmission') || 'null'); } catch (e) { return null; }
@@ -1486,7 +1602,6 @@ async function pollStatus() {
     const checkoutId = sessionStorage.getItem('checkoutId');
     if (!checkoutId) return;
 
-    // Ask backend for canonical checkout/session status
     const res = await fetch(`/api/yoco/session-status?id=${encodeURIComponent(checkoutId)}`);
     if (!res.ok) {
       console.warn('session-status returned non-ok', res.status);
@@ -1494,33 +1609,28 @@ async function pollStatus() {
     }
     const data = await res.json();
 
-    // Expect backend to return { status: 'successful'|'pending'|'failed', enqueuedUris: [...], checkoutId: '...' }
     if (data.status !== 'successful') return;
 
-    // Get pending submission (preferred) or legacy tracks
-    const pending = getPendingSubmission();
-    let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length ? pending.tracks.slice() : JSON.parse(sessionStorage.getItem('tracks') || '[]');
+    const pending = typeof getPendingSubmission === 'function' ? getPendingSubmission() : null;
+    let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length
+      ? pending.tracks.slice()
+      : JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
-    // If backend already reports enqueuedUris, filter out already enqueued
     if (Array.isArray(data.enqueuedUris) && data.enqueuedUris.length) {
       const enqueuedSet = new Set(data.enqueuedUris);
       tracksToEnqueue = tracksToEnqueue.filter(t => !enqueuedSet.has(t.uri));
     }
 
-    // Also filter out any URIs already present in local paidQueue to avoid duplicates
     const localSet = new Set((paidQueue || []).map(t => t.uri));
     tracksToEnqueue = tracksToEnqueue.filter(t => !localSet.has(t.uri));
 
     if (tracksToEnqueue.length === 0) {
-      // Nothing new to add — clear pending and stop polling
-      clearPendingSubmission();
+      if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
       if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
-      // Refresh canonical queue from server
       if (typeof initPage === 'function') initPage();
       return;
     }
 
-    // Append new tracks to paidQueue with defensive normalization
     for (const t of tracksToEnqueue) {
       paidQueue.push({
         uri: t.uri,
@@ -1532,27 +1642,24 @@ async function pollStatus() {
         played: !!t.played,
         orderIndex: t.orderIndex || (paidQueue.length + 1)
       });
+      // optional: mark in sessionStorage to avoid re-submission on refresh
+      sessionStorage.setItem(`queued_${checkoutId}_${t.uri}`, 'true');
     }
 
-    // Persist and render
-    persistPaidQueue();
-    renderQueue && renderQueue();
+    if (typeof persistPaidQueue === 'function') persistPaidQueue();
+    if (typeof renderQueue === 'function') renderQueue();
 
-    // If playback not active, start it once
     if (!paidSessionActive && typeof startPaidQueuePlayback === 'function') {
       startPaidQueuePlayback();
     }
 
-    // Clear pending submission and stop polling
-    clearPendingSubmission();
+    if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
     if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
-
-    // Optionally refresh canonical server queue to pick up server ordering/flags
     if (typeof initPage === 'function') initPage();
 
   } catch (err) {
     console.error('pollStatus error:', err);
-    // keep polling; do not auto-submit or clear pending state on transient errors
+    // keep polling; optionally add retry/backoff logic here
   }
 }
 
@@ -1560,7 +1667,7 @@ async function pollStatus() {
 /* ====== Payment success handler ====== */
 // Robust onPaymentSuccess: idempotent, single /api/play call, prevents re-submits on refresh
 async function onPaymentSuccess() {
-  // Helpers
+  // --- Helpers ---
   const fetchWithTimeout = async (url, opts = {}, timeout = 10000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
@@ -1574,27 +1681,90 @@ async function onPaymentSuccess() {
     }
   };
 
-  const postPlay = async (payload) => {
-    // one retry on network failure
-    try {
-      return await fetchWithTimeout('/api/play', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }, 15000);
-    } catch (err) {
-      // retry once after short delay
-      await new Promise(r => setTimeout(r, 800));
-      return await fetchWithTimeout('/api/play', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }, 15000);
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // Post /api/play with network retry/backoff (returns Response or throws)
+  const postPlayWithBackoff = async (payload, attempts = 3) => {
+    let delay = 800;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        if (i > 1) {
+          const submitButton = document.querySelector('#payment-complete-button');
+          if (submitButton) submitButton.textContent = `Retrying (${i}/${attempts})...`;
+        }
+        const res = await fetchWithTimeout('/api/play', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }, 15000);
+        return res;
+      } catch (err) {
+        console.warn(`postPlay attempt ${i} failed`, err);
+        if (i === attempts) throw err;
+        await sleep(delay);
+        delay *= 2;
+      }
     }
   };
 
+  // Queue a single track via /api/queue with retries and structured error handling
+  const queueTrackWithRetries = async (track, sessionId, maxAttempts = 4) => {
+    let attempt = 0;
+    let delay = 600;
+    const payload = {
+      uri: track.uri,
+      sessionId,
+      userId: window.currentUserId || null,
+      title: track.title,
+      artist: track.artist,
+      duration_ms: track.duration_ms,
+      albumArt: track.albumArt
+    };
+
+    while (attempt < maxAttempts) {
+      attempt++;
+      try {
+        const res = await fetchWithTimeout('/api/queue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }, 10000);
+
+        // Try to parse JSON body
+        let body = null;
+        try { body = await res.json().catch(() => null); } catch (e) { body = null; }
+
+        // Handle structured NO_ACTIVE_DEVICE
+        if (!res.ok && body?.code === 'NO_ACTIVE_DEVICE') {
+          return { ok: false, code: 'NO_ACTIVE_DEVICE', details: body };
+        }
+
+        if (!res.ok) {
+          const txt = body || await res.text().catch(() => '<no body>');
+          console.warn('queueTrack failed', res.status, txt);
+          // Retry on 5xx or network-like errors; break on 4xx other than NO_ACTIVE_DEVICE
+          if (res.status >= 500 || res.status === 0) {
+            if (attempt < maxAttempts) await sleep(delay);
+            delay *= 2;
+            continue;
+          }
+          return { ok: false, code: 'FAILED', details: txt };
+        }
+
+        // success
+        return { ok: true, body };
+      } catch (err) {
+        console.warn(`queueTrack attempt ${attempt} error`, err);
+        if (attempt >= maxAttempts) throw err;
+        await sleep(delay);
+        delay *= 2;
+      }
+    }
+    return { ok: false, code: 'FAILED', details: 'Max attempts reached' };
+  };
+
   try {
-    // Read tracks saved during checkout flow
+    // --- Read tracks saved during checkout flow ---
     const tracksJson = sessionStorage.getItem('tracks');
     if (!tracksJson) {
       console.warn('No tracks found in sessionStorage after payment.');
@@ -1607,23 +1777,24 @@ async function onPaymentSuccess() {
       return;
     }
 
-    // Prevent double-submission: check a per-checkout flag
-    const checkoutId = sessionStorage.getItem('checkoutId') || crypto.randomUUID();
-    // sessionId format: YYYY-MM-DD-checkoutId-timestampShort (guarantees uniqueness per payment)
+    // --- Idempotency guard (per-checkout) ---
+    const checkoutId = sessionStorage.getItem('checkoutId');
+if (!checkoutId) {
+  console.error('No checkoutId found after payment. Cannot attach tracks.');
+  return;
+}
+
     const today = new Date().toISOString().slice(0, 10);
     const sessionId = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
-
-    // If a submission marker exists for this checkout, do not re-submit
     const submissionMarkerKey = `paidSubmitted_${checkoutId}`;
+
     if (sessionStorage.getItem(submissionMarkerKey)) {
       console.info('Payment already submitted for this checkoutId; skipping re-submit.');
-      // still store sessionId so UI can attach to it if needed
       sessionStorage.setItem('sessionId', sessionStorage.getItem(`sessionId_${checkoutId}`) || sessionId);
       return;
     }
 
-    // Before calling /api/play, check if there's already an active paid session on the server
-    // If there is, attach to it instead of creating a new one
+    // --- Check server for active paid session to decide append vs replace ---
     let activeSessionId = null;
     try {
       const statusRes = await fetchWithTimeout('/api/status', { method: 'GET' }, 8000);
@@ -1637,30 +1808,36 @@ async function onPaymentSuccess() {
       console.warn('Could not fetch /api/status before /api/play; proceeding to submit payment result.', err);
     }
 
-    // If an active session exists, we should append only new tracks (or skip if duplicates)
     const payload = {
       sessionId: activeSessionId || sessionId,
       userId: window.currentUserId || null,
       tracks,
-      append: !!activeSessionId // append to existing session if present
+      append: !!activeSessionId
     };
 
-    // Disable UI controls that could re-trigger submission (example)
+    // --- UI: disable submit and show progress ---
     const submitButton = document.querySelector('#payment-complete-button');
     if (submitButton) {
       submitButton.disabled = true;
       submitButton.dataset.prevText = submitButton.textContent;
       submitButton.textContent = 'Adding tracks...';
     }
+    const statusText = document.querySelector('#paid-status-text');
 
-    // Send a single request with the full tracks array (idempotent on frontend)
-    const playRes = await postPlay(payload);
+    console.info('Submitting paid tracks', { sessionId: payload.sessionId, count: tracks.length, append: payload.append });
+
+    // --- Send batch request to /api/play ---
+    const playRes = await postPlayWithBackoff(payload, 3);
     if (!playRes) throw new Error('No response from /api/play');
-    if (!playRes.ok) {
-      const details = await playRes.text().catch(() => '<no body>');
-      console.error('/api/play failed', playRes.status, details);
-      alert('Could not add tracks to the paid queue. Please try again or contact support.');
-      // Re-enable UI
+
+    // Parse response body safely
+    let playBody = null;
+    try { playBody = await playRes.json().catch(() => null); } catch (e) { playBody = null; }
+
+    // If server indicates NO_ACTIVE_DEVICE (structured), surface clear message and do not mark submitted
+    if (!playRes.ok && playBody?.code === 'NO_ACTIVE_DEVICE') {
+      // Show staff-facing modal or alert
+      alert('Venue player is offline. Please start the venue Spotify player and retry. Tracks were not queued.');
       if (submitButton) {
         submitButton.disabled = false;
         submitButton.textContent = submitButton.dataset.prevText || 'Done';
@@ -1668,30 +1845,135 @@ async function onPaymentSuccess() {
       return;
     }
 
-    // Mark this checkout as submitted so refreshes won't re-submit
+    // If server returned non-ok and not NO_ACTIVE_DEVICE, show generic error
+    if (!playRes.ok) {
+      const details = playBody || await playRes.text().catch(() => '<no body>');
+      console.error('/api/play failed', playRes.status, details);
+      alert('Could not add tracks to the paid queue. Please try again or contact support.');
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      }
+      return;
+    }
+
+    // --- Success path: server accepted request but may have queued partially ---
+    // Expect server to return structured info when partial: { success:true, added: N, failedTracks: [{uri, reason}], queuedUris: [...] }
+    const queuedUris = Array.isArray(playBody?.queuedUris) ? playBody.queuedUris : [];
+    const failedTracks = Array.isArray(playBody?.failedTracks) ? playBody.failedTracks : [];
+
+    // If server reports all queued, mark submission and finish
+    if (queuedUris.length >= tracks.length && failedTracks.length === 0) {
+      sessionStorage.setItem(submissionMarkerKey, 'true');
+      sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
+      sessionStorage.setItem('sessionId', payload.sessionId);
+      sessionStorage.removeItem('tracks');
+      if (!activeSessionId) {
+        if (typeof startPaidQueuePlayback === 'function') {
+          try { startPaidQueuePlayback(payload.sessionId); } catch (e) { console.warn('startPaidQueuePlayback failed', e); }
+        }
+        if (statusText) statusText.textContent = 'Starting paid playback...';
+      } else {
+        if (statusText) statusText.textContent = 'Tracks appended to existing paid queue';
+      }
+      console.log('All tracks queued successfully', queuedUris.length);
+      if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      return;
+    }
+
+    // --- Partial or no queueing: attempt per-track retries for any tracks not confirmed queued ---
+    // Build map of requested URIs -> track objects
+    const uriToTrack = new Map(tracks.map(t => [t.uri, t]));
+    // Determine which URIs still need queuing
+    const stillToQueue = [];
+    for (const t of tracks) {
+      if (!queuedUris.includes(t.uri)) stillToQueue.push(t);
+    }
+
+    // If nothing to retry (edge case), mark submission and exit
+    if (stillToQueue.length === 0) {
+      sessionStorage.setItem(submissionMarkerKey, 'true');
+      sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
+      sessionStorage.setItem('sessionId', payload.sessionId);
+      sessionStorage.removeItem('tracks');
+      if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      return;
+    }
+
+    // Retry each remaining track individually via /api/queue
+    const perTrackResults = [];
+    for (const t of stillToQueue) {
+      // Avoid duplicate per-URI attempts within this client run
+      const alreadyQueuedMarker = sessionStorage.getItem(`queued_${payload.sessionId}_${t.uri}`);
+      if (alreadyQueuedMarker) {
+        perTrackResults.push({ uri: t.uri, ok: true, note: 'client-marked-queued' });
+        continue;
+      }
+
+      const result = await queueTrackWithRetries(t, payload.sessionId, 4).catch(err => ({ ok: false, code: 'EXCEPTION', details: err?.message || String(err) }));
+      if (result.ok) {
+        // mark locally to avoid re-submitting same URI on refresh
+        sessionStorage.setItem(`queued_${payload.sessionId}_${t.uri}`, 'true');
+      }
+      perTrackResults.push({ uri: t.uri, ...result });
+      // small gap to avoid bursts
+      await sleep(120);
+    }
+
+    // Analyze per-track results
+    const failedAfterRetries = perTrackResults.filter(r => !r.ok && r.code !== 'NO_ACTIVE_DEVICE');
+    const noDeviceHits = perTrackResults.filter(r => r.code === 'NO_ACTIVE_DEVICE');
+
+    if (noDeviceHits.length > 0) {
+      // If device offline during retries, inform staff and do not mark submission
+      alert('Venue player is currently offline. Some tracks were not queued. Please start the venue Spotify player and retry the failed submissions from the admin UI.');
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      }
+      return;
+    }
+
+    // If there are permanent failures, surface them but still mark submission so duplicates are avoided.
+    if (failedAfterRetries.length > 0) {
+      console.warn('Some tracks failed to queue after retries', failedAfterRetries);
+      // Mark submission so we don't duplicate; backend should track failed flags and worker will retry
+      sessionStorage.setItem(submissionMarkerKey, 'true');
+      sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
+      sessionStorage.setItem('sessionId', payload.sessionId);
+      sessionStorage.removeItem('tracks');
+      alert(`Some tracks could not be queued immediately (${failedAfterRetries.length}). They will be retried in the background. If the issue persists, contact support.`);
+      if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      return;
+    }
+
+    // All per-track retries succeeded
     sessionStorage.setItem(submissionMarkerKey, 'true');
-    // Persist the sessionId associated with this checkout so refreshes can re-attach
     sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
     sessionStorage.setItem('sessionId', payload.sessionId);
-    // Remove the transient tracks list (we've submitted them)
     sessionStorage.removeItem('tracks');
 
-    // Update UI and optionally start playback if no active session existed
     if (!activeSessionId) {
-      // startPaidQueuePlayback should be idempotent and check server state itself
       if (typeof startPaidQueuePlayback === 'function') {
         try { startPaidQueuePlayback(payload.sessionId); } catch (e) { console.warn('startPaidQueuePlayback failed', e); }
       }
-      statusText && (statusText.textContent = 'Starting paid playback...');
+      if (statusText) statusText.textContent = 'Starting paid playback...';
     } else {
-      statusText && (statusText.textContent = 'Tracks appended to existing paid queue');
+      if (statusText) statusText.textContent = 'Tracks appended to existing paid queue';
     }
 
-    console.log('Payment successful — tracks queued:', tracks.length, 'Session:', payload.sessionId);
+    console.log('Payment successful — tracks queued (after retries):', tracks.length, 'Session:', payload.sessionId);
+    if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
+
   } catch (e) {
     console.error('onPaymentSuccess error', e);
-    alert('Something went wrong adding your tracks after payment.');
-    // Re-enable submit button if present
+    // If the error message mentions device offline, show a clearer message
+    const msg = (e && e.message) ? e.message : 'Something went wrong adding your tracks after payment.';
+    if (msg.toLowerCase().includes('no active') || msg.toLowerCase().includes('device')) {
+      alert('Venue player appears offline. Please start the venue Spotify player and retry.');
+    } else {
+      alert('Something went wrong adding your tracks after payment. Please try again or contact support.');
+    }
     const submitButton = document.querySelector('#payment-complete-button');
     if (submitButton) {
       submitButton.disabled = false;
@@ -1699,7 +1981,6 @@ async function onPaymentSuccess() {
     }
   }
 }
-
 
 function applyPackageFromQuery({ autoMarkPaid = false } = {}){
   const params = new URLSearchParams(window.location.search);
@@ -1725,34 +2006,239 @@ function startAddFlow(){
 
 
 (function () {
+  // --- Config ---
+  const APPEND_BATCH_MS = 800;
+  const BATCH_RETRY_BASE_MS = 1000;
+  const MAX_BATCH_RETRIES = 4;
+  const PER_TRACK_RETRY_ATTEMPTS = 4;
+  const MAX_BATCH_SIZE = 12; // safety cap
+
+  // --- State ---
   let appendBatch = [];
   let appendTimer = null;
-  const APPEND_BATCH_MS = 800;
+  let flushInProgress = false;
 
-  async function flushAppendBatch(sessionId) {
-    if (!appendBatch.length) return;
-    const batch = appendBatch.slice();
-    appendBatch = [];
-    clearTimeout(appendTimer);
-    appendTimer = null;
+  // --- Helpers ---
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+  const fetchWithTimeout = async (url, opts = {}, timeout = 10000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
     try {
-      await backendPlayTracks(batch, {
-        sessionId,
-        checkoutId: sessionStorage.getItem('checkoutId'),
-        append: true
-      });
-      console.log('Appended batch to backend:', batch.map(t => t.uri));
+      const res = await fetch(url, { ...opts, signal: controller.signal });
+      clearTimeout(id);
+      return res;
     } catch (err) {
-      console.error('Failed to append batch to backend:', err);
-      statusText && (statusText.textContent = 'Append failed — will retry shortly');
-      appendBatch = batch.concat(appendBatch);
-      if (!appendTimer) {
-        appendTimer = setTimeout(() => flushAppendBatch(sessionId), 3000);
-      }
+      clearTimeout(id);
+      throw err;
+    }
+  };
+
+  function persistPaidQueue(paidQueue) {
+    try {
+      sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
+    } catch (e) {
+      console.warn('Could not persist paidQueue to sessionStorage', e);
     }
   }
 
+  function markClientQueued(sessionId, uri) {
+    try {
+      sessionStorage.setItem(`queued_${sessionId}_${uri}`, 'true');
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function isClientMarkedQueued(sessionId, uri) {
+    return !!sessionStorage.getItem(`queued_${sessionId}_${uri}`);
+  }
+
+  // --- Core: flush batch to backend with retries and partial handling ---
+  async function flushAppendBatch(sessionId) {
+    if (!appendBatch.length) return;
+    if (flushInProgress) return; // avoid concurrent flushes
+    flushInProgress = true;
+
+    // take up to MAX_BATCH_SIZE items
+    const batch = appendBatch.slice(0, MAX_BATCH_SIZE);
+    // keep remainder in queue
+    appendBatch = appendBatch.slice(batch.length);
+    clearTimeout(appendTimer);
+    appendTimer = null;
+
+    // build payload
+    const payload = {
+      sessionId,
+      checkoutId: sessionStorage.getItem('checkoutId') || null,
+      append: true,
+      tracks: batch
+    };
+
+    let attempt = 0;
+    let delay = BATCH_RETRY_BASE_MS;
+
+    while (attempt < MAX_BATCH_RETRIES) {
+      attempt++;
+      try {
+        const res = await fetchWithTimeout('/api/play', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }, 15000);
+
+        // try parse JSON
+        let body = null;
+        try { body = await res.json().catch(() => null); } catch (e) { body = null; }
+
+        // If backend signals NO_ACTIVE_DEVICE, push batch back and stop retries
+        if (!res.ok && body?.code === 'NO_ACTIVE_DEVICE') {
+          // requeue batch at front and notify staff
+          appendBatch = batch.concat(appendBatch);
+          if (typeof statusText !== 'undefined' && statusText) {
+            statusText.textContent = 'Venue player offline. Start the player and retry.';
+          }
+          flushInProgress = false;
+          return;
+        }
+
+        if (!res.ok) {
+          const details = body || await res.text().catch(() => '<no body>');
+          console.warn('Batch append failed', res.status, details);
+          if (attempt < MAX_BATCH_RETRIES) {
+            await sleep(delay);
+            delay *= 2;
+            continue;
+          } else {
+            // give up for now: requeue and schedule retry
+            appendBatch = batch.concat(appendBatch);
+            scheduleFlushRetry(sessionId, delay);
+            flushInProgress = false;
+            return;
+          }
+        }
+
+        // Success: backend accepted. Backend should return structured queuedUris and failedTracks
+        const queuedUris = Array.isArray(body?.queuedUris) ? body.queuedUris : [];
+        const failedTracks = Array.isArray(body?.failedTracks) ? body.failedTracks : [];
+
+        // Mark client-side queued URIs to avoid re-submission
+        queuedUris.forEach(uri => markClientQueued(sessionId, uri));
+
+        // If there are failedTracks, attempt per-track retries (best-effort)
+        if (failedTracks.length > 0) {
+          // Map failed URIs to track objects from the batch
+          const failedUris = failedTracks.map(f => f.uri);
+          const toRetry = batch.filter(t => failedUris.includes(t.uri));
+          // Requeue other failed items to appendBatch front so they will be retried later
+          const permanentlyFailed = []; // collect those that still fail after per-track retries
+          for (const t of toRetry) {
+            const r = await retryQueueTrack(t, sessionId);
+            if (!r.ok) {
+              permanentlyFailed.push({ uri: t.uri, reason: r.details || r.code || 'unknown' });
+            } else {
+              markClientQueued(sessionId, t.uri);
+            }
+            // small gap to avoid bursts
+            await sleep(120);
+          }
+
+          if (permanentlyFailed.length > 0) {
+            console.warn('Some tracks permanently failed to queue in this attempt', permanentlyFailed);
+            // Requeue permanently failed tracks for background worker; keep them out of immediate appendBatch
+            // For now, append them back so they will be retried later by client or worker
+            appendBatch = permanentlyFailed.map(pf => {
+              const original = batch.find(b => b.uri === pf.uri);
+              return original || { uri: pf.uri };
+            }).concat(appendBatch);
+            scheduleFlushRetry(sessionId, BATCH_RETRY_BASE_MS * 4);
+          }
+        }
+
+        // If backend queued some or all, log and finish
+        console.log('Appended batch result queuedUris:', queuedUris, 'failed:', failedTracks);
+        flushInProgress = false;
+
+        // If there are still items in appendBatch, schedule immediate flush
+        if (appendBatch.length > 0) {
+          if (!appendTimer) appendTimer = setTimeout(() => flushAppendBatch(sessionId), APPEND_BATCH_MS);
+        }
+        return;
+      } catch (err) {
+        console.warn(`flushAppendBatch attempt ${attempt} error`, err);
+        if (attempt >= MAX_BATCH_RETRIES) {
+          // requeue and schedule retry
+          appendBatch = batch.concat(appendBatch);
+          scheduleFlushRetry(sessionId, delay);
+          flushInProgress = false;
+          return;
+        }
+        await sleep(delay);
+        delay *= 2;
+      }
+    }
+    flushInProgress = false;
+  }
+
+  // schedule a delayed flush if immediate attempts fail
+  function scheduleFlushRetry(sessionId, delayMs) {
+    if (appendTimer) clearTimeout(appendTimer);
+    appendTimer = setTimeout(() => flushAppendBatch(sessionId), delayMs || 3000);
+  }
+
+  // retry a single track via /api/queue with exponential backoff
+  async function retryQueueTrack(track, sessionId) {
+    let attempt = 0;
+    let delay = 600;
+    const payload = {
+      uri: track.uri,
+      sessionId,
+      userId: window.currentUserId || null,
+      title: track.title,
+      artist: track.artist,
+      duration_ms: track.duration_ms,
+      albumArt: track.albumArt
+    };
+
+    while (attempt < PER_TRACK_RETRY_ATTEMPTS) {
+      attempt++;
+      try {
+        const res = await fetchWithTimeout('/api/queue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }, 10000);
+
+        let body = null;
+        try { body = await res.json().catch(() => null); } catch (e) { body = null; }
+
+        if (!res.ok && body?.code === 'NO_ACTIVE_DEVICE') {
+          return { ok: false, code: 'NO_ACTIVE_DEVICE', details: body };
+        }
+
+        if (!res.ok) {
+          const details = body || await res.text().catch(() => '<no body>');
+          console.warn('retryQueueTrack failed', res.status, details);
+          if (res.status >= 500 && attempt < PER_TRACK_RETRY_ATTEMPTS) {
+            await sleep(delay);
+            delay *= 2;
+            continue;
+          }
+          return { ok: false, code: 'FAILED', details };
+        }
+
+        return { ok: true, body };
+      } catch (err) {
+        console.warn(`retryQueueTrack attempt ${attempt} error`, err);
+        if (attempt >= PER_TRACK_RETRY_ATTEMPTS) return { ok: false, code: 'EXCEPTION', details: err.message || String(err) };
+        await sleep(delay);
+        delay *= 2;
+      }
+    }
+    return { ok: false, code: 'FAILED', details: 'max attempts reached' };
+  }
+
+  // --- Public API: addToPaidQueue ---
   window.addToPaidQueue = async function addToPaidQueue(track, sessionId) {
     try {
       if (!paymentComplete || !currentPackage) {
@@ -1779,33 +2265,37 @@ function startAddFlow(){
         addedAt: Date.now()
       };
 
-      if (paidQueue.some(t => t.uri === normalized.uri)) {
-        console.info('Track already in local paidQueue, skipping:', normalized.uri);
+      // local dedupe against paidQueue and appendBatch
+      if (paidQueue.some(t => t.uri === normalized.uri) || appendBatch.some(t => t.uri === normalized.uri) || isClientMarkedQueued(sessionId || sessionStorage.getItem('sessionId'), normalized.uri)) {
+        console.info('Track already queued or pending, skipping:', normalized.uri);
         statusText && (statusText.textContent = 'Track already in paid queue');
         return;
       }
 
+      // push to local paidQueue and persist
       paidQueue.push(normalized);
-      try {
-        sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
-      } catch (e) {
-        console.warn('Could not persist paidQueue to sessionStorage', e);
-      }
+      persistPaidQueue(paidQueue);
 
       songsAddedThisSession++;
       renderQueue && renderQueue();
 
-      let sid = sessionId || sessionStorage.getItem('sessionId');
-      let checkoutId = sessionStorage.getItem('checkoutId');
-      if (!sid) {
-        checkoutId = checkoutId || crypto.randomUUID();
-        const today = new Date().toISOString().slice(0,10);
-        sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
-        sessionStorage.setItem('sessionId', sid);
-        sessionStorage.setItem('checkoutId', checkoutId);
-        sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
-      }
+      // ensure sessionId exists
+let sid = sessionId || sessionStorage.getItem('sessionId');
+let checkoutId = sessionStorage.getItem('checkoutId');
 
+if (!checkoutId) {
+  throw new Error('Missing checkoutId from server. Cannot continue paid playback.');
+}
+
+if (!sid) {
+  const today = new Date().toISOString().slice(0, 10);
+  sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
+  sessionStorage.setItem('sessionId', sid);
+  sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
+}
+
+
+      // If paid session not active, try to start it (idempotent)
       if (!paidSessionActive) {
         const startMarkerKey = `paidStarted_${sid}`;
         if (!sessionStorage.getItem(startMarkerKey)) {
@@ -1819,27 +2309,27 @@ function startAddFlow(){
             console.error('startPaidQueuePlayback failed', err);
             statusText && (statusText.textContent = 'Failed to start paid playback — will retry');
             sessionStorage.removeItem(startMarkerKey);
+            // still allow adding to appendBatch so it will be queued when player comes online
           }
         } else {
           statusText && (statusText.textContent = 'Paid playback starting (in progress)');
         }
-        return;
+        // still add to appendBatch so it will be queued once active
       }
 
+      // add to appendBatch and schedule flush
       appendBatch.push(normalized);
       if (!appendTimer) {
         appendTimer = setTimeout(() => flushAppendBatch(sid), APPEND_BATCH_MS);
       }
 
       statusText && (statusText.textContent = 'Track added to paid queue');
-
     } catch (err) {
       console.error('addToPaidQueue error', err);
       alert('Something went wrong adding the track. Please try again.');
     }
   };
 })();
-
 
 /* ====== Optional: expose some functions for payment page to call ====== */
 window.applyPackageFromQuery = applyPackageFromQuery;
@@ -1985,36 +2475,64 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
     async function backendResume(){
       try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
     }
-// frontend: poll status and update UI; when paidSessionActive show next paid track if available
-// frontend: poll status and update UI; when paidSessionActive show next paid track if available
+
 async function pollStatusOnce(){
   try{
+async function pollStatusOnce() {
+  try {
     const res = await fetch('/api/status');
     if(!res.ok) return;
+    if (!res.ok) return;
     const data = await res.json();
 
     // Update now playing
     if(data.title) nowTitle.textContent = data.title;
     if(data.artist) nowArtist.textContent = data.artist;
     if(data.albumArt) nowArt.style.backgroundImage = data.albumArt ? `url(${data.albumArt})` : '';
+    if (data.title) nowTitle.textContent = data.title;
+    if (data.artist) nowArtist.textContent = data.artist;
+    if (data.albumArt) {
+      nowArt.style.backgroundImage = `url(${data.albumArt})`;
+    } else {
+      nowArt.style.backgroundImage = '';
+    }
 
     // Mode and status
     nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
     statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : (data.is_playing ? 'Playing' : 'Paused');
+    statusText.textContent =
+      data.mode === 'PAID'
+        ? 'Playing paid queue'
+        : (data.is_playing ? 'Playing' : 'Paused');
 
     // If we are in a paid session and the local paidQueue still has items,
     // show the next paid track in the UI (authoritative source is Spotify, but this helps UX)
+    // Guard: only show queue info if paid session is active
     if (paidSessionActive && paidQueue.length > 0) {
       nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
       queueCount.textContent = `Paid queue: ${paidQueue.length}`;
       queueDurationText.textContent = `Estimated duration: ${Math.round(paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0)/60000)} min`;
+      queueDurationText.textContent =
+        `Estimated duration: ${Math.round(
+          paidQueue.reduce((s, i) => s + (i.duration_ms || 210000), 0) / 60000
+        )} min`;
     } else {
       // If no local paid queue, fall back to server-provided next info if available
       if (data.next_title) nextTitleEl.textContent = data.next_title;
       queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+      // Reset queue display when not in paid session
+      paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
+      nextTitleEl.textContent = 'No paid tracks queued';
+      if (queueCount) queueCount.textContent = 'Paid queue: 0';
+      if (queueDurationText) queueDurationText.textContent = '';
     }
   }catch(e){ console.warn('pollStatusOnce', e); }
+  } catch (e) {
+    console.warn('pollStatusOnce', e);
+  }
 }
+
 
 
 
@@ -2036,7 +2554,7 @@ async function pollStatusOnce(){
         title: obj.title || '',
         artist: obj.artist || '',
         duration_ms: obj.duration_ms || 0
-        
+
       };
     }
 
@@ -2049,46 +2567,45 @@ async function pollStatusOnce(){
   </script>
 
 <script>
-  async function refreshStatus() {
-    const res = await fetch('/api/status');
-    const data = await res.json();
+async function refreshStatus() {
+  const res = await fetch('/api/status');
+  const data = await res.json();
 
-    if (data.success) {
-      const percent = data.durationMs > 0
-        ? (data.progressMs / data.durationMs) * 100
-        : 0;
+  if (data.success) {
+    const percent = data.durationMs > 0
+      ? (data.progressMs / data.durationMs) * 100
+      : 0;
 
-      document.getElementById('progress-bar').style.width = percent + '%';
-      document.getElementById('progress-text').textContent =
-        `${Math.floor(data.progressMs / 1000)}s / ${Math.floor(data.durationMs / 1000)}s`;
+    const bar = document.getElementById('progress-bar');
+    const text = document.getElementById('progress-text');
+
+    if (bar) bar.style.width = percent + '%';
+    if (text) {
+      text.textContent = `${Math.floor(data.progressMs / 1000)}s / ${Math.floor(data.durationMs / 1000)}s`;
     }
   }
+}
 
-  // Poll every 5 seconds for smoother progress updates
-  setInterval(refreshStatus, 5000);
-  refreshStatus();
 </script>
 
 <script>
   const tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
-  const sid = sessionStorage.getItem('sessionId');
 
-  if (sid && tracks.length > 0) {
-    fetch('/webhook/payment-success', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: sid, tracks })
-    }).then(() => {
-      const statusText = document.getElementById('statusText');
-      if (statusText) {
-        statusText.textContent = 'Tracks queued and ready to play.';
-      }
-    }).catch(err => {
-      console.error('Webhook call failed:', err);
-    });
-  }
+  fetch('/webhook/payment-success', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tracks })
+  }).then(() => {
+    // Instead of alert, update a status element or do nothing
+    const statusText = document.getElementById('statusText');
+    if (statusText) {
+      statusText.textContent = 'Tracks queued and ready to play.';
+    }
+    // Or simply leave this block empty if you want no message at all
+  }).catch(err => {
+    console.error('Webhook call failed:', err);
+  });
 </script>
-
 
 <script>
 (async function handlePostPayment() {
@@ -2204,26 +2721,12 @@ async function pollStatusOnce(){
 })();
 </script>
 
-    
-<script>
-function normalizeTrack(t, orderIndex = 0) {
-  return {
-    uri: t.uri,
-    title: t.title || t.name || 'Unknown',
-    artist: t.artist || (t.artists && t.artists.join(', ')) || '',
-    durationMs: t.duration_ms ?? t.durationMs ?? 0,
-    albumArt: t.albumArt || (t.album?.images?.[0]?.url) || '',
-    addedAt: t.addedAt || Date.now(),
-    played: !!t.played,
-    orderIndex
-  };
-}
 
+<script>
 (async function loadPaidTracks() {
   try {
-    let tracks = JSON.parse(sessionStorage.getItem('paidQueue') || '[]');
+    let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
-    // If no local queue, try checkoutId fetch
     if ((!tracks || tracks.length === 0) && location.search) {
       const params = new URLSearchParams(location.search);
       const checkoutId = params.get('checkoutId');
@@ -2232,72 +2735,36 @@ function normalizeTrack(t, orderIndex = 0) {
         if (r.ok) {
           const json = await r.json();
           tracks = json.tracks || [];
-
-          // Generate durable sessionId if missing
-          if (!sessionStorage.getItem('sessionId')) {
-            const today = new Date().toISOString().slice(0, 10);
-            const sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
-            sessionStorage.setItem('sessionId', sid);
-            sessionStorage.setItem('checkoutId', checkoutId);
-            sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
-          } else {
-            sessionStorage.setItem('checkoutId', checkoutId);
-          }
+          // store sessionId for later use
+          sessionStorage.setItem('sessionId', checkoutId);
         }
       }
     }
 
-    if (!tracks || tracks.length === 0) {
-      console.info('No paid tracks found to load.');
-      return;
-    }
+    if (tracks && tracks.length > 0) {
+      paidQueue.push(...tracks.map(t => ({
+        uri: t.uri,
+        title: t.title || 'Unknown',
+        artist: t.artist || '',
+        duration_ms: t.duration_ms || 0,
+        albumArt: t.albumArt || '',
+        addedAt: Date.now()
+      })));
 
-    // Normalize and dedupe by URI
-    const seen = new Set();
-    const unique = [];
-    tracks.forEach((t, i) => {
-      const nt = normalizeTrack(t, i + 1);
-      if (nt.uri && !seen.has(nt.uri)) {
-        seen.add(nt.uri);
-        unique.push(nt);
-      }
-    });
+      renderQueue();
 
-    // Replace queue with canonical unique list
-    paidQueue = unique;
-    sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
-
-    if (typeof renderQueue === 'function') renderQueue();
-
-    const sid = sessionStorage.getItem('sessionId');
-
-    // Always notify backend (server handles idempotency)
-    try {
+      // Notify backend webhook
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sid, tracks: paidQueue })
+        body: JSON.stringify({ sessionId: sessionStorage.getItem('sessionId'), tracks })
       });
-    } catch (err) {
-      console.warn('Webhook call failed:', err);
-    }
 
-    // Start playback if not already marked
-    const startMarkerKey = `paidStarted_${sid}`;
-    if (!sessionStorage.getItem(startMarkerKey)) {
-      if (statusText) statusText.textContent = 'Starting paid playback...';
-      try {
-        await startPaidQueuePlayback(sid);
-        sessionStorage.setItem(startMarkerKey, 'true');
-      } catch (err) {
-        console.error('startPaidQueuePlayback failed', err);
-        if (statusText) statusText.textContent = 'Failed to start paid playback — will retry';
-        sessionStorage.removeItem(startMarkerKey);
-      }
-    }
+      // Auto‑start playback
+      statusText.textContent = 'Starting paid playback...';
+      await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
 
-    if (typeof pollStatusOnce === 'function') {
-      try { await pollStatusOnce(); } catch (e) { console.warn('pollStatusOnce failed', e); }
+      pollStatusOnce();
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
@@ -2336,13 +2803,4 @@ refreshStatus();
 
 
 </script>
-
-
-
-
-
-   
-    
-
 </body>
-</html>
