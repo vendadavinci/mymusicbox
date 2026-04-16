@@ -2667,58 +2667,40 @@ async function refreshStatus() {
 
     
 <script>
-(async function loadPaidTracks() {
-  try {
-    let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+let playedSet = new Set(); // keep URIs or title+artist combos of played tracks
 
-    if ((!tracks || tracks.length === 0) && location.search) {
-      const params = new URLSearchParams(location.search);
-      const checkoutId = params.get('checkoutId');
-      if (checkoutId) {
-        const r = await fetch(`/api/checkout-tracks?checkoutId=${encodeURIComponent(checkoutId)}`);
-        if (r.ok) {
-          const json = await r.json();
-          tracks = json.tracks || [];
-          sessionStorage.setItem('sessionId', checkoutId);
-        }
-      }
+async function pollStatusOnce(){
+  try{
+    const res = await fetch('/api/status');
+    if(!res.ok) return;
+    const data = await res.json();
+
+    // Update now playing
+    if(data.title) nowTitle.textContent = data.title;
+    if(data.artist) nowArtist.textContent = data.artist;
+    if(data.albumArt) nowArt.style.backgroundImage = data.albumArt ? `url(${data.albumArt})` : '';
+
+    // Mode and status
+    nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
+    statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : (data.is_playing ? 'Playing' : 'Paused');
+
+    // Mark current track as played once it finishes
+    if (!data.isPlaying && data.title && data.artist) {
+      // add to played set when playback stops
+      playedSet.add(`${data.title}::${data.artist}`);
     }
 
-    if (tracks && tracks.length > 0) {
-      paidQueue.push(...tracks.map(t => ({
-        uri: t.uri,
-        title: t.title || 'Unknown',
-        artist: t.artist || '',
-        duration_ms: t.duration_ms || 0,
-        albumArt: t.albumArt || '',
-        addedAt: Date.now()
-      })));
-
-      renderQueue();
-
-      await fetch('/webhook/payment-success', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sessionStorage.getItem('sessionId'), tracks })
-      });
-
-      statusText.textContent = 'Starting paid playback...';
-      await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
-      pollStatusOnce();
-
-      // Initial population
-      await loadCheckoutQueue();
-
-      // Poller for live updates
-      setInterval(() => {
-        pollStatusOnce();
-        loadCheckoutQueue();
-      }, 8000);
+    // Next info
+    if (paidSessionActive && paidQueue.length > 0) {
+      nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
+      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+      queueDurationText.textContent = `Estimated duration: ${Math.round(paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0)/60000)} min`;
+    } else {
+      if (data.next_title) nextTitleEl.textContent = data.next_title;
+      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
     }
-  } catch (err) {
-    console.error('Error loading paid tracks:', err);
-  }
-})();
+  }catch(e){ console.warn('pollStatusOnce', e); }
+}
 
 async function loadCheckoutQueue() {
   const params = new URLSearchParams(window.location.search);
@@ -2734,7 +2716,6 @@ async function loadCheckoutQueue() {
     checkoutQueueList.innerHTML = '';
     let totalMs = 0;
 
-    // Grab current now playing info from DOM
     const currentTitle = document.getElementById('nowTitle').textContent;
     const currentArtist = document.getElementById('nowArtist').textContent;
 
@@ -2744,11 +2725,10 @@ async function loadCheckoutQueue() {
       item.className = 'queue-item';
       const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
 
-      // Compare with Now Playing
       let status = 'Queued';
       if (track.title === currentTitle && track.artist === currentArtist) {
         status = 'Playing';
-      } else if (paidQueue.find(t => t.title === track.title && t.artist === track.artist && t.played)) {
+      } else if (playedSet.has(`${track.title}::${track.artist}`)) {
         status = 'Played';
       }
 
@@ -2774,6 +2754,12 @@ async function loadCheckoutQueue() {
     console.error('Failed to load checkout tracks', err);
   }
 }
+
+// Poller
+setInterval(() => {
+  pollStatusOnce();
+  loadCheckoutQueue();
+}, 8000);
 </script>
 
 
