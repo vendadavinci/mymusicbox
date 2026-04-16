@@ -374,21 +374,23 @@ app.get('/api/status', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
+    // Ask Spotify for current playback
     const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    const activeSession = await PaidSession.findOne({ active: true });
-    const isActive = !!activeSession && activeSession.active;
-
+    // If no active device / nothing playing
     if (r.status === 204) {
+      // Still return canonical session info if any
+      const activeSession = await PaidSession.findOne({ active: true }).lean();
+      const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
       return res.json({
         success: true,
-        mode: isActive ? 'PAID' : 'DEFAULT',
-        sessionId: isActive ? activeSession.sessionId : null,
-        playedCount: isActive ? activeSession.tracks.filter(t => t.played).length : 0,
-        totalTracks: isActive ? activeSession.tracks.length : 0,
-        tracks: isActive ? activeSession.tracks : [], // empty if inactive
+        mode: activeSession ? 'PAID' : 'DEFAULT',
+        sessionId: activeSession?.sessionId || null,
+        playedCount,
+        totalTracks: activeSession?.tracks?.length || 0,
+        tracks: activeSession?.tracks || [],
         isPlaying: false
       });
     }
@@ -400,13 +402,20 @@ app.get('/api/status', async (req, res) => {
 
     const data = await r.json();
 
+    // Get canonical paid session from DB
+    const activeSession = await PaidSession.findOne({ active: true }).lean();
+
+    const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
+
     return res.json({
       success: true,
-      mode: isActive ? 'PAID' : 'DEFAULT',
-      sessionId: isActive ? activeSession.sessionId : null,
-      playedCount: isActive ? activeSession.tracks.filter(t => t.played).length : 0,
-      totalTracks: isActive ? activeSession.tracks.length : 0,
-      tracks: isActive ? activeSession.tracks : [], // empty if inactive
+      mode: activeSession ? 'PAID' : 'DEFAULT',
+      sessionId: activeSession?.sessionId || null,
+      playedCount,
+      totalTracks: activeSession?.tracks?.length || 0,
+      // include full server-side track list so client can merge and mark played
+      tracks: activeSession?.tracks || [],
+      // Spotify playback info
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
@@ -420,6 +429,7 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
+
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
@@ -491,6 +501,7 @@ app.post('/webhook/payment-success', async (req, res) => {
 
 
 
+// Check if there is an active paid session
 // Return the active paid session object (or null)
 async function isPaidSessionActive() {
   try {
@@ -905,16 +916,19 @@ setInterval(async () => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
+    // Handle 204 (no content)
     if (r.status === 204) {
       return; // nothing playing
     }
 
+    // Handle non-OK responses
     if (!r.ok) {
       const text = await r.text().catch(() => '<no body>');
       console.warn(`Spotify status failed ${r.status}: ${text}`);
       return;
     }
 
+    // Defensive JSON parse
     let data = null;
     try {
       const text = await r.text();
@@ -926,22 +940,14 @@ setInterval(async () => {
       return;
     }
 
+    // If we got valid data, mark track played
     if (data?.item?.uri) {
       await markTrackPlayed(activeSession.sessionId, data.item.uri);
-
-      // Check if all tracks are played
-      const refreshed = await PaidSession.findOne({ sessionId: activeSession.sessionId });
-      const allPlayed = refreshed.tracks.length > 0 && refreshed.tracks.every(t => t.played);
-      if (allPlayed) {
-        refreshed.active = false;
-        await refreshed.save();
-        console.info(`Session ${activeSession.sessionId} marked inactive (all tracks played).`);
-      }
     }
   } catch (err) {
     console.error('Poller error:', err);
   }
-}, 5000);
+}, 5000); // every 5 seconds
 
 
 /* -------------------------
