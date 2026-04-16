@@ -2708,8 +2708,11 @@ async function refreshStatus() {
       await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
       pollStatusOnce();
 
-      // *** Populate the new Checkout Queue card ***
+      // Initial population of Checkout Queue card
       await loadCheckoutQueue();
+
+      // *** Add poller for live updates ***
+      setInterval(loadCheckoutQueue, 5000);
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
@@ -2717,12 +2720,8 @@ async function refreshStatus() {
 })();
 
 async function loadCheckoutQueue() {
-  const params = new URLSearchParams(window.location.search);
-  const checkoutId = params.get('checkoutId');
-  if (!checkoutId) return;
-
   try {
-    const res = await fetch(`/api/checkout-tracks?checkoutId=${checkoutId}`);
+    const res = await fetch('/api/status'); // enriched status endpoint
     const data = await res.json();
     if (!data.success) return;
 
@@ -2734,8 +2733,11 @@ async function loadCheckoutQueue() {
       totalMs += track.duration_ms || 0;
       const item = document.createElement('div');
       item.className = 'queue-item';
+
       const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
-      item.textContent = `${track.title} — ${track.artist} (${duration})`;
+      const status = track.status || (track.played ? 'Played' : 'Queued');
+
+      item.textContent = `${track.title} — ${track.artist} (${duration}) [${status}]`;
       checkoutQueueList.appendChild(item);
     });
 
@@ -2749,16 +2751,17 @@ async function loadCheckoutQueue() {
       checkoutQueueCount.textContent = `Paid queue: ${tracks.length}`;
     }
     if (checkoutNextTitle) {
-      checkoutNextTitle.textContent = tracks.length > 0
-        ? `${tracks[0].title} — ${tracks[0].artist}`
+      const nextTrack = tracks.find(t => t.status === 'Queued');
+      checkoutNextTitle.textContent = nextTrack
+        ? `${nextTrack.title} — ${nextTrack.artist}`
         : 'No paid tracks queued';
     }
   } catch (err) {
-    console.error('Failed to load checkout tracks', err);
+    console.error('Failed to load checkout queue/status', err);
   }
 }
-
 </script>
+
 
 
 <script>
