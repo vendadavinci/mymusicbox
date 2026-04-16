@@ -1,10 +1,11 @@
+// models/paid_queue.js
 import mongoose from 'mongoose';
 
 const PaidTrackSchema = new mongoose.Schema({
   uri: { type: String, required: true },
   title: { type: String, required: true },
   artist: { type: String, required: true },
-  duration_ms: { type: Number, required: true }, // use consistent snake_case
+  durationMs: { type: Number, alias: 'duration_ms', required: true },
   albumArt: { type: String, required: true },
   addedAt: { type: Date, default: Date.now },
   played: { type: Boolean, default: false },
@@ -24,7 +25,7 @@ const PaidSessionSchema = new mongoose.Schema({
   endedAt: { type: Date },
   tracks: [PaidTrackSchema],
   processedAt: { type: Date }, // marker for idempotency
-  playbackStartedAt: { type: Date } // marker for Spotify playback trigger
+  playbackStartedAt: { type: Date } // NEW: marker for Spotify playback trigger
 });
 
 export const PaidSession = mongoose.model('PaidSession', PaidSessionSchema);
