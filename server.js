@@ -378,16 +378,14 @@ app.get('/api/status', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    // Ask Spotify for current playback
     const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // If no active device / nothing playing
+    const activeSession = await PaidSession.findOne({ active: true }).lean();
+    const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
+
     if (r.status === 204) {
-      // Still return canonical session info if any
-      const activeSession = await PaidSession.findOne({ active: true }).lean();
-      const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
       return res.json({
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
@@ -406,20 +404,13 @@ app.get('/api/status', async (req, res) => {
 
     const data = await r.json();
 
-    // Get canonical paid session from DB
-    const activeSession = await PaidSession.findOne({ active: true }).lean();
-
-    const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
-
     return res.json({
       success: true,
       mode: activeSession ? 'PAID' : 'DEFAULT',
       sessionId: activeSession?.sessionId || null,
       playedCount,
       totalTracks: activeSession?.tracks?.length || 0,
-      // include full server-side track list so client can merge and mark played
       tracks: activeSession?.tracks || [],
-      // Spotify playback info
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
@@ -925,7 +916,6 @@ app.post('/api/queue', async (req, res) => {
 });
 
 
-// Poller: update played tracks every 5 seconds
 setInterval(async () => {
   const activeSession = await isPaidSessionActive();
   if (!activeSession) return;
@@ -936,38 +926,28 @@ setInterval(async () => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // Handle 204 (no content)
-    if (r.status === 204) {
-      return; // nothing playing
-    }
-
-    // Handle non-OK responses
+    if (r.status === 204) return;
     if (!r.ok) {
-      const text = await r.text().catch(() => '<no body>');
-      console.warn(`Spotify status failed ${r.status}: ${text}`);
+      console.warn(`Spotify status failed ${r.status}`);
       return;
     }
 
-    // Defensive JSON parse
-    let data = null;
-    try {
-      const text = await r.text();
-      if (text && text.trim().length > 0) {
-        data = JSON.parse(text);
-      }
-    } catch (err) {
-      console.warn('Spotify returned empty or invalid JSON', err);
-      return;
-    }
+    const data = await r.json().catch(() => null);
+    if (!data?.item?.uri) return;
 
-    // If we got valid data, mark track played
-    if (data?.item?.uri) {
+    const nearlyFinished = data.progress_ms >= (data.item.duration_ms - 2000);
+    if (nearlyFinished) {
       await markTrackPlayed(activeSession.sessionId, data.item.uri);
+    }
+
+    if (activeSession.tracks.every(t => t.played)) {
+      activeSession.active = false;
+      await activeSession.save();
     }
   } catch (err) {
     console.error('Poller error:', err);
   }
-}, 5000); // every 5 seconds
+}, 5000);
 
 
 /* -------------------------
