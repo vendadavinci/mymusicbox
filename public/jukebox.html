@@ -956,12 +956,9 @@ async function initPage() {
         }
       }
     } else {
-      // no server session: restore any local queue persisted earlier
-      let local = sessionStorage.getItem('paidQueue');
-      if (local) {
-        try { paidQueue = JSON.parse(local); } catch (e) { paidQueue = []; }
-      }
-      paidQueue = paidQueue.filter(t => !t.played);
+      // no server session: reset local queue
+      paidQueue = [];
+      sessionStorage.removeItem('paidQueue');
       renderQueue();
       paidSessionActive = false;
 
@@ -971,13 +968,10 @@ async function initPage() {
     }
   } catch (e) {
     console.warn('initPage /api/status failed', e);
-    // fallback: restore local queue if available
-    let local = sessionStorage.getItem('paidQueue');
-    if (local) {
-      try { paidQueue = JSON.parse(local); } catch (err) { paidQueue = []; }
-      paidQueue = paidQueue.filter(t => !t.played);
-      renderQueue();
-    }
+    // fallback: reset local queue instead of restoring
+    paidQueue = [];
+    sessionStorage.removeItem('paidQueue');
+    renderQueue();
 
     const pending = getPendingSubmission();
     if (pending) showResumePaymentNotice(pending);
@@ -2518,6 +2512,7 @@ async function pollStatusOnce() {
     console.warn('pollStatusOnce', e);
   }
 }
+
 
 
 
