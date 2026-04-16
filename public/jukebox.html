@@ -2708,11 +2708,8 @@ async function refreshStatus() {
       await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
       pollStatusOnce();
 
-      // Initial population of Checkout Queue card
+      // *** Populate the new Checkout Queue card ***
       await loadCheckoutQueue();
-
-      // *** Add poller for live updates ***
-      setInterval(loadCheckoutQueue, 5000);
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
@@ -2721,7 +2718,7 @@ async function refreshStatus() {
 
 async function loadCheckoutQueue() {
   try {
-    const res = await fetch('/api/status'); // enriched status endpoint
+    const res = await fetch('/api/status');
     const data = await res.json();
     if (!data.success) return;
 
@@ -2735,15 +2732,12 @@ async function loadCheckoutQueue() {
       item.className = 'queue-item';
 
       const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
-      const status = track.status || (track.played ? 'Played' : 'Queued');
-
-      item.textContent = `${track.title} — ${track.artist} (${duration}) [${status}]`;
+      item.textContent = `${track.title} — ${track.artist} (${duration}) [${track.status}]`;
       checkoutQueueList.appendChild(item);
     });
 
     checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
 
-    // Update Playing Next strip
     const checkoutQueueCount = document.getElementById('checkoutQueueCount');
     const checkoutNextTitle  = document.getElementById('checkoutNextTitle');
 
@@ -2760,6 +2754,8 @@ async function loadCheckoutQueue() {
     console.error('Failed to load checkout queue/status', err);
   }
 }
+
+
 </script>
 
 
