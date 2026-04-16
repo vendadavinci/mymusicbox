@@ -363,11 +363,19 @@ body::before {
 
   <span id="progress-text"></span>
 
-  <!-- Playing Next strip -->
-  <div class="playing-next" id="playingNext" style="margin-top:12px;">
-    <div class="small" id="queueCount">Paid queue: 0</div>
-    <div class="small" id="nextTitle">No paid tracks queued</div>
+<!-- Playing Next strip -->
+<div class="card" aria-label="Playing Next" style="margin-top:12px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div style="font-weight:700;">Playing Next</div>
+    <div class="small" id="activeQueueCount">Paid queue: 0</div>
   </div>
+
+  <div class="queue-list" id="activeNextTitle">
+    No paid tracks queued
+  </div>
+</div>
+
+
 
   <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
     <div class="small" id="statusText">Status: idle</div>
@@ -502,6 +510,8 @@ const instructionNote = document.getElementById('instructionNote');
 const activeQueueList = document.getElementById('activeQueueList');
 const activeQueueDuration = document.getElementById('activeQueueDuration');
 const queueInfoNew = document.getElementById('queueInfoNew');
+const activeQueueCount = document.getElementById('activeQueueCount');
+const activeNextTitle = document.getElementById('activeNextTitle');
 
 
     function selectPackage(price, maxSongs){
