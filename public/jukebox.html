@@ -575,15 +575,7 @@ const instructionNote = document.getElementById('instructionNote');
 function makeId() {
   return 'id-' + Math.random().toString(36).slice(2, 12);
 }
-function savePendingSubmission(payload) {
-  try { sessionStorage.setItem('pendingSubmission', JSON.stringify(payload)); } catch (e) { /* ignore */ }
-}
-function getPendingSubmission() {
-  try { const s = sessionStorage.getItem('pendingSubmission'); return s ? JSON.parse(s) : null; } catch (e) { return null; }
-}
-function clearPendingSubmission() {
-  try { sessionStorage.removeItem('pendingSubmission'); } catch (e) { /* ignore */ }
-}
+
 
 
     async function doSearch(slotIndex){
@@ -2005,7 +1997,6 @@ function startAddFlow(){
     try {
       sessionStorage.setItem(`queued_${sessionId}_${uri}`, 'true');
     } catch (e) {
-      // ignore
     }
   }
 
@@ -2542,16 +2533,20 @@ async function refreshStatus() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tracks })
   }).then(() => {
-    // Instead of alert, update a status element or do nothing
+    // Clear stale tracks so they don't get re-added later
+    sessionStorage.removeItem('tracks');
+
     const statusText = document.getElementById('statusText');
     if (statusText) {
       statusText.textContent = 'Tracks queued and ready to play.';
     }
-    // Or simply leave this block empty if you want no message at all
+    // Optionally clear any per-track markers too:
+    // tracks.forEach(t => sessionStorage.removeItem(`queued_${checkoutId}_${t.uri}`));
   }).catch(err => {
     console.error('Webhook call failed:', err);
   });
 </script>
+
 
 <script>
 (async function handlePostPayment() {
