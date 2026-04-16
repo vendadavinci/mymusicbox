@@ -1605,57 +1605,22 @@ async function pollStatus() {
 
     if (data.status !== 'successful') return;
 
-    const pending = typeof getPendingSubmission === 'function' ? getPendingSubmission() : null;
-    let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length
-      ? pending.tracks.slice()
-      : JSON.parse(sessionStorage.getItem('tracks') || '[]');
-
-    if (Array.isArray(data.enqueuedUris) && data.enqueuedUris.length) {
-      const enqueuedSet = new Set(data.enqueuedUris);
-      tracksToEnqueue = tracksToEnqueue.filter(t => !enqueuedSet.has(t.uri));
-    }
-
-    const localSet = new Set((paidQueue || []).map(t => t.uri));
-    tracksToEnqueue = tracksToEnqueue.filter(t => !localSet.has(t.uri));
-
-    if (tracksToEnqueue.length === 0) {
-      if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
-      if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
-      if (typeof initPage === 'function') initPage();
-      return;
-    }
-
-    for (const t of tracksToEnqueue) {
-      paidQueue.push({
-        uri: t.uri,
-        title: t.title || t.name || 'Unknown',
-        artist: t.artist || (t.artists && t.artists.join(', ')) || '',
-        duration_ms: t.duration_ms || t.durationMs || 0,
-        albumArt: t.albumArt || t.album_art || '',
-        addedAt: Date.now(),
-        played: !!t.played,
-        orderIndex: t.orderIndex || (paidQueue.length + 1)
-      });
-      // optional: mark in sessionStorage to avoid re-submission on refresh
-      sessionStorage.setItem(`queued_${checkoutId}_${t.uri}`, 'true');
-    }
-
-    if (typeof persistPaidQueue === 'function') persistPaidQueue();
-    if (typeof renderQueue === 'function') renderQueue();
-
-    if (!paidSessionActive && typeof startPaidQueuePlayback === 'function') {
-      startPaidQueuePlayback();
-    }
-
+    // Once successful, rely only on server state
     if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
-    if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
+    sessionStorage.removeItem('tracks'); // prevent stale resurrection
+
+    // Refresh UI from server
     if (typeof initPage === 'function') initPage();
 
+    if (statusPollHandle) {
+      clearInterval(statusPollHandle);
+      statusPollHandle = null;
+    }
   } catch (err) {
     console.error('pollStatus error:', err);
-    // keep polling; optionally add retry/backoff logic here
   }
 }
+
 
 
 /* ====== Payment success handler ====== */
