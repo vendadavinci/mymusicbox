@@ -363,15 +363,16 @@ body::before {
 
   <span id="progress-text"></span>
 
-  <!-- Playing Next strip -->
-  <div class="playing-next" id="playingNext" style="margin-top:12px;">
-    <div class="small" id="queueCount">Paid queue: 0</div>
-    <div class="small" id="nextTitle">No paid tracks queued</div>
-  </div>
+<!-- Playing Next strip (aligned with Checkout Queue) -->
+<div class="playing-next" id="playingNext" style="margin-top:12px;">
+  <div class="small" id="checkoutQueueCount">Paid queue: 0</div>
+  <div class="small" id="checkoutNextTitle">No paid tracks queued</div>
+</div>
 
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
-    <div class="small" id="statusText">Status: idle</div>
-  </div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+  <div class="small" id="statusText">Status: idle</div>
+</div>
+
 </section>
 
 
@@ -2733,15 +2734,30 @@ async function loadCheckoutQueue() {
       totalMs += track.duration_ms || 0;
       const item = document.createElement('div');
       item.className = 'queue-item';
-      item.textContent = `${track.title} — ${track.artist} (${formatMs(track.duration_ms)})`;
+      const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
+      item.textContent = `${track.title} — ${track.artist} (${duration})`;
       checkoutQueueList.appendChild(item);
     });
 
     checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
+
+    // Update Playing Next strip
+    const checkoutQueueCount = document.getElementById('checkoutQueueCount');
+    const checkoutNextTitle  = document.getElementById('checkoutNextTitle');
+
+    if (checkoutQueueCount) {
+      checkoutQueueCount.textContent = `Paid queue: ${tracks.length}`;
+    }
+    if (checkoutNextTitle) {
+      checkoutNextTitle.textContent = tracks.length > 0
+        ? `${tracks[0].title} — ${tracks[0].artist}`
+        : 'No paid tracks queued';
+    }
   } catch (err) {
     console.error('Failed to load checkout tracks', err);
   }
 }
+
 </script>
 
 
