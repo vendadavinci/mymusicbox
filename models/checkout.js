@@ -1,11 +1,10 @@
-// models/checkout.js
 import mongoose from 'mongoose';
 
 const PaidTrackSchema = new mongoose.Schema({
   uri: { type: String, required: true },
   title: { type: String, required: true },
   artist: { type: String, required: true },
-  durationMs: { type: Number, alias: 'duration_ms', required: true },
+  duration_ms: { type: Number, required: true }, // consistent snake_case
   albumArt: { type: String, required: true },
   addedAt: { type: Date, default: Date.now },
   played: { type: Boolean, default: false },
@@ -20,15 +19,15 @@ const CheckoutSchema = new mongoose.Schema({
   successUrl: { type: String },
   cancelUrl: { type: String },
   createdAt: { type: Date, default: Date.now },
-  expiresAt: { type: Date }, // NEW: expiry marker for TTL
+  expiresAt: { type: Date }, // expiry marker for TTL
   tracks: [PaidTrackSchema],
 
   // Durable link back to the session
   sessionRef: { type: mongoose.Schema.Types.ObjectId, ref: 'PaidSession' },
 
   // Markers for idempotency and playback
-  processedAt: { type: Date },          // when this checkout was consumed into a session
-  playbackStartedAt: { type: Date }     // when playback was triggered for this checkout
+  processedAt: { type: Date },      // when this checkout was consumed into a session
+  playbackStartedAt: { type: Date } // when playback was triggered for this checkout
 });
 
 // TTL index: automatically remove expired checkouts
