@@ -199,13 +199,15 @@ function normalizeTrack(track, orderIndex) {
     uri: track.uri,
     title: track.title || track.name || 'Unknown',
     artist: track.artist || (track.artists && track.artists.join(', ')) || '',
-    durationMs: track.duration_ms || track.durationMs || 0,
+    duration_ms: track.duration_ms || track.durationMs || 0,   // unified
     albumArt: track.albumArt || track.album_art || '',
     addedAt: track.addedAt ? new Date(track.addedAt) : new Date(),
     played: !!track.played,
     orderIndex: orderIndex || 0
   };
 }
+
+
 
 app.post('/api/play', async (req, res) => {
   try {
