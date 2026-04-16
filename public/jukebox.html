@@ -447,18 +447,19 @@ body::before {
     </div>
 
     <!-- Paid queue -->
-    <div class="card" aria-label="Paid queue">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-weight:700;">Paid Queue</div>
-        <div class="small" id="queueInfo">Plays in order; no jumping</div>
-      </div>
+<div class="card" aria-label="Checkout queue">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div style="font-weight:700;">Checkout Queue</div>
+    <div class="small" id="checkoutQueueInfo">Plays in order; no jumping</div>
+  </div>
 
-      <div class="queue-list" id="paidQueue"></div>
+  <div class="queue-list" id="checkoutQueueList"></div>
 
-      <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-        <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
-      </div>
-    </div>
+  <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+    <div class="small" id="checkoutQueueDuration">Estimated duration: 0 min</div>
+  </div>
+</div>
+
       
 
   </aside>
@@ -498,6 +499,9 @@ const pkgLabel = document.getElementById('pkgLabel');
 const packageSummary = document.getElementById('packageSummary');
 const priceNote = document.getElementById('priceNote');
 const instructionNote = document.getElementById('instructionNote');
+const checkoutQueueList     = document.getElementById('checkoutQueueList');
+const checkoutQueueDuration = document.getElementById('checkoutQueueDuration');
+const checkoutQueueInfo     = document.getElementById('checkoutQueueInfo');
 
 
     function selectPackage(price, maxSongs){
@@ -2674,13 +2678,13 @@ async function refreshStatus() {
         if (r.ok) {
           const json = await r.json();
           tracks = json.tracks || [];
-          // store sessionId for later use
           sessionStorage.setItem('sessionId', checkoutId);
         }
       }
     }
 
     if (tracks && tracks.length > 0) {
+      // populate legacy Paid Queue card
       paidQueue.push(...tracks.map(t => ({
         uri: t.uri,
         title: t.title || 'Unknown',
@@ -2699,17 +2703,44 @@ async function refreshStatus() {
         body: JSON.stringify({ sessionId: sessionStorage.getItem('sessionId'), tracks })
       });
 
-      // Auto‑start playback
       statusText.textContent = 'Starting paid playback...';
       await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
-
       pollStatusOnce();
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
   }
 })();
+
+async function loadCheckoutQueue() {
+  const params = new URLSearchParams(window.location.search);
+  const checkoutId = params.get('checkoutId');
+  if (!checkoutId) return;
+
+  try {
+    const res = await fetch(`/api/checkout-tracks?checkoutId=${checkoutId}`);
+    const data = await res.json();
+    if (!data.success) return;
+
+    const tracks = data.tracks || [];
+    checkoutQueueList.innerHTML = '';
+    let totalMs = 0;
+
+    tracks.forEach(track => {
+      totalMs += track.duration_ms || 0;
+      const item = document.createElement('div');
+      item.className = 'queue-item';
+      item.textContent = `${track.title} — ${track.artist} (${formatMs(track.duration_ms)})`;
+      checkoutQueueList.appendChild(item);
+    });
+
+    checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
+  } catch (err) {
+    console.error('Failed to load checkout tracks', err);
+  }
+}
 </script>
+>
 
 <script>
 // Read-only UI refresh. Never enqueue or post anything here.
