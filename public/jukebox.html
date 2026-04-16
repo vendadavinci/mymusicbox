@@ -2685,7 +2685,6 @@ async function refreshStatus() {
     }
 
     if (tracks && tracks.length > 0) {
-      // populate legacy Paid Queue card
       paidQueue.push(...tracks.map(t => ({
         uri: t.uri,
         title: t.title || 'Unknown',
@@ -2697,7 +2696,6 @@ async function refreshStatus() {
 
       renderQueue();
 
-      // Notify backend webhook
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2708,8 +2706,14 @@ async function refreshStatus() {
       await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
       pollStatusOnce();
 
-      // *** Populate the new Checkout Queue card ***
+      // Initial population
       await loadCheckoutQueue();
+
+      // Poller for live updates
+      setInterval(() => {
+        pollStatusOnce();
+        loadCheckoutQueue();
+      }, 8000);
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
@@ -2730,18 +2734,30 @@ async function loadCheckoutQueue() {
     checkoutQueueList.innerHTML = '';
     let totalMs = 0;
 
+    // Grab current now playing info from DOM
+    const currentTitle = document.getElementById('nowTitle').textContent;
+    const currentArtist = document.getElementById('nowArtist').textContent;
+
     tracks.forEach(track => {
       totalMs += track.duration_ms || 0;
       const item = document.createElement('div');
       item.className = 'queue-item';
       const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
-      item.textContent = `${track.title} — ${track.artist} (${duration})`;
+
+      // Compare with Now Playing
+      let status = 'Queued';
+      if (track.title === currentTitle && track.artist === currentArtist) {
+        status = 'Playing';
+      } else if (paidQueue.find(t => t.title === track.title && t.artist === track.artist && t.played)) {
+        status = 'Played';
+      }
+
+      item.textContent = `${track.title} — ${track.artist} (${duration}) [${status}]`;
       checkoutQueueList.appendChild(item);
     });
 
     checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
 
-    // Update Playing Next strip
     const checkoutQueueCount = document.getElementById('checkoutQueueCount');
     const checkoutNextTitle  = document.getElementById('checkoutNextTitle');
 
@@ -2749,16 +2765,17 @@ async function loadCheckoutQueue() {
       checkoutQueueCount.textContent = `Paid queue: ${tracks.length}`;
     }
     if (checkoutNextTitle) {
-      checkoutNextTitle.textContent = tracks.length > 0
-        ? `${tracks[0].title} — ${tracks[0].artist}`
+      const nextTrack = tracks.find(t => t.title !== currentTitle || t.artist !== currentArtist);
+      checkoutNextTitle.textContent = nextTrack
+        ? `${nextTrack.title} — ${nextTrack.artist}`
         : 'No paid tracks queued';
     }
   } catch (err) {
     console.error('Failed to load checkout tracks', err);
   }
 }
-
 </script>
+
 
 
 <script>
