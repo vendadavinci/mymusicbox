@@ -374,23 +374,21 @@ app.get('/api/status', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    // Ask Spotify for current playback
     const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // Get canonical paid session from DB
-    const activeSession = await PaidSession.findOne({ active: true }).lean();
+    const activeSession = await PaidSession.findOne({ active: true });
+    const isActive = !!activeSession && activeSession.active;
 
-    // If no active device / nothing playing
     if (r.status === 204) {
       return res.json({
         success: true,
-        mode: activeSession?.active ? 'PAID' : 'DEFAULT',
-        sessionId: activeSession?.active ? activeSession.sessionId : null,
-        playedCount: activeSession?.active ? (activeSession.tracks || []).filter(t => t.played).length : 0,
-        totalTracks: activeSession?.active ? activeSession.tracks?.length || 0 : 0,
-        tracks: activeSession?.active ? activeSession.tracks : [], // only return if still active
+        mode: isActive ? 'PAID' : 'DEFAULT',
+        sessionId: isActive ? activeSession.sessionId : null,
+        playedCount: isActive ? activeSession.tracks.filter(t => t.played).length : 0,
+        totalTracks: isActive ? activeSession.tracks.length : 0,
+        tracks: isActive ? activeSession.tracks : [],
         isPlaying: false
       });
     }
@@ -404,12 +402,11 @@ app.get('/api/status', async (req, res) => {
 
     return res.json({
       success: true,
-      mode: activeSession?.active ? 'PAID' : 'DEFAULT',
-      sessionId: activeSession?.active ? activeSession.sessionId : null,
-      playedCount: activeSession?.active ? (activeSession.tracks || []).filter(t => t.played).length : 0,
-      totalTracks: activeSession?.active ? activeSession.tracks?.length || 0 : 0,
-      tracks: activeSession?.active ? activeSession.tracks : [], // reset to [] if inactive
-      // Spotify playback info
+      mode: isActive ? 'PAID' : 'DEFAULT',
+      sessionId: isActive ? activeSession.sessionId : null,
+      playedCount: isActive ? activeSession.tracks.filter(t => t.played).length : 0,
+      totalTracks: isActive ? activeSession.tracks.length : 0,
+      tracks: isActive ? activeSession.tracks : [],
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
@@ -494,7 +491,6 @@ app.post('/webhook/payment-success', async (req, res) => {
 
 
 
-// Check if there is an active paid session
 // Return the active paid session object (or null)
 async function isPaidSessionActive() {
   try {
