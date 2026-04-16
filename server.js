@@ -379,6 +379,9 @@ app.get('/api/status', async (req, res) => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
+    // Get canonical paid session from DB
+    const activeSession = await PaidSession.findOne({ active: true }).lean();
+
     // If no active device / nothing playing
     if (r.status === 204) {
       // Still return canonical session info if any
@@ -389,8 +392,10 @@ app.get('/api/status', async (req, res) => {
         mode: activeSession ? 'PAID' : 'DEFAULT',
         sessionId: activeSession?.sessionId || null,
         playedCount,
+        playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0,
         totalTracks: activeSession?.tracks?.length || 0,
         tracks: activeSession?.tracks || [],
+        tracks: activeSession ? activeSession.tracks : [], // only return if active
         isPlaying: false
       });
     }
@@ -412,9 +417,11 @@ app.get('/api/status', async (req, res) => {
       mode: activeSession ? 'PAID' : 'DEFAULT',
       sessionId: activeSession?.sessionId || null,
       playedCount,
+      playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0,
       totalTracks: activeSession?.tracks?.length || 0,
       // include full server-side track list so client can merge and mark played
       tracks: activeSession?.tracks || [],
+      tracks: activeSession ? activeSession.tracks : [], // reset to [] if no active session
       // Spotify playback info
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
@@ -956,4 +963,3 @@ setInterval(async () => {
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-});
