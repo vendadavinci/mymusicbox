@@ -584,6 +584,12 @@ function getPendingSubmission() {
 function clearPendingSubmission() {
   try { sessionStorage.removeItem('pendingSubmission'); } catch (e) { /* ignore */ }
 }
+function showResumePaymentNotice() {
+  const el = document.getElementById('statusText');
+  if (el) {
+    el.textContent = 'Payment interrupted — please resume.';
+  }
+}
 
 
     async function doSearch(slotIndex){
@@ -2476,8 +2482,6 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
       try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
     }
 
-async function pollStatusOnce(){
-  try{
 async function pollStatusOnce() {
   try {
     const res = await fetch('/api/status');
