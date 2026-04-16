@@ -329,6 +329,18 @@ body::before {
   object-fit: cover;    /* ensures it fills nicely */
 }
 
+.status.playing {
+  font-weight: bold;
+  color: green;
+}
+.status.queued {
+  color: goldenrod; /* yellowish */
+}
+.status.played {
+  color: gray;
+  font-style: italic;
+}
+
 </style>
 
 </head>
@@ -2734,7 +2746,6 @@ async function loadCheckoutQueue() {
     checkoutQueueList.innerHTML = '';
     let totalMs = 0;
 
-    // Grab current now playing info from DOM
     const currentTitle = document.getElementById('nowTitle').textContent;
     const currentArtist = document.getElementById('nowArtist').textContent;
 
@@ -2744,7 +2755,6 @@ async function loadCheckoutQueue() {
       item.className = 'queue-item';
       const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
 
-      // Compare with Now Playing
       let status = 'Queued';
       if (track.title === currentTitle && track.artist === currentArtist) {
         status = 'Playing';
@@ -2752,7 +2762,14 @@ async function loadCheckoutQueue() {
         status = 'Played';
       }
 
-      item.textContent = `${track.title} — ${track.artist} (${duration}) [${status}]`;
+      // Create styled span for status
+      const statusSpan = document.createElement('span');
+      statusSpan.className = `status ${status.toLowerCase()}`;
+      statusSpan.textContent = `[${status}]`;
+
+      item.textContent = `${track.title} — ${track.artist} (${duration}) `;
+      item.appendChild(statusSpan);
+
       checkoutQueueList.appendChild(item);
     });
 
@@ -2775,6 +2792,8 @@ async function loadCheckoutQueue() {
   }
 }
 </script>
+
+
 
 
 
