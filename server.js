@@ -379,23 +379,18 @@ app.get('/api/status', async (req, res) => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // Get canonical paid session from DB
-    const activeSession = await PaidSession.findOne({ active: true }).lean();
-
     // If no active device / nothing playing
     if (r.status === 204) {
+      // Still return canonical session info if any
+      const activeSession = await PaidSession.findOne({ active: true }).lean();
+      const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
       return res.json({
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
         sessionId: activeSession?.sessionId || null,
-        playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0,
+        playedCount,
         totalTracks: activeSession?.tracks?.length || 0,
-        tracks: activeSession ? activeSession.tracks : [], // only return if active
-        mode: activeSession?.active ? 'PAID' : 'DEFAULT',
-        sessionId: activeSession?.active ? activeSession.sessionId : null,
-        playedCount: activeSession?.active ? (activeSession.tracks || []).filter(t => t.played).length : 0,
-        totalTracks: activeSession?.active ? activeSession.tracks?.length || 0 : 0,
-        tracks: activeSession?.active ? activeSession.tracks : [], // only return if still active
+        tracks: activeSession?.tracks || [],
         isPlaying: false
       });
     }
@@ -407,18 +402,19 @@ app.get('/api/status', async (req, res) => {
 
     const data = await r.json();
 
+    // Get canonical paid session from DB
+    const activeSession = await PaidSession.findOne({ active: true }).lean();
+
+    const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
+
     return res.json({
       success: true,
       mode: activeSession ? 'PAID' : 'DEFAULT',
       sessionId: activeSession?.sessionId || null,
-      playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0,
+      playedCount,
       totalTracks: activeSession?.tracks?.length || 0,
-      tracks: activeSession ? activeSession.tracks : [], // reset to [] if no active session
-      mode: activeSession?.active ? 'PAID' : 'DEFAULT',
-      sessionId: activeSession?.active ? activeSession.sessionId : null,
-      playedCount: activeSession?.active ? (activeSession.tracks || []).filter(t => t.played).length : 0,
-      totalTracks: activeSession?.active ? activeSession.tracks?.length || 0 : 0,
-      tracks: activeSession?.active ? activeSession.tracks : [], // reset to [] if inactive
+      // include full server-side track list so client can merge and mark played
+      tracks: activeSession?.tracks || [],
       // Spotify playback info
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
@@ -433,6 +429,7 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
+
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
@@ -946,21 +943,11 @@ setInterval(async () => {
     // If we got valid data, mark track played
     if (data?.item?.uri) {
       await markTrackPlayed(activeSession.sessionId, data.item.uri);
-
-      // Check if all tracks are played
-      const refreshed = await PaidSession.findOne({ sessionId: activeSession.sessionId });
-      const allPlayed = refreshed.tracks.length > 0 && refreshed.tracks.every(t => t.played);
-      if (allPlayed) {
-        refreshed.active = false;
-        await refreshed.save();
-        console.info(`Session ${activeSession.sessionId} marked inactive (all tracks played).`);
-      }
     }
   } catch (err) {
     console.error('Poller error:', err);
   }
 }, 5000); // every 5 seconds
-}, 5000);
 
 
 /* -------------------------
@@ -969,3 +956,4 @@ setInterval(async () => {
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+});
