@@ -939,23 +939,20 @@ async function startPayment() {
 }
 
 /* ====== Queue rendering & controls ====== */
-/* ====== Queue rendering & controls ====== */
 function renderQueue() {
   try {
-    if (!paidQueueEl) return;
+    if (!activeQueueList) return;
     if (!Array.isArray(paidQueue)) paidQueue = [];
 
-    // Persist local queue so refresh doesn't lose it
+    // Persist local queue
     try {
       sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
     } catch (e) {
-      console.warn('Could not persist paidQueue to sessionStorage', e);
+      console.warn('Could not persist paidQueue', e);
     }
 
-    // Only show tracks that are not yet played
     const activeTracks = paidQueue.filter(t => !t.played);
-
-    paidQueueEl.innerHTML = '';
+    activeQueueList.innerHTML = '';
     const frag = document.createDocumentFragment();
     let totalMs = 0;
 
@@ -970,7 +967,7 @@ function renderQueue() {
       wrapper.style.gap = '12px';
       wrapper.dataset.index = String(index);
 
-      // Left column: title + artist
+      // Left column
       const left = document.createElement('div');
       left.style.minWidth = '0';
       left.style.flex = '1';
@@ -991,7 +988,7 @@ function renderQueue() {
       left.appendChild(titleDiv);
       left.appendChild(metaDiv);
 
-      // Right column: duration + played indicator
+      // Right column
       const right = document.createElement('div');
       right.style.display = 'flex';
       right.style.flexDirection = 'column';
@@ -1018,22 +1015,18 @@ function renderQueue() {
       frag.appendChild(wrapper);
     });
 
-    paidQueueEl.appendChild(frag);
+    activeQueueList.appendChild(frag);
 
-    if (queueCount) {
-      queueCount.textContent = `Paid queue: ${activeTracks.length}`;
+    if (activeQueueCount) {
+      activeQueueCount.textContent = `Paid queue: ${activeTracks.length}`;
     }
-    if (queueDurationText) {
-      queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
+    if (activeQueueDuration) {
+      activeQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
     }
-
-    if (nextTitleEl) {
-      if (activeTracks.length > 0) {
-        const next = activeTracks[0];
-        nextTitleEl.textContent = `${next.title} — ${next.artist}`;
-      } else {
-        nextTitleEl.textContent = 'No paid tracks queued';
-      }
+    if (activeNextTitle) {
+      activeNextTitle.textContent = activeTracks.length > 0
+        ? `${activeTracks[0].title} — ${activeTracks[0].artist}`
+        : 'No paid tracks queued';
     }
 
     if (typeof updateStartPlayButton === 'function') {
