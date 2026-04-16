@@ -2685,6 +2685,7 @@ async function refreshStatus() {
     }
 
     if (tracks && tracks.length > 0) {
+      // populate legacy Paid Queue card
       paidQueue.push(...tracks.map(t => ({
         uri: t.uri,
         title: t.title || 'Unknown',
@@ -2696,6 +2697,7 @@ async function refreshStatus() {
 
       renderQueue();
 
+      // Notify backend webhook
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2706,7 +2708,7 @@ async function refreshStatus() {
       await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
       pollStatusOnce();
 
-      // Populate the new Checkout Queue card
+      // *** Populate the new Checkout Queue card ***
       await loadCheckoutQueue();
     }
   } catch (err) {
@@ -2714,10 +2716,13 @@ async function refreshStatus() {
   }
 })();
 
-// Use /api/status to get live playback info
 async function loadCheckoutQueue() {
+  const params = new URLSearchParams(window.location.search);
+  const checkoutId = params.get('checkoutId');
+  if (!checkoutId) return;
+
   try {
-    const res = await fetch('/api/status');
+    const res = await fetch(`/api/checkout-tracks?checkoutId=${checkoutId}`);
     const data = await res.json();
     if (!data.success) return;
 
@@ -2729,11 +2734,8 @@ async function loadCheckoutQueue() {
       totalMs += track.duration_ms || 0;
       const item = document.createElement('div');
       item.className = 'queue-item';
-
       const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
-      const status = track.status || (track.played ? 'Played' : 'Queued');
-
-      item.textContent = `${track.title} — ${track.artist} (${duration}) [${status}]`;
+      item.textContent = `${track.title} — ${track.artist} (${duration})`;
       checkoutQueueList.appendChild(item);
     });
 
@@ -2747,18 +2749,15 @@ async function loadCheckoutQueue() {
       checkoutQueueCount.textContent = `Paid queue: ${tracks.length}`;
     }
     if (checkoutNextTitle) {
-      const nextTrack = tracks.find(t => t.status === 'Queued');
-      checkoutNextTitle.textContent = nextTrack
-        ? `${nextTrack.title} — ${nextTrack.artist}`
+      checkoutNextTitle.textContent = tracks.length > 0
+        ? `${tracks[0].title} — ${tracks[0].artist}`
         : 'No paid tracks queued';
     }
   } catch (err) {
-    console.error('Failed to load checkout queue/status', err);
+    console.error('Failed to load checkout tracks', err);
   }
 }
 
-// Poll periodically to keep statuses live
-setInterval(loadCheckoutQueue, 5000);
 </script>
 
 
