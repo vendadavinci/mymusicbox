@@ -1,4 +1,4 @@
-// routes/api/progress.js
+// routes/progress.js
 import express from 'express';
 import { PaidSession } from '../models/paid_queue.js';
 

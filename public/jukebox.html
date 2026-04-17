@@ -1039,97 +1039,49 @@ function escapeHtml(s){
 /* ====== Queue rendering & controls ====== */
 function renderQueue() {
   try {
-    if (!paidQueueEl) return;
+    const checkoutQueueList = document.getElementById('checkoutQueueList');
+    const checkoutQueueCount = document.getElementById('checkoutQueueCount');
+    const checkoutQueueDuration = document.getElementById('checkoutQueueDuration');
+    const checkoutNextTitle = document.getElementById('checkoutNextTitle');
 
+    if (!checkoutQueueList) return;
     if (!Array.isArray(paidQueue)) paidQueue = [];
 
-    // Persist local queue so refresh doesn't lose it
+    // Persist local queue
     try {
       sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
     } catch (e) {
       console.warn('Could not persist paidQueue to sessionStorage', e);
     }
 
-    // Only show tracks that are not yet played
+    // Only show tracks not yet played
     const activeTracks = paidQueue.filter(t => !t.played);
 
-    paidQueueEl.innerHTML = '';
-    const frag = document.createDocumentFragment();
-
+    checkoutQueueList.innerHTML = '';
     let totalMs = 0;
 
-    activeTracks.forEach((item, index) => {
-      totalMs += item.duration_ms || 0;
+    activeTracks.forEach(track => {
+      totalMs += track.duration_ms || 0;
 
-      const wrapper = document.createElement('div');
-      wrapper.className = 'queue-item';
-      wrapper.style.display = 'flex';
-      wrapper.style.justifyContent = 'space-between';
-      wrapper.style.alignItems = 'center';
-      wrapper.style.gap = '12px';
-      wrapper.dataset.index = String(index);
+      const item = document.createElement('div');
+      item.className = 'queue-item';
+      item.textContent = `${track.title} — ${track.artist} (${formatMs(track.duration_ms)})`;
 
-      // Left column: title + artist
-      const left = document.createElement('div');
-      left.style.minWidth = '0';
-      left.style.flex = '1';
+      // Status indicator
+      const statusSpan = document.createElement('span');
+      statusSpan.className = `status ${track.played ? 'played' : 'queued'}`;
+      statusSpan.textContent = `[${track.played ? 'Played' : 'Queued'}]`;
+      item.appendChild(statusSpan);
 
-      const titleDiv = document.createElement('div');
-      titleDiv.style.fontWeight = '700';
-      titleDiv.style.whiteSpace = 'nowrap';
-      titleDiv.style.overflow = 'hidden';
-      titleDiv.style.textOverflow = 'ellipsis';
-      titleDiv.textContent = item.title || 'Unknown';
-
-      const metaDiv = document.createElement('div');
-      metaDiv.className = 'meta';
-      metaDiv.style.fontSize = '0.9em';
-      metaDiv.style.color = '#666';
-      metaDiv.textContent = item.artist || '';
-
-      left.appendChild(titleDiv);
-      left.appendChild(metaDiv);
-
-      // Right column: duration + played indicator
-      const right = document.createElement('div');
-      right.style.display = 'flex';
-      right.style.flexDirection = 'column';
-      right.style.gap = '6px';
-      right.style.alignItems = 'flex-end';
-      right.style.minWidth = '90px';
-
-      const durationDiv = document.createElement('div');
-      durationDiv.className = 'small';
-      durationDiv.style.fontSize = '0.85em';
-      durationDiv.style.color = '#333';
-      durationDiv.textContent = formatMs(item.duration_ms || 0);
-
-      const playedDiv = document.createElement('div');
-      playedDiv.style.fontSize = '0.75em';
-      playedDiv.style.color = item.played ? '#0a0' : '#999';
-      playedDiv.textContent = item.played ? 'Played' : 'Queued';
-
-      right.appendChild(durationDiv);
-      right.appendChild(playedDiv);
-
-      wrapper.appendChild(left);
-      wrapper.appendChild(right);
-
-      frag.appendChild(wrapper);
+      checkoutQueueList.appendChild(item);
     });
 
-    paidQueueEl.appendChild(frag);
-
-    if (queueCount) queueCount.textContent = `Paid queue: ${activeTracks.length}`;
-    if (queueDurationText) queueDurationText.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
-
-    if (nextTitleEl) {
-      if (activeTracks.length > 0) {
-        const next = activeTracks[0];
-        nextTitleEl.textContent = `${next.title} — ${next.artist}`;
-      } else {
-        nextTitleEl.textContent = 'No paid tracks queued';
-      }
+    if (checkoutQueueCount) checkoutQueueCount.textContent = `Paid queue: ${activeTracks.length}`;
+    if (checkoutQueueDuration) checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
+    if (checkoutNextTitle) {
+      checkoutNextTitle.textContent = activeTracks[0]
+        ? `${activeTracks[0].title} — ${activeTracks[0].artist}`
+        : 'No paid tracks queued';
     }
 
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
