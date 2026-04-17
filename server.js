@@ -909,49 +909,45 @@ app.post('/api/queue', async (req, res) => {
 });
 
 
-// Poller: update played tracks every 5 seconds
+// Run every 10 seconds
 setInterval(async () => {
-  const activeSession = await isPaidSessionActive();
-  if (!activeSession) return;
-
   try {
-    await refreshAccessTokenIfNeeded();
-    const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
+    const activeSessions = await PaidSession.find({ active: true });
 
-    // Handle 204 (no content)
-    if (r.status === 204) {
-      return; // nothing playing
-    }
-
-    // Handle non-OK responses
-    if (!r.ok) {
-      const text = await r.text().catch(() => '<no body>');
-      console.warn(`Spotify status failed ${r.status}: ${text}`);
-      return;
-    }
-
-    // Defensive JSON parse
-    let data = null;
-    try {
-      const text = await r.text();
-      if (text && text.trim().length > 0) {
-        data = JSON.parse(text);
+    for (const session of activeSessions) {
+      // Find the first unplayed track
+      const current = session.tracks.find(t => !t.played);
+      if (!current) {
+        // No more tracks, mark session ended
+        if (!session.endedAt) {
+          session.active = false;
+          session.endedAt = new Date();
+          await session.save();
+        }
+        continue;
       }
-    } catch (err) {
-      console.warn('Spotify returned empty or invalid JSON', err);
-      return;
-    }
 
-    // If we got valid data, mark track played
-    if (data?.item?.uri) {
-      await markTrackPlayed(activeSession.sessionId, data.item.uri);
+      // If playbackStartedAt is missing, set it now
+      if (!session.playbackStartedAt) {
+        session.playbackStartedAt = new Date();
+        await session.save();
+        continue;
+      }
+
+      // Check if current track has finished
+      const elapsedMs = Date.now() - session.playbackStartedAt.getTime();
+      if (elapsedMs >= current.durationMs) {
+        current.played = true;
+        session.playbackStartedAt = new Date(); // reset for next track
+        await session.save();
+        console.log(`Marked track ${current.title} as played for session ${session.sessionId}`);
+      }
     }
   } catch (err) {
     console.error('Poller error:', err);
   }
-}, 5000); // every 5 seconds
+}, 10000); // every 10 seconds
+
 
 
 /* -------------------------
