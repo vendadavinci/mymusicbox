@@ -821,47 +821,86 @@ app.get('/api/checkout-tracks', async (req, res) => {
   try {
     const id = req.query.checkoutId;
     if (!id) {
-      return res.status(400).json({ error: 'checkoutId required' });
+      return res.status(400).json({ success: false, error: 'checkoutId required' });
     }
 
     // First check if checkout exists
     const entry = await Checkout.findOne({ checkoutId: id });
     if (!entry) {
-      return res.status(404).json({ error: 'checkout not found or expired' });
+      return res.status(404).json({ success: false, error: 'checkout not found or expired' });
     }
 
-    // Normalize tracks
+    // Normalize tracks from the Checkout record
     const normalizedTracks = (entry.tracks || []).map((track, i) =>
       normalizeTrack(track, i + 1)
     );
 
-    // If a PaidSession exists, enrich with statuses
+    // Compute totals for the checkout record
+    const totalDurationMsFromCheckout = normalizedTracks.reduce((s, t) => s + (t.duration_ms || 0), 0);
+    const totalTracksFromCheckout = normalizedTracks.length;
+
+    // If a PaidSession exists, enrich with statuses and authoritative fields
     const session = await PaidSession.findOne({ checkoutId: id });
-    let tracksWithStatus = normalizedTracks;
     if (session) {
       const current = session.tracks.find(t => !t.played);
-      tracksWithStatus = session.tracks.map(t => {
+
+      const tracksWithStatus = session.tracks.map((t, i) => {
         let status = 'Queued';
         if (t.played) status = 'Played';
         else if (current && t.uri === current.uri) status = 'Playing';
+
         return {
+          index: i + 1,
+          uri: t.uri,
           title: t.title,
           artist: t.artist,
           albumArt: t.albumArt,
-          duration_ms: t.duration_ms,
+          duration_ms: t.duration_ms || 0,
+          played: !!t.played,
           status
         };
       });
+
+      const totalDurationMs = session.tracks.reduce((s, t) => s + (t.duration_ms || 0), 0);
+      const playedCount = session.tracks.filter(t => t.played).length;
+
+      return res.json({
+        success: true,
+        checkoutId: id,
+        sessionId: session.sessionId,
+        mode: session.active ? 'PAID' : 'DEFAULT',
+        playedCount,
+        totalTracks: session.tracks.length,
+        totalDurationMs,
+        tracks: tracksWithStatus
+      });
     }
+
+    // No PaidSession yet — return checkout canonical list
+    const tracksForClient = normalizedTracks.map((t, i) => ({
+      index: i + 1,
+      uri: t.uri,
+      title: t.title,
+      artist: t.artist,
+      albumArt: t.albumArt,
+      duration_ms: t.duration_ms || 0,
+      played: false,
+      status: 'Queued'
+    }));
 
     return res.json({
       success: true,
       checkoutId: id,
-      tracks: tracksWithStatus
+      sessionId: null,
+      mode: 'DEFAULT',
+      playedCount: 0,
+      totalTracks: totalTracksFromCheckout,
+      totalDurationMs: totalDurationMsFromCheckout,
+      tracks: tracksForClient
     });
   } catch (err) {
     console.error('/api/checkout-tracks error', err);
-    return res.status(500).json({ error: 'server error', details: err.message });
+    return res.status(500).json({ success: false, error: 'server error', details: err.message });
   }
 });
 
