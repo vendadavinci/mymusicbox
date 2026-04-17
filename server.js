@@ -723,7 +723,7 @@ app.post('/api/create-payment', async (req, res) => {
       amount,
       currency,
       description,
-      successUrl: `https://mymusicbox.onrender.com/jukebox.html?checkoutId=${checkoutId}`,
+      successUrl: `https://mymusicbox.onrender.com/index.html?checkoutId=${checkoutId}`,
       cancelUrl: `https://mymusicbox.onrender.com/index.html`
     };
 
@@ -788,7 +788,7 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
         amount,
         currency,
         description,
-        successUrl: `https://mymusicbox.onrender.com/jukebox.html?checkoutId=${checkoutId}`,
+        successUrl: `https://mymusicbox.onrender.com/index.html?checkoutId=${checkoutId}`,
         cancelUrl: `https://mymusicbox.onrender.com/index.html`
       },
       {
