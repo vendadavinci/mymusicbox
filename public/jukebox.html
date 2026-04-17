@@ -2679,7 +2679,11 @@ async function refreshStatus() {
 
 <script>
 let lastPlaying = null;
-let playedSet = new Set(); // keep track of played tracks
+let playedSet = new Set(JSON.parse(localStorage.getItem('playedTracks') || '[]'));
+
+function savePlayedSet() {
+  localStorage.setItem('playedTracks', JSON.stringify([...playedSet]));
+}
 
 (async function loadPaidTracks() {
   try {
@@ -2755,8 +2759,8 @@ async function loadCheckoutQueue() {
       item.className = 'queue-item';
       const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
 
-      let status = 'Queued';
       const key = `${track.title}::${track.artist}`;
+      let status = 'Queued';
 
       if (track.title === currentTitle && track.artist === currentArtist) {
         status = 'Playing';
@@ -2764,9 +2768,9 @@ async function loadCheckoutQueue() {
       } else if (playedSet.has(key)) {
         status = 'Played';
       } else if (lastPlaying === key) {
-        // if it was the lastPlaying but now not current, mark as played
         status = 'Played';
         playedSet.add(key);
+        savePlayedSet();
       }
 
       const statusSpan = document.createElement('span');
@@ -2798,6 +2802,7 @@ async function loadCheckoutQueue() {
   }
 }
 </script>
+
 
 
 
