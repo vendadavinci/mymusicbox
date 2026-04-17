@@ -2686,57 +2686,49 @@ function savePlayedSet() {
   sessionStorage.setItem('playedTracks', JSON.stringify([...playedSet]));
 }
 
-(async function loadPaidTracks() {
+// Poller for live updates every 1 second
+setInterval(() => {
+  pollProgress();
+  loadCheckoutQueue();
+}, 1000);
+
+// Initial kick-off
+pollProgress();
+loadCheckoutQueue();
+
+// New poller using /api/progress
+async function pollProgress() {
   try {
-    let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+    const res = await fetch('/api/progress');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.success) return;
 
-    if ((!tracks || tracks.length === 0) && location.search) {
-      const params = new URLSearchParams(location.search);
-      const checkoutId = params.get('checkoutId');
-      if (checkoutId) {
-        const r = await fetch(`/api/checkout-tracks?checkoutId=${encodeURIComponent(checkoutId)}`);
-        if (r.ok) {
-          const json = await r.json();
-          tracks = json.tracks || [];
-          sessionStorage.setItem('sessionId', checkoutId);
-        }
-      }
+    // Update Now Playing UI
+    setNowPlaying({
+      title: data.title,
+      artist: data.artist,
+      albumArtUrl: data.albumArt,
+      mode: data.mode
+    });
+
+    // Track transitions for Played
+    const key = `${data.title}::${data.artist}`;
+    if (lastPlaying && lastPlaying !== key) {
+      playedSet.add(lastPlaying);
+      savePlayedSet();
     }
+    lastPlaying = key;
 
-    if (tracks && tracks.length > 0) {
-      paidQueue.push(...tracks.map(t => ({
-        uri: t.uri,
-        title: t.title || 'Unknown',
-        artist: t.artist || '',
-        duration_ms: t.duration_ms || 0,
-        albumArt: t.albumArt || '',
-        addedAt: Date.now()
-      })));
-
-      renderQueue();
-
-      await fetch('/webhook/payment-success', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sessionStorage.getItem('sessionId'), tracks })
-      });
-
-      statusText.textContent = 'Starting paid playback...';
-      await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
-      pollStatusOnce();
-
-      await loadCheckoutQueue();
-
-      // Poller for live updates every 1 second
-      setInterval(() => {
-        pollStatusOnce();
-        loadCheckoutQueue();
-      }, 1000);
+    // Update progress strip
+    const progressEl = document.getElementById('progress');
+    if (progressEl) {
+      progressEl.textContent = `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
     }
   } catch (err) {
-    console.error('Error loading paid tracks:', err);
+    console.warn('pollProgress error', err);
   }
-})();
+}
 
 async function loadCheckoutQueue() {
   const params = new URLSearchParams(window.location.search);
@@ -2766,13 +2758,8 @@ async function loadCheckoutQueue() {
 
       if (track.title === currentTitle && track.artist === currentArtist) {
         status = 'Playing';
-        lastPlaying = key;
       } else if (playedSet.has(key)) {
         status = 'Played';
-      } else if (lastPlaying === key) {
-        status = 'Played';
-        playedSet.add(key);
-        savePlayedSet(); // persist to sessionStorage
       }
 
       const statusSpan = document.createElement('span');
@@ -2804,12 +2791,6 @@ async function loadCheckoutQueue() {
   }
 }
 </script>
-
-
-
-
-
-
 
 <script>
 // Read-only UI refresh. Never enqueue or post anything here.

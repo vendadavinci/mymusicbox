@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import { PaidSession } from './models/paid_queue.js';
 import { Checkout } from './models/checkout.js'; 
+import progressRouter from './routes/progress.js'; 
 
 // ✅ Connect to MongoDB Atlas
 mongoose.connect(process.env.MONGO_URI)
@@ -19,6 +20,7 @@ mongoose.connect(process.env.MONGO_URI)
 
 const app = express();
 app.use(express.json());
+app.use('/api', progressRouter);
 
 // In‑memory checkout store (optional fallback, can remove once you rely only on Mongo)
 const checkoutStore = new Map();
