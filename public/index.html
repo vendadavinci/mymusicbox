@@ -2249,7 +2249,50 @@ if (!sid) {
 window.applyPackageFromQuery = applyPackageFromQuery;
 window.onPaymentSuccess = onPaymentSuccess;
 
-/* ====== End of fixed script ====== */
+/* ====== Progress polling ====== */
+async function pollProgressOnce() {
+  try {
+    const sessionId = sessionStorage.getItem('sessionId');
+    if (!sessionId) return;
+
+    const res = await fetch(`/api/progress?sessionId=${encodeURIComponent(sessionId)}`);
+    if (!res.ok) {
+      console.warn('progress returned non-ok', res.status);
+      return;
+    }
+    const data = await res.json();
+    if (!data.success) return;
+
+    // Update Now Playing UI
+    setNowPlaying({
+      title: data.title,
+      artist: data.artist,
+      albumArtUrl: data.albumArt,
+      mode: data.mode
+    });
+
+    // Update progress strip
+    const progressEl = document.getElementById('progress-text');
+    if (progressEl) {
+      progressEl.textContent = `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
+    }
+
+    // Sync local paidQueue with backend statuses
+    paidQueue = (data.tracks || []).map(t => ({
+      title: t.title,
+      artist: t.artist,
+      albumArt: t.albumArt,
+      played: t.status === 'Played',
+      duration_ms: t.duration_ms || 0
+    }));
+
+    if (typeof renderQueue === 'function') renderQueue();
+
+  } catch (err) {
+    console.error('pollProgressOnce error', err);
+  }
+}
+
 
 
 // Merge server session tracks into local paidQueue and playedQueue
