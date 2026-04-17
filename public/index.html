@@ -1289,7 +1289,12 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
     // Update now playing UI
     const first = snapshotQueue[0];
     if (first && typeof setNowPlaying === 'function') {
-      setNowPlaying(first.title, first.artist, first.albumArt);
+      setNowPlaying({
+        title: first.title,
+        artist: first.artist,
+        albumArtUrl: first.albumArt,
+        mode: 'PAID'
+      });
     }
 
     // Send tracks to backend once, with durable identifiers
@@ -2510,30 +2515,28 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
     // Prefer pendingSubmission shape { id, tracks, package, createdAt }
     const idempotencyKey = pending?.id || sessionStorage.getItem('checkoutId') || checkoutIdFromUrl || ('legacy-' + Date.now());
 
-    // Ask backend whether this checkout already completed / enqueued
-    // Backend should return { ok: true, enqueued: true/false, enqueuedUris: [...] }
-    const statusRes = await fetch(`/api/checkout-status?checkoutId=${encodeURIComponent(idempotencyKey)}`);
-    if (!statusRes.ok) {
-      console.warn('checkout-status returned non-ok', statusRes.status);
-      // If backend is unreachable, do not auto-post; show resume notice instead
-      showResumePaymentNotice(pending || { tracks: legacyTracks || [] });
-      return;
-    }
+// Ask backend whether this checkout already completed / enqueued
+// Replace checkout-status with checkout-tracks
+const statusRes = await fetch(`/api/checkout-tracks?checkoutId=${encodeURIComponent(idempotencyKey)}`);
+if (!statusRes.ok) {
+  console.warn('checkout-tracks returned non-ok', statusRes.status);
+  showResumePaymentNotice(pending || { tracks: legacyTracks || [] });
+  return;
+}
 
-    const statusJson = await statusRes.json();
+const statusJson = await statusRes.json();
 
-    // If backend already enqueued, clear local state and exit
-    if (statusJson && statusJson.enqueued === true) {
-      console.log('Backend already enqueued tracks for checkout:', idempotencyKey);
-      sessionStorage.removeItem('tracks');
-      sessionStorage.removeItem('checkoutId');
-      sessionStorage.removeItem('pendingSubmission');
-      // Optionally refresh UI/server canonical queue
-      if (typeof initPage === 'function') initPage();
-      // Remove query params to avoid re-checks
-      history.replaceState(null, '', window.location.pathname);
-      return;
-    }
+// If backend already has tracks, clear local state and exit
+if (statusJson && Array.isArray(statusJson.tracks) && statusJson.tracks.length > 0) {
+  console.log('Backend already has tracks for checkout:', idempotencyKey);
+  sessionStorage.removeItem('tracks');
+  sessionStorage.removeItem('checkoutId');
+  sessionStorage.removeItem('pendingSubmission');
+  if (typeof initPage === 'function') initPage();
+  history.replaceState(null, '', window.location.pathname);
+  return;
+}
+
 
     // Determine which tracks to submit: prefer pendingSubmission, then legacyTracks, then server-provided list
     const tracksToSubmit = (pending && Array.isArray(pending.tracks) && pending.tracks.length > 0)
@@ -2623,6 +2626,7 @@ function savePlayedSet() {
           const json = await r.json();
           tracks = json.tracks || [];
           sessionStorage.setItem('sessionId', checkoutId);
+          sessionStorage.setItem('checkoutId', checkoutId);
         }
       }
     }
