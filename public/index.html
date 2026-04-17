@@ -500,11 +500,7 @@ const nowArtist = document.getElementById('nowArtist');
 const nowArt = document.getElementById('nowArt');
 const nowMode = document.getElementById('nowMode');
 const statusText = document.getElementById('statusText');
-const queueCount = document.getElementById('queueCount');
-const paidQueueEl = document.getElementById('paidQueue');
-const queueDurationText = document.getElementById('queueDurationText');
 const searchResultsEl = document.getElementById('searchResults');
-const nextTitleEl = document.getElementById('nextTitle');     
 const formPanel = document.getElementById('formPanel');
 const slotsContainer = document.getElementById('slotsContainer');
 const selectedContainer = document.getElementById('selectedContainer');
@@ -518,6 +514,8 @@ const instructionNote = document.getElementById('instructionNote');
 const checkoutQueueList     = document.getElementById('checkoutQueueList');
 const checkoutQueueDuration = document.getElementById('checkoutQueueDuration');
 const checkoutQueueInfo     = document.getElementById('checkoutQueueInfo');
+const checkoutQueueCount    = document.getElementById('checkoutQueueCount');
+const checkoutNextTitle     = document.getElementById('checkoutNextTitle');
 
 
     function selectPackage(price, maxSongs){
@@ -2249,53 +2247,6 @@ if (!sid) {
 window.applyPackageFromQuery = applyPackageFromQuery;
 window.onPaymentSuccess = onPaymentSuccess;
 
-/* ====== Progress polling ====== */
-async function pollProgressOnce() {
-  try {
-    const sessionId = sessionStorage.getItem('sessionId');
-    if (!sessionId) return;
-
-    const res = await fetch(`/api/progress?sessionId=${encodeURIComponent(sessionId)}`);
-    if (!res.ok) {
-      console.warn('progress returned non-ok', res.status);
-      return;
-    }
-    const data = await res.json();
-    if (!data.success) return;
-
-    // Update Now Playing UI
-    setNowPlaying({
-      title: data.title,
-      artist: data.artist,
-      albumArtUrl: data.albumArt,
-      mode: data.mode
-    });
-
-    // Update progress strip
-    const progressEl = document.getElementById('progress-text');
-    if (progressEl) {
-      progressEl.textContent = `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
-    }
-
-    // Sync local paidQueue with backend statuses
-    paidQueue = (data.tracks || []).map(t => ({
-      title: t.title,
-      artist: t.artist,
-      albumArt: t.albumArt,
-      played: t.status === 'Played',
-      duration_ms: t.duration_ms || 0
-    }));
-
-    if (typeof renderQueue === 'function') renderQueue();
-
-  } catch (err) {
-    console.error('pollProgressOnce error', err);
-  }
-}
-
-
-
-/* ====== Progress polling ====== */
 async function pollProgressOnce() {
   try {
     const sessionId = sessionStorage.getItem('sessionId');
