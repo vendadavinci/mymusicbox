@@ -2679,10 +2679,11 @@ async function refreshStatus() {
 
 <script>
 let lastPlaying = null;
-let playedSet = new Set(JSON.parse(localStorage.getItem('playedTracks') || '[]'));
+// Restore playedSet from sessionStorage if available
+let playedSet = new Set(JSON.parse(sessionStorage.getItem('playedTracks') || '[]'));
 
 function savePlayedSet() {
-  localStorage.setItem('playedTracks', JSON.stringify([...playedSet]));
+  sessionStorage.setItem('playedTracks', JSON.stringify([...playedSet]));
 }
 
 (async function loadPaidTracks() {
@@ -2770,7 +2771,7 @@ async function loadCheckoutQueue() {
       } else if (lastPlaying === key) {
         status = 'Played';
         playedSet.add(key);
-        savePlayedSet();
+        savePlayedSet(); // persist to sessionStorage
       }
 
       const statusSpan = document.createElement('span');
