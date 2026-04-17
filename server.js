@@ -458,6 +458,8 @@ app.post('/webhook/payment-success', async (req, res) => {
       return res.status(400).json({ error: 'Missing sessionId or checkoutId' });
     }
 
+
+
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
     let session = await PaidSession.findOne({ sessionId });

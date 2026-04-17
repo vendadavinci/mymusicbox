@@ -2513,16 +2513,13 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
 <script>
 (async function handlePostPayment() {
   try {
-    // Try to read a pending submission (preferred) or legacy 'tracks' storage
     const pendingRaw = sessionStorage.getItem('pendingSubmission');
     let pending = null;
     try { pending = pendingRaw ? JSON.parse(pendingRaw) : null; } catch (e) { pending = null; }
 
-    // Legacy fallback: single 'tracks' + optional checkoutId
     let legacyTracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
     const checkoutIdFromUrl = new URLSearchParams(location.search).get('checkoutId') || sessionStorage.getItem('checkoutId');
 
-    // If we have neither pending nor legacy tracks, nothing to do
     if ((!pending || !Array.isArray(pending.tracks) || pending.tracks.length === 0) &&
         (!legacyTracks || legacyTracks.length === 0) &&
         !checkoutIdFromUrl) {
@@ -2530,33 +2527,26 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
       return;
     }
 
-    // Prefer pendingSubmission shape { id, tracks, package, createdAt }
     const idempotencyKey = pending?.id || sessionStorage.getItem('checkoutId') || checkoutIdFromUrl || ('legacy-' + Date.now());
 
-// Ask backend whether this checkout already completed / enqueued
-// Replace checkout-status with checkout-tracks
-const statusRes = await fetch(`/api/checkout-tracks?checkoutId=${encodeURIComponent(idempotencyKey)}`);
-if (!statusRes.ok) {
-  console.warn('checkout-tracks returned non-ok', statusRes.status);
-  showResumePaymentNotice(pending || { tracks: legacyTracks || [] });
-  return;
-}
+    const statusRes = await fetch(`/api/checkout-tracks?checkoutId=${encodeURIComponent(idempotencyKey)}`);
+    if (!statusRes.ok) {
+      console.warn('checkout-tracks returned non-ok', statusRes.status);
+      showResumePaymentNotice(pending || { tracks: legacyTracks || [] });
+      return;
+    }
 
-const statusJson = await statusRes.json();
+    const statusJson = await statusRes.json();
+    if (statusJson && Array.isArray(statusJson.tracks) && statusJson.tracks.length > 0) {
+      console.log('Backend already has tracks for checkout:', idempotencyKey);
+      sessionStorage.removeItem('tracks');
+      sessionStorage.removeItem('checkoutId');
+      sessionStorage.removeItem('pendingSubmission');
+      if (typeof initPage === 'function') initPage();
+      history.replaceState(null, '', window.location.pathname);
+      return;
+    }
 
-// If backend already has tracks, clear local state and exit
-if (statusJson && Array.isArray(statusJson.tracks) && statusJson.tracks.length > 0) {
-  console.log('Backend already has tracks for checkout:', idempotencyKey);
-  sessionStorage.removeItem('tracks');
-  sessionStorage.removeItem('checkoutId');
-  sessionStorage.removeItem('pendingSubmission');
-  if (typeof initPage === 'function') initPage();
-  history.replaceState(null, '', window.location.pathname);
-  return;
-}
-
-
-    // Determine which tracks to submit: prefer pendingSubmission, then legacyTracks, then server-provided list
     const tracksToSubmit = (pending && Array.isArray(pending.tracks) && pending.tracks.length > 0)
       ? pending.tracks
       : (legacyTracks && legacyTracks.length > 0 ? legacyTracks : (statusJson.tracks || []));
@@ -2566,32 +2556,16 @@ if (statusJson && Array.isArray(statusJson.tracks) && statusJson.tracks.length >
       return;
     }
 
-    // Final safety: if server returned enqueuedUris, filter out already enqueued URIs
-    if (Array.isArray(statusJson.enqueuedUris) && statusJson.enqueuedUris.length > 0) {
-      const enqueuedSet = new Set(statusJson.enqueuedUris);
-      const filtered = tracksToSubmit.filter(t => !enqueuedSet.has(t.uri));
-      if (filtered.length === 0) {
-        console.log('All tracks already enqueued on server; clearing local pending state.');
-        sessionStorage.removeItem('tracks');
-        sessionStorage.removeItem('checkoutId');
-        sessionStorage.removeItem('pendingSubmission');
-        if (typeof initPage === 'function') initPage();
-        history.replaceState(null, '', window.location.pathname);
-        return;
-      }
-      // use filtered list for submission
-      tracksToSubmit.length = 0;
-      tracksToSubmit.push(...filtered);
-    }
+    const sid = sessionStorage.getItem('sessionId') || checkoutIdFromUrl;
+    const cid = sessionStorage.getItem('checkoutId') || checkoutIdFromUrl;
 
-    // Submit to webhook/payment-success with idempotency header
     const webhookRes = await fetch('/webhook/payment-success', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Idempotency-Key': idempotencyKey
       },
-      body: JSON.stringify({ tracks: tracksToSubmit, checkoutId: idempotencyKey })
+      body: JSON.stringify({ sessionId: sid, checkoutId: cid, tracks: tracksToSubmit })
     });
 
     if (!webhookRes.ok) {
@@ -2600,20 +2574,16 @@ if (statusJson && Array.isArray(statusJson.tracks) && statusJson.tracks.length >
       return;
     }
 
-    // Success: clear local pending state and legacy keys
     sessionStorage.removeItem('tracks');
     sessionStorage.removeItem('checkoutId');
     sessionStorage.removeItem('pendingSubmission');
 
     console.log('Payment successful — tracks submitted to server and local state cleared.');
-
-    // Refresh canonical queue/UI
     if (typeof initPage === 'function') initPage();
     history.replaceState(null, '', window.location.pathname);
 
   } catch (err) {
     console.error('Error handling payment success:', err);
-    // Do not auto-retry; show resume UI so user can re-attempt intentionally
     const pending = (() => {
       try { return JSON.parse(sessionStorage.getItem('pendingSubmission') || 'null'); } catch (e) { return null; }
     })();
@@ -2664,17 +2634,19 @@ function savePlayedSet() {
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sessionStorage.getItem('sessionId'), tracks })
+        body: JSON.stringify({
+          sessionId: sessionStorage.getItem('sessionId'),
+          checkoutId: sessionStorage.getItem('checkoutId'),
+          tracks
+        })
       });
 
       statusText.textContent = 'Starting paid playback...';
       await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
 
-      // Initial poll
       await pollProgressOnce();
       await loadCheckoutQueue();
 
-      // Poll every 8 seconds
       setInterval(() => {
         pollProgressOnce();
         loadCheckoutQueue();
@@ -2684,6 +2656,8 @@ function savePlayedSet() {
     console.error('Error loading paid tracks:', err);
   }
 })();
+
+
 
 async function loadCheckoutQueue() {
   const params = new URLSearchParams(window.location.search);
