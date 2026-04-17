@@ -736,21 +736,20 @@ function reopenSlot(slotIndex){
 
 function setNowPlaying({ title, artist, albumArtUrl, mode }) {
   const nowArt = document.getElementById('nowArt');
-  const playerVisual = document.getElementById('playerVisual');
   const nowTitle = document.getElementById('nowTitle');
   const nowArtist = document.getElementById('nowArtist');
   const nowMode = document.getElementById('nowMode');
 
+  // Update text fields
   nowTitle.textContent = title || 'Idle';
   nowArtist.textContent = artist || 'Default playlist';
   nowMode.textContent = mode ? `Mode: ${mode}` : 'Mode: DEFAULT';
 
+  // Update artwork
   if (albumArtUrl) {
     nowArt.style.backgroundImage = `url(${albumArtUrl})`;
-    playerVisual.style.backgroundImage = `url(${albumArtUrl})`; // optional fallback
   } else {
     nowArt.style.backgroundImage = '';
-    playerVisual.style.backgroundImage = '';
   }
 }
 
