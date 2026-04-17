@@ -1015,15 +1015,16 @@ window.addEventListener('load', () => {
 /* ====== Startup validation ====== */
 (function validateDomBindings(){
   const missing = [];
-  if (!queueCount) missing.push('queueCount');
-  if (!queueDurationText) missing.push('queueDurationText');
-  if (!nextTitleEl) missing.push('nextTitleEl');
+  if (!checkoutQueueCount) missing.push('checkoutQueueCount');
+  if (!checkoutQueueDuration) missing.push('checkoutQueueDuration');
+  if (!checkoutNextTitle) missing.push('checkoutNextTitle');
   if (!nowTitle) missing.push('nowTitle');
   if (missing.length) {
     console.error('Missing DOM elements:', missing.join(', '));
     if (statusText) statusText.textContent = 'UI initialization error: missing elements';
   }
 })();
+
 
 /* ====== Helpers ====== */
 function escapeHtml(s){
