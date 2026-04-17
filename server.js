@@ -822,25 +822,47 @@ app.get('/api/checkout-tracks', async (req, res) => {
       return res.status(400).json({ error: 'checkoutId required' });
     }
 
+    // First check if checkout exists
     const entry = await Checkout.findOne({ checkoutId: id });
     if (!entry) {
       return res.status(404).json({ error: 'checkout not found or expired' });
     }
 
-    // Ensure tracks are normalized before returning
+    // Normalize tracks
     const normalizedTracks = (entry.tracks || []).map((track, i) =>
       normalizeTrack(track, i + 1)
     );
 
+    // If a PaidSession exists, enrich with statuses
+    const session = await PaidSession.findOne({ checkoutId: id });
+    let tracksWithStatus = normalizedTracks;
+    if (session) {
+      const current = session.tracks.find(t => !t.played);
+      tracksWithStatus = session.tracks.map(t => {
+        let status = 'Queued';
+        if (t.played) status = 'Played';
+        else if (current && t.uri === current.uri) status = 'Playing';
+        return {
+          title: t.title,
+          artist: t.artist,
+          albumArt: t.albumArt,
+          duration_ms: t.duration_ms,
+          status
+        };
+      });
+    }
+
     return res.json({
       success: true,
-      tracks: normalizedTracks
+      checkoutId: id,
+      tracks: tracksWithStatus
     });
   } catch (err) {
     console.error('/api/checkout-tracks error', err);
     return res.status(500).json({ error: 'server error', details: err.message });
   }
 });
+
 
 app.post('/api/queue', async (req, res) => {
   try {
