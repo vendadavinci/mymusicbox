@@ -453,9 +453,9 @@ app.post('/api/reserve-tracks', async (req, res) => {
 
 app.post('/webhook/payment-success', async (req, res) => {
   try {
-    const { sessionId, tracks = [], userId } = req.body;
-    if (!sessionId) {
-      return res.status(400).json({ error: 'Missing sessionId' });
+    const { sessionId, checkoutId, tracks = [], userId } = req.body;
+    if (!sessionId || !checkoutId) {
+      return res.status(400).json({ error: 'Missing sessionId or checkoutId' });
     }
 
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
@@ -464,7 +464,7 @@ app.post('/webhook/payment-success', async (req, res) => {
     if (!session) {
       session = new PaidSession({
         sessionId,
-        checkoutId: sessionId.split('-')[1],
+        checkoutId,
         userId: userId || null,
         packagePrice: 0,
         maxSongs: 0,
@@ -475,7 +475,7 @@ app.post('/webhook/payment-success', async (req, res) => {
       });
     }
 
-    // Guard: if already processed, skip re‑adding and playback
+    // Guard: if already processed, skip duplicate webhook
     if (session.songsAdded > 0 && session.playbackStartedAt) {
       return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
     }
@@ -484,12 +484,11 @@ app.post('/webhook/payment-success', async (req, res) => {
       session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
       session.songsAdded = tracks.length;
       session.active = true;
+      session.playbackStartedAt = new Date(); // mark playback triggered before save
       await session.save();
 
       try {
         await startPaidSession(sessionId, tracks, estimatedTotalMs);
-        session.playbackStartedAt = new Date(); // mark playback triggered
-        await session.save();
       } catch (err) {
         console.error('startPaidSession error', err);
         return res.status(500).json({ error: 'playback failed', details: err.message });
@@ -502,7 +501,6 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
-
 
 
 // Check if there is an active paid session
