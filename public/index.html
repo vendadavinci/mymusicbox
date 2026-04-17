@@ -494,29 +494,32 @@ let currentPackage = null;          // { price: "10", maxSongs: 2 }
 let paymentComplete = false;
 let songsAddedThisSession = 0;
 
-/* DOM bindings (cached) */
-const nowTitle = document.getElementById('nowTitle');
-const nowArtist = document.getElementById('nowArtist');
-const nowArt = document.getElementById('nowArt');
-const nowMode = document.getElementById('nowMode');
-const statusText = document.getElementById('statusText');
-const searchResultsEl = document.getElementById('searchResults');
-const formPanel = document.getElementById('formPanel');
+// Now Playing section
+const nowTitle       = document.getElementById('nowTitle');
+const nowArtist      = document.getElementById('nowArtist');
+const nowArt         = document.getElementById('nowArt');
+const nowMode        = document.getElementById('nowMode');
+const statusText     = document.getElementById('statusText');
+
+// Add flow
+const formPanel      = document.getElementById('formPanel');
 const slotsContainer = document.getElementById('slotsContainer');
 const selectedContainer = document.getElementById('selectedContainer');
-const selectedList = document.getElementById('selectedList');
-const payBtn = document.getElementById('payBtn');
-const addBtn = document.getElementById('addBtn');
-const pkgLabel = document.getElementById('pkgLabel');
+const selectedList   = document.getElementById('selectedList');
+const payBtn         = document.getElementById('payBtn');
+const addBtn         = document.getElementById('addSongsBtn'); // matches your HTML
+const pkgLabel       = document.getElementById('pkgLabel');
 const packageSummary = document.getElementById('packageSummary');
-const priceNote = document.getElementById('priceNote');
-const instructionNote = document.getElementById('instructionNote');
+const priceNote      = document.getElementById('priceNote');
+const instructionNote= document.getElementById('instructionNote');
+const searchResultsEl= document.getElementById('searchResults');
+
+// Checkout queue card
 const checkoutQueueList     = document.getElementById('checkoutQueueList');
 const checkoutQueueDuration = document.getElementById('checkoutQueueDuration');
 const checkoutQueueInfo     = document.getElementById('checkoutQueueInfo');
 const checkoutQueueCount    = document.getElementById('checkoutQueueCount');
 const checkoutNextTitle     = document.getElementById('checkoutNextTitle');
-
 
 
 
@@ -1015,16 +1018,26 @@ window.addEventListener('load', () => {
 /* ====== Startup validation ====== */
 (function validateDomBindings(){
   const missing = [];
-  if (!paidQueueEl) missing.push('paidQueueEl');
-  
-  if (!queueDurationText) missing.push('queueDurationText');
-  if (!nextTitleEl) missing.push('nextTitleEl');
-  if (!nowTitle) missing.push('nowTitle');
+  if (!nowTitle)              missing.push('nowTitle');
+  if (!nowArtist)             missing.push('nowArtist');
+  if (!nowArt)                missing.push('nowArt');
+  if (!nowMode)               missing.push('nowMode');
+  if (!statusText)            missing.push('statusText');
+  if (!payBtn)                missing.push('payBtn');
+  if (!addBtn)                missing.push('addSongsBtn');
+  if (!checkoutQueueList)     missing.push('checkoutQueueList');
+  if (!checkoutQueueDuration) missing.push('checkoutQueueDuration');
+  if (!checkoutQueueCount)    missing.push('checkoutQueueCount');
+  if (!checkoutQueueInfo)     missing.push('checkoutQueueInfo');
+  if (!checkoutNextTitle)     missing.push('checkoutNextTitle');
+
   if (missing.length) {
     console.error('Missing DOM elements:', missing.join(', '));
     if (statusText) statusText.textContent = 'UI initialization error: missing elements';
   }
 })();
+
+
 
 /* ====== Helpers ====== */
 function escapeHtml(s){
@@ -2625,7 +2638,12 @@ function savePlayedSet() {
         if (r.ok) {
           const json = await r.json();
           tracks = json.tracks || [];
-          sessionStorage.setItem('sessionId', checkoutId);
+
+          // ✅ Persist both checkoutId and sessionId
+          sessionStorage.setItem('checkoutId', checkoutId);
+          if (json.sessionId) {
+            sessionStorage.setItem('sessionId', json.sessionId);
+          }
         }
       }
     }
@@ -2645,7 +2663,11 @@ function savePlayedSet() {
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sessionStorage.getItem('sessionId'), tracks })
+        body: JSON.stringify({
+          sessionId: sessionStorage.getItem('sessionId'),
+          checkoutId: sessionStorage.getItem('checkoutId'),
+          tracks
+        })
       });
 
       statusText.textContent = 'Starting paid playback...';
