@@ -2727,10 +2727,11 @@ function savePlayedSet() {
 
       await loadCheckoutQueue();
 
+      // Poller for live updates every 1 second
       setInterval(() => {
         pollStatusOnce();
         loadCheckoutQueue();
-      }, 8000);
+      }, 1000);
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
@@ -2836,10 +2837,10 @@ async function refreshStatus() {
   }
 }
 
-setInterval(refreshStatus, 60000);
+// Refresh every 1 second
+setInterval(refreshStatus, 1000);
 refreshStatus();
-
-
 </script>
+
 </body>
 </html>
