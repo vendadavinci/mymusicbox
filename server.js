@@ -491,6 +491,9 @@ app.post('/webhook/payment-success', async (req, res) => {
         await startPaidSession(sessionId, tracks, estimatedTotalMs);
       } catch (err) {
         console.error('startPaidSession error', err);
+        // rollback playbackStartedAt if playback fails
+        session.playbackStartedAt = null;
+        await session.save();
         return res.status(500).json({ error: 'playback failed', details: err.message });
       }
     }
