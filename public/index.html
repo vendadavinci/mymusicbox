@@ -2493,25 +2493,22 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
 
 <script>
   const tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
-  const sid = sessionStorage.getItem('sessionId') || new URLSearchParams(location.search).get('checkoutId');
-  const cid = sessionStorage.getItem('checkoutId') || new URLSearchParams(location.search).get('checkoutId');
 
-  if (tracks.length > 0 && sid && cid) {
-    fetch('/webhook/payment-success', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: sid, checkoutId: cid, tracks })
-    }).then(() => {
-      const statusText = document.getElementById('statusText');
-      if (statusText) {
-        statusText.textContent = 'Tracks queued and ready to play.';
-      }
-    }).catch(err => {
-      console.error('Webhook call failed:', err);
-    });
-  }
+  fetch('/webhook/payment-success', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tracks })
+  }).then(() => {
+    // Instead of alert, update a status element or do nothing
+    const statusText = document.getElementById('statusText');
+    if (statusText) {
+      statusText.textContent = 'Tracks queued and ready to play.';
+    }
+    // Or simply leave this block empty if you want no message at all
+  }).catch(err => {
+    console.error('Webhook call failed:', err);
+  });
 </script>
-
 
 <script>
 (async function handlePostPayment() {
