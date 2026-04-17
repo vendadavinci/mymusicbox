@@ -356,15 +356,12 @@ body::before {
 <section class="left-col card" aria-label="Now Playing">
   <div class="player-visual" id="playerVisual">
     <!-- Artwork fills the visual and is controlled separately -->
-
     <div class="art" id="nowArt" role="img" aria-label="Album artwork"></div>
 
-    <!-- Overlay strip for track info (separate from the art) -->
-      
+    <!-- Overlay strip for track info -->
     <div class="player-overlay">
-        
       <div class="meta">
-        <div class="title" id="nowPlaying">NOW PLAYING:</div>
+        <div class="small">NOW PLAYING:</div>
         <div class="title" id="nowTitle">Idle</div>
         <div class="artist" id="nowArtist">Default playlist</div>
         <div class="small" id="nowMode">Mode: DEFAULT</div>
@@ -372,20 +369,21 @@ body::before {
     </div>
   </div>
 
-
+  <!-- Progress strip -->
   <span id="progress-text"></span>
 
-<!-- Playing Next strip (aligned with Checkout Queue) -->
-<div class="playing-next" id="playingNext" style="margin-top:12px;">
-  <div class="small" id="checkoutQueueCount">Paid queue: 0</div>
-  <div class="small" id="checkoutNextTitle">No paid tracks queued</div>
-</div>
+  <!-- Playing Next strip (aligned with Checkout Queue) -->
+  <div class="playing-next" id="playingNext" style="margin-top:12px;">
+    <div class="small" id="checkoutQueueCount">Paid queue: 0</div>
+    <div class="small" id="checkoutNextTitle">No paid tracks queued</div>
+  </div>
 
-<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
-  <div class="small" id="statusText">Status: idle</div>
-</div>
-
+  <!-- Status line -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+    <div class="small" id="statusText">Status: idle</div>
+  </div>
 </section>
+
 
 
 
