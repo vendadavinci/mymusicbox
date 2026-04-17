@@ -2679,6 +2679,8 @@ async function refreshStatus() {
 
     
 <script>
+let lastPlaying = null; // remember the last track that was playing
+
 (async function loadPaidTracks() {
   try {
     let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
@@ -2718,10 +2720,8 @@ async function refreshStatus() {
       await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
       pollStatusOnce();
 
-      // Initial population
       await loadCheckoutQueue();
 
-      // Poller for live updates
       setInterval(() => {
         pollStatusOnce();
         loadCheckoutQueue();
@@ -2756,13 +2756,14 @@ async function loadCheckoutQueue() {
       const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
 
       let status = 'Queued';
+
       if (track.title === currentTitle && track.artist === currentArtist) {
         status = 'Playing';
-      } else if (paidQueue.find(t => t.title === track.title && t.artist === track.artist && t.played)) {
+        lastPlaying = `${track.title}::${track.artist}`;
+      } else if (lastPlaying === `${track.title}::${track.artist}`) {
         status = 'Played';
       }
 
-      // Create styled span for status
       const statusSpan = document.createElement('span');
       statusSpan.className = `status ${status.toLowerCase()}`;
       statusSpan.textContent = `[${status}]`;
@@ -2792,6 +2793,8 @@ async function loadCheckoutQueue() {
   }
 }
 </script>
+
+
 
 
 
