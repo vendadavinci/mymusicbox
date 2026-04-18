@@ -5,11 +5,13 @@ dotenv.config();
 import crypto from 'crypto';
 import axios from 'axios';
 import express from 'express';
+import fetch from 'node-fetch';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import { PaidSession } from './models/paid_queue.js';
-import { Checkout } from './models/checkout.js';
+import { Checkout } from './models/checkout.js'; 
+import progressRouter from './routes/progress.js';
 
 // ✅ Connect to MongoDB Atlas
 mongoose.connect(process.env.MONGO_URI)
@@ -18,6 +20,14 @@ mongoose.connect(process.env.MONGO_URI)
 
 const app = express();
 app.use(express.json());
+app.use('/api', progressRouter);
+
+// In‑memory checkout store (optional fallback, can remove once you rely only on Mongo)
+const checkoutStore = new Map();
+function storeCheckout(checkoutId, payload, ttlMs = 1000 * 60 * 30) {
+  checkoutStore.set(checkoutId, { payload, expiresAt: Date.now() + ttlMs });
+  setTimeout(() => checkoutStore.delete(checkoutId), ttlMs + 1000);
+}
 
 // Static file serving
 const __filename = fileURLToPath(import.meta.url);
@@ -27,92 +37,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-
-
-
-// Checkout tracks
-app.get('/api/checkout-tracks', async (req, res) => {
-  try {
-    const id = req.query.checkoutId;
-    if (!id) return res.status(400).json({ error: 'checkoutId required' });
-
-    const entry = await Checkout.findOne({ checkoutId: id });
-    if (!entry) return res.status(404).json({ error: 'checkout not found or expired' });
-
-    const normalizedTracks = (entry.tracks || []).map((track, i) =>
-      normalizeTrack(track, i + 1)
-    );
-
-    const session = await PaidSession.findOne({ checkoutId: id });
-    let tracksWithStatus = normalizedTracks;
-
-    if (session) {
-      const current = session.tracks.find(t => !t.played);
-      tracksWithStatus = session.tracks.map(t => {
-        let status = 'Queued';
-        if (t.played) status = 'Played';
-        else if (current && t.uri === current.uri) status = 'Playing';
-        return {
-          uri: t.uri,
-          title: t.title,
-          artist: t.artist,
-          albumArt: t.albumArt,
-          duration_ms: t.duration_ms || 0,
-          status
-        };
-      });
-    }
-
-    res.json({
-      success: true,
-      checkoutId: id,
-      mode: session ? 'PAID' : 'DEFAULT',
-      totalTracks: tracksWithStatus.length,
-      tracks: tracksWithStatus
-    });
-  } catch (err) {
-    console.error('/api/checkout-tracks error', err);
-    res.status(500).json({ error: 'server error', details: err.message });
-  }
-});
-
-// Progress
-app.get('/api/progress', async (req, res) => {
-  try {
-    const { sessionId } = req.query;
-    if (!sessionId) return res.json({ success: false, message: 'Missing sessionId' });
-
-    const session = await PaidSession.findOne({ sessionId });
-    if (!session) return res.json({ success: false, message: 'Session not found' });
-
-    const current = session.tracks.find(t => !t.played);
-
-    const tracksWithStatus = session.tracks.map(t => {
-      let status = 'Queued';
-      if (t.played) status = 'Played';
-      else if (current && t.uri === current.uri) status = 'Playing';
-      return { ...t, status };
-    });
-
-    res.json({
-      success: true,
-      sessionId: session.sessionId,
-      title: current?.title || null,
-      artist: current?.artist || null,
-      albumArt: current?.albumArt || null,
-      mode: session.active ? 'PAID' : 'DEFAULT',
-      totalTracks: session.tracks.length,
-      tracks: tracksWithStatus
-    });
-  } catch (err) {
-    console.error('Error in /api/progress:', err);
-    res.json({ success: false, message: 'Internal server error' });
-  }
-});
-
-
-
-
 
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true, time: Date.now() }));
@@ -889,6 +813,58 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
   }
 });
 
+
+app.get('/api/checkout-tracks', async (req, res) => {
+  try {
+    const id = req.query.checkoutId;
+    if (!id) {
+      return res.status(400).json({ error: 'checkoutId required' });
+    }
+
+    const entry = await Checkout.findOne({ checkoutId: id });
+    if (!entry) {
+      return res.status(404).json({ error: 'checkout not found or expired' });
+    }
+
+    // Normalize tracks
+    const normalizedTracks = (entry.tracks || []).map((track, i) =>
+      normalizeTrack(track, i + 1)
+    );
+
+    // If a PaidSession exists, enrich with authoritative statuses
+    const session = await PaidSession.findOne({ checkoutId: id });
+    let tracksWithStatus = normalizedTracks;
+
+    if (session) {
+      const current = session.tracks.find(t => !t.played);
+      tracksWithStatus = session.tracks.map(t => {
+        let status = 'Queued';
+        if (t.played) status = 'Played';
+        else if (current && t.uri === current.uri) status = 'Playing';
+
+        return {
+          uri: t.uri,
+          title: t.title,
+          artist: t.artist,
+          albumArt: t.albumArt,
+          duration_ms: t.duration_ms || 0,
+          status
+        };
+      });
+    }
+
+    return res.json({
+      success: true,
+      checkoutId: id,
+      mode: session ? 'PAID' : 'DEFAULT',
+      totalTracks: tracksWithStatus.length,
+      tracks: tracksWithStatus
+    });
+  } catch (err) {
+    console.error('/api/checkout-tracks error', err);
+    return res.status(500).json({ error: 'server error', details: err.message });
+  }
+});
 
 app.post('/api/queue', async (req, res) => {
   try {
