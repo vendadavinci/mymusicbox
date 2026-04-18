@@ -378,14 +378,11 @@ app.get('/api/status', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    // Ask Spotify for current playback
     const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // If no active device / nothing playing
     if (r.status === 204) {
-      // Still return canonical session info if any
       const activeSession = await PaidSession.findOne({ active: true }).lean();
       const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
       return res.json({
@@ -406,8 +403,18 @@ app.get('/api/status', async (req, res) => {
 
     const data = await r.json();
 
-    // Get canonical paid session from DB
-    const activeSession = await PaidSession.findOne({ active: true }).lean();
+    // Get canonical paid session
+    const activeSession = await PaidSession.findOne({ active: true });
+    if (activeSession) {
+      const currentUri = data.item?.uri;
+      const progressMs = data.progress_ms || 0;
+      const durationMs = data.item?.duration_ms || 0;
+
+      // If track is at or past its end, mark it as played
+      if (currentUri && durationMs > 0 && progressMs >= durationMs - 2000) {
+        await markTrackPlayed(activeSession.sessionId, currentUri);
+      }
+    }
 
     const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
 
@@ -417,9 +424,7 @@ app.get('/api/status', async (req, res) => {
       sessionId: activeSession?.sessionId || null,
       playedCount,
       totalTracks: activeSession?.tracks?.length || 0,
-      // include full server-side track list so client can merge and mark played
       tracks: activeSession?.tracks || [],
-      // Spotify playback info
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
