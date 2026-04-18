@@ -1630,6 +1630,7 @@ async function pollStatus() {
         albumArt: t.albumArt || t.album_art || '',
         addedAt: Date.now(),
         played: !!t.played,
+        status: 'Queued',
         orderIndex: t.orderIndex || (paidQueue.length + 1)
       });
       sessionStorage.setItem(`queued_${checkoutId}_${t.uri}`, 'true');
