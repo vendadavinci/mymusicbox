@@ -1631,6 +1631,7 @@ async function pollStatus() {
         albumArt: t.albumArt || t.album_art || '',
         addedAt: Date.now(),
         played: !!t.played,
+        status: 'Queued'
         orderIndex: t.orderIndex || (paidQueue.length + 1)
       });
       sessionStorage.setItem(`queued_${checkoutId}_${t.uri}`, 'true');
@@ -2392,6 +2393,7 @@ function mergeServerQueueIntoLocal(serverTracks = []) {
     duration_ms: t.durationMs || t.duration_ms || 0,
     albumArt: t.albumArt || t.album_art || '',
     played: !!t.played,
+    status: 'Queued'
     orderIndex: t.orderIndex || i + 1
   }));
 
