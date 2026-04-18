@@ -11,7 +11,6 @@ import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import { PaidSession } from './models/paid_queue.js';
 import { Checkout } from './models/checkout.js'; 
-import progressRouter from './routes/progress.js';
 
 // ✅ Connect to MongoDB Atlas
 mongoose.connect(process.env.MONGO_URI)
@@ -20,7 +19,6 @@ mongoose.connect(process.env.MONGO_URI)
 
 const app = express();
 app.use(express.json());
-app.use('/api', progressRouter);
 
 // In‑memory checkout store (optional fallback, can remove once you rely only on Mongo)
 const checkoutStore = new Map();
@@ -450,41 +448,7 @@ app.post('/api/reserve-tracks', async (req, res) => {
   }
 });
 
-// --- Playback sync helpers ---
-let lastUri = null;
 
-async function markTrackPlayed(sessionId, finishedUri) {
-  try {
-    await PaidSession.updateOne(
-      { sessionId, "tracks.uri": finishedUri },
-      { $set: { "tracks.$.played": true } }
-    );
-    console.log(`✅ Marked ${finishedUri} as played in session ${sessionId}`);
-  } catch (err) {
-    console.error('❌ Failed to mark track as played:', err);
-  }
-}
-
-async function pollSpotifyPlayback(sessionId, accessToken) {
-  try {
-    const res = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    const currentUri = res.data?.item?.uri;
-
-    if (lastUri && lastUri !== currentUri) {
-      // The last track finished
-      await markTrackPlayed(sessionId, lastUri);
-    }
-
-    lastUri = currentUri;
-  } catch (err) {
-    console.error('❌ Spotify poll error:', err.message);
-  }
-}
-
-
-// --- Webhook ---
 app.post('/webhook/payment-success', async (req, res) => {
   try {
     const { sessionId, tracks = [], userId } = req.body;
@@ -509,7 +473,7 @@ app.post('/webhook/payment-success', async (req, res) => {
       });
     }
 
-    // Guard: if already processed, skip duplicate webhook
+    // Guard: if already processed, skip re‑adding and playback
     if (session.songsAdded > 0 && session.playbackStartedAt) {
       return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
     }
@@ -522,14 +486,8 @@ app.post('/webhook/payment-success', async (req, res) => {
 
       try {
         await startPaidSession(sessionId, tracks, estimatedTotalMs);
-        session.playbackStartedAt = new Date();
+        session.playbackStartedAt = new Date(); // mark playback triggered
         await session.save();
-
-        // ✅ Start polling Spotify every 10s for playback updates
-        setInterval(() => {
-          pollSpotifyPlayback(sessionId, process.env.SPOTIFY_ACCESS_TOKEN);
-        }, 10000);
-
       } catch (err) {
         console.error('startPaidSession error', err);
         return res.status(500).json({ error: 'playback failed', details: err.message });
@@ -544,6 +502,7 @@ app.post('/webhook/payment-success', async (req, res) => {
 });
 
 
+
 // Check if there is an active paid session
 // Return the active paid session object (or null)
 async function isPaidSessionActive() {
@@ -553,6 +512,30 @@ async function isPaidSessionActive() {
   } catch (err) {
     console.error('isPaidSessionActive error:', err);
     return null;
+  }
+}
+
+// Mark a track as played in the given session
+async function markTrackPlayed(sessionId, uri) {
+  try {
+    const session = await PaidSession.findOne({ sessionId });
+    if (!session) return;
+
+    const track = session.tracks.find(t => t.uri === uri && !t.played);
+    if (track) {
+      track.played = true;
+      session.playedCount = (session.playedCount || 0) + 1;
+
+      if (session.playedCount >= session.tracks.length) {
+        session.active = false;
+        session.endedAt = new Date();
+      }
+
+      await session.save();
+      console.log(`Marked track as played: ${uri} in session ${sessionId}`);
+    }
+  } catch (err) {
+    console.error('markTrackPlayed error:', err);
   }
 }
 
@@ -841,39 +824,14 @@ app.get('/api/checkout-tracks', async (req, res) => {
       return res.status(404).json({ error: 'checkout not found or expired' });
     }
 
-    // Normalize tracks
+    // Ensure tracks are normalized before returning
     const normalizedTracks = (entry.tracks || []).map((track, i) =>
       normalizeTrack(track, i + 1)
     );
 
-    // If a PaidSession exists, enrich with authoritative statuses
-    const session = await PaidSession.findOne({ checkoutId: id });
-    let tracksWithStatus = normalizedTracks;
-
-    if (session) {
-      const current = session.tracks.find(t => !t.played);
-      tracksWithStatus = session.tracks.map(t => {
-        let status = 'Queued';
-        if (t.played) status = 'Played';
-        else if (current && t.uri === current.uri) status = 'Playing';
-
-        return {
-          uri: t.uri,
-          title: t.title,
-          artist: t.artist,
-          albumArt: t.albumArt,
-          duration_ms: t.duration_ms || 0,
-          status
-        };
-      });
-    }
-
     return res.json({
       success: true,
-      checkoutId: id,
-      mode: session ? 'PAID' : 'DEFAULT',
-      totalTracks: tracksWithStatus.length,
-      tracks: tracksWithStatus
+      tracks: normalizedTracks
     });
   } catch (err) {
     console.error('/api/checkout-tracks error', err);
