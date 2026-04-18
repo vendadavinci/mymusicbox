@@ -1730,15 +1730,27 @@ async function pollStatusAdaptive() {
       ? 'Playing paid queue'
       : (data.isPlaying ? 'Playing' : 'Paused');
 
-    // Show next track info
+    // Show current and next track info using backend statuses
     if (data.tracks && data.tracks.length > 0) {
+      const playingTrack = data.tracks.find(t => t.status === 'Playing');
       const nextTrack = data.tracks.find(t => t.status === 'Queued');
-      if (nextTrack && checkoutNextTitle) {
-        checkoutNextTitle.textContent = `${nextTrack.title} — ${nextTrack.artist}`;
+
+      if (playingTrack && checkoutNextTitle) {
+        // Show the currently playing track in "Now Playing"
+        nowTitle.textContent = playingTrack.title || 'Unknown';
+        nowArtist.textContent = playingTrack.artist || '';
+        checkoutNextTitle.textContent = `Now Playing: ${playingTrack.title} — ${playingTrack.artist}`;
       }
+
+      if (nextTrack && checkoutNextTitle) {
+        // Show the upcoming track if one exists
+        checkoutNextTitle.textContent = `Next: ${nextTrack.title} — ${nextTrack.artist}`;
+      }
+
       if (checkoutQueueCount) {
         checkoutQueueCount.textContent = `Paid queue: ${data.totalTracks}`;
       }
+
       if (checkoutQueueDuration) {
         checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(
           data.tracks.reduce((s, i) => s + (i.duration_ms || 0), 0) / 60000
@@ -1746,7 +1758,7 @@ async function pollStatusAdaptive() {
       }
     }
 
-    // Refresh queue display
+    // Refresh queue display (renders statuses from backend)
     renderQueue();
 
     // Adjust polling interval dynamically
@@ -1766,8 +1778,6 @@ pollStatusAdaptive();
 
 // Start with default interval
 pollHandle = setInterval(pollStatusAdaptive, currentInterval);
-
-
 
 
 /* ====== Payment success handler ====== */
