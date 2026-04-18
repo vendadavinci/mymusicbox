@@ -450,7 +450,41 @@ app.post('/api/reserve-tracks', async (req, res) => {
   }
 });
 
+// --- Playback sync helpers ---
+let lastUri = null;
 
+async function markTrackPlayed(sessionId, finishedUri) {
+  try {
+    await PaidSession.updateOne(
+      { sessionId, "tracks.uri": finishedUri },
+      { $set: { "tracks.$.played": true } }
+    );
+    console.log(`✅ Marked ${finishedUri} as played in session ${sessionId}`);
+  } catch (err) {
+    console.error('❌ Failed to mark track as played:', err);
+  }
+}
+
+async function pollSpotifyPlayback(sessionId, accessToken) {
+  try {
+    const res = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const currentUri = res.data?.item?.uri;
+
+    if (lastUri && lastUri !== currentUri) {
+      // The last track finished
+      await markTrackPlayed(sessionId, lastUri);
+    }
+
+    lastUri = currentUri;
+  } catch (err) {
+    console.error('❌ Spotify poll error:', err.message);
+  }
+}
+
+
+// --- Webhook ---
 app.post('/webhook/payment-success', async (req, res) => {
   try {
     const { sessionId, tracks = [], userId } = req.body;
@@ -475,7 +509,7 @@ app.post('/webhook/payment-success', async (req, res) => {
       });
     }
 
-    // Guard: if already processed, skip re‑adding and playback
+    // Guard: if already processed, skip duplicate webhook
     if (session.songsAdded > 0 && session.playbackStartedAt) {
       return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
     }
@@ -488,8 +522,14 @@ app.post('/webhook/payment-success', async (req, res) => {
 
       try {
         await startPaidSession(sessionId, tracks, estimatedTotalMs);
-        session.playbackStartedAt = new Date(); // mark playback triggered
+        session.playbackStartedAt = new Date();
         await session.save();
+
+        // ✅ Start polling Spotify every 10s for playback updates
+        setInterval(() => {
+          pollSpotifyPlayback(sessionId, process.env.SPOTIFY_ACCESS_TOKEN);
+        }, 10000);
+
       } catch (err) {
         console.error('startPaidSession error', err);
         return res.status(500).json({ error: 'playback failed', details: err.message });
@@ -504,7 +544,6 @@ app.post('/webhook/payment-success', async (req, res) => {
 });
 
 
-
 // Check if there is an active paid session
 // Return the active paid session object (or null)
 async function isPaidSessionActive() {
@@ -514,30 +553,6 @@ async function isPaidSessionActive() {
   } catch (err) {
     console.error('isPaidSessionActive error:', err);
     return null;
-  }
-}
-
-// Mark a track as played in the given session
-async function markTrackPlayed(sessionId, uri) {
-  try {
-    const session = await PaidSession.findOne({ sessionId });
-    if (!session) return;
-
-    const track = session.tracks.find(t => t.uri === uri && !t.played);
-    if (track) {
-      track.played = true;
-      session.playedCount = (session.playedCount || 0) + 1;
-
-      if (session.playedCount >= session.tracks.length) {
-        session.active = false;
-        session.endedAt = new Date();
-      }
-
-      await session.save();
-      console.log(`Marked track as played: ${uri} in session ${sessionId}`);
-    }
-  } catch (err) {
-    console.error('markTrackPlayed error:', err);
   }
 }
 
