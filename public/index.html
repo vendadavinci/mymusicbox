@@ -1624,7 +1624,7 @@ async function pollStatus() {
     for (const t of tracksToEnqueue) {
       paidQueue.push({
         uri: t.uri,
-        title: t.title || t.name || 'Unknown',
+        title: t.title || t.name || '',
         artist: t.artist || (t.artists && t.artists.join(', ')) || '',
         duration_ms: t.duration_ms || t.durationMs || 0,
         albumArt: t.albumArt || t.album_art || '',
