@@ -196,18 +196,27 @@ function getSession(sessionId) {
 
 
 // Helper: normalize incoming track shape
-function normalizeTrack(track, orderIndex) {
+function normalizeTrack(track, orderIndex, currentUri, isPlaying) {
+  let status = 'Queued';
+  if (track.played) {
+    status = 'Played';
+  } else if (currentUri && track.uri === currentUri) {
+    status = isPlaying ? 'Playing' : 'Paused';
+  }
+
   return {
     uri: track.uri,
     title: track.title || track.name || 'Unknown',
     artist: track.artist || (track.artists && track.artists.join(', ')) || '',
-    duration_ms: track.duration_ms || track.durationMs || 0,   // unified
+    duration_ms: track.duration_ms || track.durationMs || 0,
     albumArt: track.albumArt || track.album_art || '',
     addedAt: track.addedAt ? new Date(track.addedAt) : new Date(),
     played: !!track.played,
-    orderIndex: orderIndex || 0
+    orderIndex: orderIndex || 0,
+    status // ✅ authoritative status
   };
 }
+
 
 
 
@@ -331,9 +340,17 @@ app.post('/api/play', async (req, res) => {
         return res.status(playR.status).json({ success: false, error: 'play failed', details: text });
       }
 
-      // Mark playback started
-      session.playbackStartedAt = new Date();
-      await session.save();
+// Mark playback started
+session.playbackStartedAt = new Date();
+
+// ✅ Persist playback state
+if (normalized.length > 0) {
+  session.currentUri = normalized[0].uri;   // first track now playing
+  session.isPlaying = true;                 // playback is active
+}
+
+await session.save();
+
 
     } catch (e) {
       session.active = false;
