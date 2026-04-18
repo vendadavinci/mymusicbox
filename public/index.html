@@ -1584,14 +1584,182 @@ function persistPaidQueue() {
 statusPollHandle = setInterval(pollStatus, 6000);
 pollStatus();
 
-let pollHandle = null;
-let currentInterval = 8000; // default 8s when idle
+async function pollStatus() {
+  try {
+    const checkoutId = sessionStorage.getItem('checkoutId');
+    if (!checkoutId) return;
 
+    const res = await fetch(`/api/yoco/session-status?id=${encodeURIComponent(checkoutId)}`);
+    if (!res.ok) {
+      console.warn('session-status returned non-ok', res.status);
+      return;
+    }
+    const data = await res.json();
+
+    if (data.status !== 'successful') return;
+
+    const pending = typeof getPendingSubmission === 'function' ? getPendingSubmission() : null;
+    let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length
+      ? pending.tracks.slice()
+      : JSON.parse(sessionStorage.getItem('tracks') || '[]');
+
+    if (Array.isArray(data.enqueuedUris) && data.enqueuedUris.length) {
+      const enqueuedSet = new Set(data.enqueuedUris);
+      tracksToEnqueue = tracksToEnqueue.filter(t => !enqueuedSet.has(t.uri));
+    }
+
+    const localSet = new Set((paidQueue || []).map(t => t.uri));
+    tracksToEnqueue = tracksToEnqueue.filter(t => !localSet.has(t.uri));
+
+    if (tracksToEnqueue.length === 0) {
+      if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
+      if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
+      if (typeof initPage === 'function') initPage();
+      return;
+    }
+
+    for (const t of tracksToEnqueue) {
+      paidQueue.push({
+        uri: t.uri,
+        title: t.title || t.name || 'Unknown',
+        artist: t.artist || (t.artists && t.artists.join(', ')) || '',
+        duration_ms: t.duration_ms || t.durationMs || 0,
+        albumArt: t.albumArt || t.album_art || '',
+        addedAt: Date.now(),
+        played: !!t.played,
+        orderIndex: t.orderIndex || (paidQueue.length + 1)
+      });
+      // optional: mark in sessionStorage to avoid re-submission on refresh
+      sessionStorage.setItem(`queued_${checkoutId}_${t.uri}`, 'true');
+    }
+
+    if (typeof persistPaidQueue === 'function') persistPaidQueue();
+    if (typeof renderQueue === 'function') renderQueue();
+
+    if (!paidSessionActive && typeof startPaidQueuePlayback === 'function') {
+      startPaidQueuePlayback();
+    }
+
+    if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
+    if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
+    if (typeof initPage === 'function') initPage();
+
+  } catch (err) {
+    console.error('pollStatus error:', err);
+    
+  }
+}
+async function pollStatusOnce(){
+  try{
+    const res = await fetch('/api/status');
+    if(!res.ok) return;
+    const data = await res.json();
+
+    // Update now playing
+    if(data.title) nowTitle.textContent = data.title;
+    if(data.artist) nowArtist.textContent = data.artist;
+    if(data.albumArt) nowArt.style.backgroundImage = data.albumArt ? `url(${data.albumArt})` : '';
+
+    // Mode and status
+    nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
+    statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : (data.is_playing ? 'Playing' : 'Paused');
+
+    // If we are in a paid session and the local paidQueue still has items,
+    // show the next paid track in the UI (authoritative source is Spotify, but this helps UX)
+    if (paidSessionActive && paidQueue.length > 0) {
+      nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
+      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+      queueDurationText.textContent = `Estimated duration: ${Math.round(paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0)/60000)} min`;
+    } else {
+      // If no local paid queue, fall back to server-provided next info if available
+      if (data.next_title) nextTitleEl.textContent = data.next_title;
+      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+    }
+  }catch(e){ console.warn('pollStatusOnce', e); }
+}
+
+
+
+    function setNowPlaying(title, artist, albumArt){
+      nowTitle.textContent = title || 'Unknown';
+      nowArtist.textContent = artist || '';
+      if(albumArt) nowArt.style.backgroundImage = `url(${albumArt})`;
+      else nowArt.style.backgroundImage = '';
+    }
+
+
+    function escapeHtml(str){
+      if(!str) return '';
+      return String(str).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
+    }
+    function escapeForInline(obj){
+      return {
+        uri: obj.uri || '',
+        title: obj.title || '',
+        artist: obj.artist || '',
+        duration_ms: obj.duration_ms || 0
+        
+      };
+    }
+
+    function focusAdd(){
+      document.getElementById('searchInput').focus();
+    }
+    setInterval(pollStatusOnce, 8000);
+    renderQueue();
+    pollStatusOnce();
+
+// Helpers
 function setNowPlaying(title, artist, albumArt) {
   nowTitle.textContent = title || 'Unknown';
   nowArtist.textContent = artist || '';
   nowArt.style.backgroundImage = albumArt ? `url(${albumArt})` : '';
 }
+
+async function pollStatusLoop() {
+  const sessionId = sessionStorage.getItem('sessionId');
+  if (!sessionId) return;
+
+  try {
+    const res = await fetch('/api/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.success) return;
+
+    // Update "Now Playing"
+    setNowPlaying(data.title, data.artist, data.albumArt);
+
+    // Mode and playback state
+    nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
+    statusText.textContent = data.mode === 'PAID'
+      ? 'Playing paid queue'
+      : (data.isPlaying ? 'Playing' : 'Paused');
+
+    // Show next track info
+    if (data.tracks && data.tracks.length > 0) {
+      const nextTrack = data.tracks.find(t => t.status === 'Queued');
+      if (nextTrack) {
+        nextTitleEl.textContent = `${nextTrack.title} — ${nextTrack.artist}`;
+      }
+      queueCount.textContent = `Paid queue: ${data.totalTracks}`;
+      queueDurationText.textContent = `Estimated duration: ${Math.round(data.tracks.reduce((s, i) => s + (i.duration_ms || 0), 0) / 60000)} min`;
+    }
+  } catch (err) {
+    console.error('pollStatusLoop error', err);
+  }
+
+  // Always refresh queue display
+  renderQueue();
+}
+
+// Run immediately once
+pollStatusLoop();
+
+// Then repeat every 5 seconds
+setInterval(pollStatusLoop, 5000);
+
+let pollHandle = null;
+let currentInterval = 8000; // default 8s when idle
 
 async function pollStatusAdaptive() {
   const sessionId = sessionStorage.getItem('sessionId');
@@ -1617,9 +1785,9 @@ async function pollStatusAdaptive() {
         nextTitleEl.textContent = `${nextTrack.title} — ${nextTrack.artist}`;
       }
       queueCount.textContent = `Paid queue: ${data.totalTracks}`;
-      queueDurationText.textContent = `Estimated duration: ${
-        Math.round(data.tracks.reduce((s, i) => s + (i.duration_ms || 0), 0) / 60000)
-      } min`;
+      queueDurationText.textContent = `Estimated duration: ${Math.round(
+        data.tracks.reduce((s, i) => s + (i.duration_ms || 0), 0) / 60000
+      )} min`;
     }
 
     // Refresh queue display
@@ -1642,6 +1810,8 @@ pollStatusAdaptive();
 
 // Start with default interval
 pollHandle = setInterval(pollStatusAdaptive, currentInterval);
+
+
 
 /* ====== Payment success handler ====== */
 // Robust onPaymentSuccess: idempotent, single /api/play call, prevents re-submits on refresh
