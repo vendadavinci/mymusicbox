@@ -2461,6 +2461,45 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
     }
 // frontend: poll status and update UI; when paidSessionActive show next paid track if available
 // frontend: poll status and update UI; when paidSessionActive show next paid track if available
+async function pollProgressOnce() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('checkoutId');
+    if (!sessionId) return;
+
+    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.success) return;
+
+    // ✅ Update Now Playing UI directly from backend
+    if (data.title) nowTitle.textContent = data.title;
+    if (data.artist) nowArtist.textContent = data.artist;
+    if (data.albumArt) {
+      nowArt.style.backgroundImage = data.albumArt ? `url(${data.albumArt})` : '';
+    }
+
+    // Mode and status
+    nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
+    statusText.textContent = data.mode === 'PAID'
+      ? 'Playing paid queue'
+      : 'Paused'; // backend owns is_playing, so no local guess
+
+    // Queue info from backend
+    if (data.tracks && data.tracks.length > 0) {
+      const nextTrack = data.tracks.find(t => t.status === 'Queued');
+      nextTitleEl.textContent = nextTrack
+        ? `${nextTrack.title} — ${nextTrack.artist}`
+        : 'No paid tracks queued';
+
+      queueCount.textContent = `Paid queue: ${data.totalTracks}`;
+      queueDurationText.textContent =
+        `Estimated duration: ${Math.round(data.tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0) / 60000)} min`;
+    }
+  } catch (e) {
+    console.warn('pollProgressOnce error', e);
+  }
+}
 
 
 
