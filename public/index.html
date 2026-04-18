@@ -1014,17 +1014,16 @@ window.addEventListener('load', () => {
 /* ====== Startup validation ====== */
 (function validateDomBindings(){
   const missing = [];
+  if (!paidQueueEl) missing.push('paidQueueEl');
   if (!queueCount) missing.push('queueCount');
   if (!queueDurationText) missing.push('queueDurationText');
   if (!nextTitleEl) missing.push('nextTitleEl');
   if (!nowTitle) missing.push('nowTitle');
-  if (!checkoutQueueList) missing.push('checkoutQueueList');
   if (missing.length) {
     console.error('Missing DOM elements:', missing.join(', '));
     if (statusText) statusText.textContent = 'UI initialization error: missing elements';
   }
 })();
-
 
 /* ====== Helpers ====== */
 function escapeHtml(s){
@@ -1631,7 +1630,6 @@ async function pollStatus() {
         albumArt: t.albumArt || t.album_art || '',
         addedAt: Date.now(),
         played: !!t.played,
-        status: 'Queued'
         orderIndex: t.orderIndex || (paidQueue.length + 1)
       });
       sessionStorage.setItem(`queued_${checkoutId}_${t.uri}`, 'true');
@@ -2393,7 +2391,6 @@ function mergeServerQueueIntoLocal(serverTracks = []) {
     duration_ms: t.durationMs || t.duration_ms || 0,
     albumArt: t.albumArt || t.album_art || '',
     played: !!t.played,
-    status: 'Queued'
     orderIndex: t.orderIndex || i + 1
   }));
 
