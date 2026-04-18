@@ -1103,9 +1103,7 @@ async function renderQueue() {
 
       const statusDiv = document.createElement('div');
       statusDiv.style.fontSize = '0.75em';
-      statusDiv.style.color =
-        item.status === 'Played' ? '#0a0' :
-        item.status === 'Playing' ? '#00f' : '#999';
+      statusDiv.className = `status ${item.status.toLowerCase()}`;
       statusDiv.textContent = item.status;
 
       right.appendChild(durationDiv);
@@ -1138,6 +1136,7 @@ async function renderQueue() {
     console.error('renderQueue error', err);
   }
 }
+
 
 // Helper: fetch with timeout and one retry
 async function fetchWithTimeout(url, opts = {}, timeout = 10000, retry = true) {
@@ -2707,6 +2706,7 @@ let lastPlaying = null; // remember the last track that was playing
         addedAt: Date.now()
       })));
 
+      // ✅ Use the unified backend-driven renderer
       renderQueue();
 
       await fetch('/webhook/payment-success', {
@@ -2719,74 +2719,19 @@ let lastPlaying = null; // remember the last track that was playing
       await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
       pollStatusOnce();
 
-      await loadCheckoutQueue();
+      // ❌ remove loadCheckoutQueue() calls
+      // await loadCheckoutQueue();
 
       setInterval(() => {
         pollStatusOnce();
-        loadCheckoutQueue();
+        renderQueue(); // ✅ refresh queue from backend
       }, 8000);
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
   }
 })();
-
-async function loadCheckoutQueue() {
-  const params = new URLSearchParams(window.location.search);
-  const sessionId = params.get('checkoutId'); // reuse checkoutId as sessionId
-  if (!sessionId) return;
-
-  try {
-    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
-    const data = await res.json();
-    if (!data.success) return;
-
-    checkoutQueueList.innerHTML = '';
-    let totalMs = 0;
-
-    data.tracks.forEach(track => {
-      totalMs += track.duration_ms || 0;
-      const item = document.createElement('div');
-      item.className = 'queue-item';
-      const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
-
-      // ✅ Use backend-provided status directly
-      const statusSpan = document.createElement('span');
-      statusSpan.className = `status ${track.status.toLowerCase()}`;
-      statusSpan.textContent = `[${track.status}]`;
-
-      item.textContent = `${track.title} — ${track.artist} (${duration}) `;
-      item.appendChild(statusSpan);
-
-      checkoutQueueList.appendChild(item);
-    });
-
-    checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
-
-    const checkoutQueueCount = document.getElementById('checkoutQueueCount');
-    const checkoutNextTitle  = document.getElementById('checkoutNextTitle');
-
-    if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `Paid queue: ${data.totalTracks}`;
-    }
-    if (checkoutNextTitle) {
-      const nextTrack = data.tracks.find(t => t.status === 'Queued');
-      checkoutNextTitle.textContent = nextTrack
-        ? `${nextTrack.title} — ${nextTrack.artist}`
-        : 'No paid tracks queued';
-    }
-  } catch (err) {
-    console.error('Failed to load checkout tracks', err);
-  }
-}
-
 </script>
-
-
-
-
-
-
 
 <script>
 // Read-only UI refresh. Never enqueue or post anything here.
