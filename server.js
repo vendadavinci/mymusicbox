@@ -51,49 +51,6 @@ if (!tokens.refresh_token) {
   console.warn('Warning: SPOTIFY_REFRESH_TOKEN not set in environment. Visit /auth to obtain one.');
 }
 
-
-const router = express.Router();
-
-router.get('/progress', async (req, res) => {
-  try {
-    const { sessionId } = req.query;
-    if (!sessionId) {
-      return res.json({ success: false, message: 'Missing sessionId' });
-    }
-
-    const session = await PaidSession.findOne({ sessionId });
-    if (!session) {
-      return res.json({ success: false, message: 'Session not found' });
-    }
-
-    const current = session.tracks.find(t => !t.played);
-
-    const tracksWithStatus = session.tracks.map(t => {
-      let status = 'Queued';
-      if (t.played) status = 'Played';
-      else if (current && t.uri === current.uri) status = 'Playing';
-      return { ...t, status };
-    });
-
-    res.json({
-      success: true,
-      sessionId: session.sessionId,
-      title: current?.title || null,
-      artist: current?.artist || null,
-      albumArt: current?.albumArt || null,
-      mode: session.active ? 'PAID' : 'DEFAULT',
-      totalTracks: session.tracks.length,
-      tracks: tracksWithStatus
-    });
-  } catch (err) {
-    console.error('Error in /api/progress:', err);
-    res.json({ success: false, message: 'Internal server error' });
-  }
-});
-
-export default router;
-
-
 async function refreshAccessTokenIfNeeded() {
   if (!tokens.refresh_token) throw new Error('No refresh token stored (set SPOTIFY_REFRESH_TOKEN env or call /auth and save it).');
   // If token still valid for >5s, skip refresh
