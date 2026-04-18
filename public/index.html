@@ -588,6 +588,50 @@ const checkoutQueueInfo     = document.getElementById('checkoutQueueInfo');
       return wrapper;
     }
 
+// routes/progress.js
+import express from 'express';
+import { PaidSession } from '../models/paid_queue.js';
+
+const router = express.Router();
+
+router.get('/progress', async (req, res) => {
+  try {
+    const { sessionId } = req.query;
+    if (!sessionId) return res.json({ success: false, message: 'Missing sessionId' });
+
+    const session = await PaidSession.findOne({ sessionId });
+    if (!session) return res.json({ success: false, message: 'Session not found' });
+
+    // Find the first track not marked as played
+    const current = session.tracks.find(t => !t.played);
+
+    const tracksWithStatus = session.tracks.map(t => {
+      let status = 'Queued';
+      if (t.played) status = 'Played';
+      else if (current && t.uri === current.uri) status = 'Playing';
+      return { ...t, status };
+    });
+
+    res.json({
+      success: true,
+      sessionId: session.sessionId,
+      title: current?.title || null,
+      artist: current?.artist || null,
+      albumArt: current?.albumArt || null,
+      mode: session.active ? 'PAID' : 'DEFAULT',
+      totalTracks: session.tracks.length,
+      tracks: tracksWithStatus
+    });
+  } catch (err) {
+    console.error('Error in /api/progress:', err);
+    res.json({ success: false, message: 'Internal server error' });
+  }
+});
+
+export default router;
+
+
+
       // Idempotency + pending submission helpers
 function makeId() {
   return 'id-' + Math.random().toString(36).slice(2, 12);
@@ -2742,7 +2786,7 @@ async function loadCheckoutQueue() {
     const data = await res.json();
     if (!data.success) return;
 
-    checkoutQueueList.innerHTML = '';
+    if (checkoutQueueList) checkoutQueueList.innerHTML = '';
     let totalMs = 0;
 
     data.tracks.forEach(track => {
@@ -2751,7 +2795,6 @@ async function loadCheckoutQueue() {
       item.className = 'queue-item';
       const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
 
-      // ✅ Use backend-provided status directly
       const statusSpan = document.createElement('span');
       statusSpan.className = `status ${track.status.toLowerCase()}`;
       statusSpan.textContent = `[${track.status}]`;
@@ -2759,17 +2802,17 @@ async function loadCheckoutQueue() {
       item.textContent = `${track.title} — ${track.artist} (${duration}) `;
       item.appendChild(statusSpan);
 
-      checkoutQueueList.appendChild(item);
+      if (checkoutQueueList) checkoutQueueList.appendChild(item);
     });
 
-    checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
-
-    const checkoutQueueCount = document.getElementById('checkoutQueueCount');
-    const checkoutNextTitle  = document.getElementById('checkoutNextTitle');
+    if (checkoutQueueDuration) {
+      checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
+    }
 
     if (checkoutQueueCount) {
       checkoutQueueCount.textContent = `Paid queue: ${data.totalTracks}`;
     }
+
     if (checkoutNextTitle) {
       const nextTrack = data.tracks.find(t => t.status === 'Queued');
       checkoutNextTitle.textContent = nextTrack
@@ -2780,6 +2823,7 @@ async function loadCheckoutQueue() {
     console.error('Failed to load checkout tracks', err);
   }
 }
+
 
 </script>
 
