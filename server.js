@@ -404,6 +404,8 @@ app.get('/api/status', async (req, res) => {
     const data = await r.json();
 
     const activeSession = await PaidSession.findOne({ active: true });
+    let tracks = activeSession?.tracks || [];
+
     if (activeSession) {
       const currentUri = data.item?.uri;
       const progressMs = data.progress_ms || 0;
@@ -419,17 +421,28 @@ app.get('/api/status', async (req, res) => {
         activeSession.currentUri = currentUri;
         await activeSession.save();
       }
+
+      // Update track statuses
+      tracks = tracks.map(t => {
+        if (t.uri === currentUri) {
+          return { ...t, status: data.is_playing ? 'Playing' : 'Paused' };
+        }
+        if (t.played) {
+          return { ...t, status: 'Played' };
+        }
+        return { ...t, status: 'Queued' };
+      });
     }
 
-    const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
+    const playedCount = tracks.filter(t => t.status === 'Played').length;
 
     return res.json({
       success: true,
       mode: activeSession ? 'PAID' : 'DEFAULT',
       sessionId: activeSession?.sessionId || null,
       playedCount,
-      totalTracks: activeSession?.tracks?.length || 0,
-      tracks: activeSession?.tracks || [],
+      totalTracks: tracks.length,
+      tracks,
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
