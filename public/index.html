@@ -1592,7 +1592,9 @@ function persistPaidQueue() {
 }
 
 // Start polling after checkout init
-statusPollHandle = setInterval(pollProgress, 6000);
+// Start polling every 6 seconds
+statusPollHandle = setInterval(pollProgressOnce, 6000);
+
 
 
 
