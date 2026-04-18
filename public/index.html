@@ -817,24 +817,34 @@ function setNowPlaying({ title, artist, albumArtUrl, mode }) {
       if(info) info.remove();
     }
 
-    function updateButtonsForMode(mode){
-      currentMode = mode;
+function updateButtonsForMode(mode) {
+  currentMode = mode;
+  const hasSelected = slots.some(s => s.selected);
 
-      if(mode === 'PAID'){
-        payBtn.style.display = 'none';
-        addBtn.style.display = 'inline-block';
-        const hasSelected = slots.some(s => s.selected);
-        addBtn.disabled = !hasSelected;
-        instructionNote.textContent = 'A paid session is currently playing. You can add tracks to the paid queue (they will play after the current session).';
-      } else {
-        payBtn.style.display = 'inline-block';
-        addBtn.style.display = 'none';
-        const hasSelected = slots.some(s => s.selected);
-        payBtn.disabled = !hasSelected;
-        payBtn.textContent = 'Pay';
-        instructionNote.textContent = 'Choose tracks and press Pay to proceed to payment.';
-      }
+  if (mode === 'PAID') {
+    if (payBtn) payBtn.style.display = 'none';
+    if (addBtn) {
+      addBtn.style.display = 'inline-block';
+      addBtn.disabled = !hasSelected;
     }
+    if (instructionNote) {
+      instructionNote.textContent =
+        'A paid session is currently playing. You can add tracks to the paid queue (they will play after the current session).';
+    }
+  } else {
+    if (payBtn) {
+      payBtn.style.display = 'inline-block';
+      payBtn.disabled = !hasSelected;
+      payBtn.textContent = 'Pay';
+    }
+    if (addBtn) addBtn.style.display = 'none';
+    if (instructionNote) {
+      instructionNote.textContent =
+        'Choose tracks and press Pay to proceed to payment.';
+    }
+  }
+}
+
     function formatMs(ms){
       if(!ms || isNaN(ms)) return '--:--';
       const s = Math.floor(ms/1000);
