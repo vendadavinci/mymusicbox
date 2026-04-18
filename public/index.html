@@ -487,7 +487,7 @@ let paidSessionActive = false;
 let redirectTimeoutHandle = null;
 let currentMode = 'DEFAULT'; 
 let statusPollHandle = null;
-let currentPackage = null;          // { price: "10", maxSongs: 2 }
+let currentPackage = null;         
 let paymentComplete = false;
 let songsAddedThisSession = 0;
 
@@ -497,11 +497,7 @@ const nowArtist = document.getElementById('nowArtist');
 const nowArt = document.getElementById('nowArt');
 const nowMode = document.getElementById('nowMode');
 const statusText = document.getElementById('statusText');
-const queueCount = document.getElementById('queueCount');
-const paidQueueEl = document.getElementById('paidQueue');
-const queueDurationText = document.getElementById('queueDurationText');
 const searchResultsEl = document.getElementById('searchResults');
-const nextTitleEl = document.getElementById('nextTitle');     
 const formPanel = document.getElementById('formPanel');
 const slotsContainer = document.getElementById('slotsContainer');
 const selectedContainer = document.getElementById('selectedContainer');
@@ -512,9 +508,13 @@ const pkgLabel = document.getElementById('pkgLabel');
 const packageSummary = document.getElementById('packageSummary');
 const priceNote = document.getElementById('priceNote');
 const instructionNote = document.getElementById('instructionNote');
+
+/* ✅ Updated checkout queue bindings */
 const checkoutQueueList     = document.getElementById('checkoutQueueList');
 const checkoutQueueDuration = document.getElementById('checkoutQueueDuration');
 const checkoutQueueInfo     = document.getElementById('checkoutQueueInfo');
+const checkoutQueueCount    = document.getElementById('checkoutQueueCount');  
+const checkoutNextTitle     = document.getElementById('checkoutNextTitle');   
 
 
     function selectPackage(price, maxSongs){
