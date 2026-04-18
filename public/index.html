@@ -2718,10 +2718,6 @@ let lastPlaying = null; // remember the last track that was playing
       statusText.textContent = 'Starting paid playback...';
       await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
       pollStatusOnce();
-
-      // ❌ remove loadCheckoutQueue() calls
-      // await loadCheckoutQueue();
-
       setInterval(() => {
         pollStatusOnce();
         renderQueue(); // ✅ refresh queue from backend

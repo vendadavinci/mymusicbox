@@ -28,9 +28,11 @@ router.get('/progress', async (req, res) => {
         status = 'Playing';
       }
       return {
+        uri: t.uri,
         title: t.title,
         artist: t.artist,
         albumArt: t.albumArt,
+        duration_ms: t.durationMs || 0,   
         status
       };
     });
