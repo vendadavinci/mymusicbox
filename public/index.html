@@ -1653,6 +1653,8 @@ async function pollStatus() {
 }
 
 
+
+
 /* ====== Payment success handler ====== */
 // Robust onPaymentSuccess: idempotent, single /api/play call, prevents re-submits on refresh
 async function onPaymentSuccess() {
@@ -2461,34 +2463,46 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
     }
 // frontend: poll status and update UI; when paidSessionActive show next paid track if available
 // frontend: poll status and update UI; when paidSessionActive show next paid track if available
-async function pollStatusOnce(){
-  try{
-    const res = await fetch('/api/status');
-    if(!res.ok) return;
-    const data = await res.json();
+async function pollProgressOnce() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('checkoutId');
+    if (!sessionId) return;
 
-    // Update now playing
-    if(data.title) nowTitle.textContent = data.title;
-    if(data.artist) nowArtist.textContent = data.artist;
-    if(data.albumArt) nowArt.style.backgroundImage = data.albumArt ? `url(${data.albumArt})` : '';
+    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.success) return;
+
+    // ✅ Update Now Playing UI directly from backend
+    if (data.title) nowTitle.textContent = data.title;
+    if (data.artist) nowArtist.textContent = data.artist;
+    if (data.albumArt) {
+      nowArt.style.backgroundImage = data.albumArt ? `url(${data.albumArt})` : '';
+    }
 
     // Mode and status
     nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
-    statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : (data.is_playing ? 'Playing' : 'Paused');
+    statusText.textContent = data.mode === 'PAID'
+      ? 'Playing paid queue'
+      : 'Paused'; // backend owns is_playing, so no local guess
 
-    // If we are in a paid session and the local paidQueue still has items,
-    // show the next paid track in the UI (authoritative source is Spotify, but this helps UX)
-    if (paidSessionActive && paidQueue.length > 0) {
-      nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
-      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
-      queueDurationText.textContent = `Estimated duration: ${Math.round(paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0)/60000)} min`;
-    } else {
-      // If no local paid queue, fall back to server-provided next info if available
-      if (data.next_title) nextTitleEl.textContent = data.next_title;
-      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
+    // Queue info from backend
+    if (data.tracks && data.tracks.length > 0) {
+      const nextTrack = data.tracks.find(t => t.status === 'Queued');
+      nextTitleEl.textContent = nextTrack
+        ? `${nextTrack.title} — ${nextTrack.artist}`
+        : 'No paid tracks queued';
+
+      queueCount.textContent = `Paid queue: ${data.totalTracks}`;
+      queueDurationText.textContent =
+        `Estimated duration: ${Math.round(data.tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0) / 60000)} min`;
     }
-  }catch(e){ console.warn('pollStatusOnce', e); }
+  } catch (e) {
+    console.warn('pollProgressOnce error', e);
+  }
 }
+
 
 
 
@@ -2681,6 +2695,95 @@ async function refreshStatus() {
 <script>
 let lastPlaying = null; // remember the last track that was playing
 
+// ✅ Poller for playback feedbacks (Now Playing UI)
+async function pollProgressOnce() {
+  try {
+    const sessionId = sessionStorage.getItem('sessionId');
+    if (!sessionId) return;
+
+    const res = await fetch(`/api/progress?sessionId=${encodeURIComponent(sessionId)}`);
+    if (!res.ok) {
+      console.warn('/api/progress returned non-ok', res.status);
+      return;
+    }
+    const data = await res.json();
+    if (!data.success) return;
+
+    // Now Playing UI
+    if (data.title) nowTitle.textContent = data.title;
+    if (data.artist) nowArtist.textContent = data.artist;
+    if (data.albumArt) {
+      nowArt.style.backgroundImage = data.albumArt ? `url(${data.albumArt})` : '';
+    }
+
+    // Mode and status
+    nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
+    statusText.textContent = data.mode === 'PAID'
+      ? 'Playing paid queue'
+      : 'Paused';
+
+    // Next track info
+    if (data.tracks && data.tracks.length > 0) {
+      const nextTrack = data.tracks.find(t => t.status === 'Queued');
+      nextTitleEl.textContent = nextTrack
+        ? `${nextTrack.title} — ${nextTrack.artist}`
+        : 'No paid tracks queued';
+    }
+  } catch (err) {
+    console.error('pollProgressOnce error:', err);
+  }
+}
+
+// ✅ Queue renderer
+async function loadCheckoutQueue() {
+  const params = new URLSearchParams(window.location.search);
+  const sessionId = params.get('checkoutId'); // reuse checkoutId as sessionId
+  if (!sessionId) return;
+
+  try {
+    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
+    const data = await res.json();
+    if (!data.success) return;
+
+    checkoutQueueList.innerHTML = '';
+    let totalMs = 0;
+
+    data.tracks.forEach(track => {
+      totalMs += track.duration_ms || 0;
+      const item = document.createElement('div');
+      item.className = 'queue-item';
+      const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
+
+      const statusSpan = document.createElement('span');
+      statusSpan.className = `status ${track.status.toLowerCase()}`;
+      statusSpan.textContent = `[${track.status}]`;
+
+      item.textContent = `${track.title} — ${track.artist} (${duration}) `;
+      item.appendChild(statusSpan);
+
+      checkoutQueueList.appendChild(item);
+    });
+
+    checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
+
+    const checkoutQueueCount = document.getElementById('checkoutQueueCount');
+    const checkoutNextTitle  = document.getElementById('checkoutNextTitle');
+
+    if (checkoutQueueCount) {
+      checkoutQueueCount.textContent = `Paid queue: ${data.totalTracks}`;
+    }
+    if (checkoutNextTitle) {
+      const nextTrack = data.tracks.find(t => t.status === 'Queued');
+      checkoutNextTitle.textContent = nextTrack
+        ? `${nextTrack.title} — ${nextTrack.artist}`
+        : 'No paid tracks queued';
+    }
+  } catch (err) {
+    console.error('Failed to load checkout tracks', err);
+  }
+}
+
+// ✅ Main loader
 (async function loadPaidTracks() {
   try {
     let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
@@ -2718,12 +2821,14 @@ let lastPlaying = null; // remember the last track that was playing
 
       statusText.textContent = 'Starting paid playback...';
       await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
-      pollStatusOnce();
 
+      // ✅ Kick off first poll immediately
+      await pollProgressOnce();
       await loadCheckoutQueue();
 
+      // ✅ Unified polling loop every 8s
       setInterval(() => {
-        pollStatusOnce();
+        pollProgressOnce();
         loadCheckoutQueue();
       }, 8000);
     }
@@ -2731,74 +2836,7 @@ let lastPlaying = null; // remember the last track that was playing
     console.error('Error loading paid tracks:', err);
   }
 })();
-
-async function loadCheckoutQueue() {
-  const params = new URLSearchParams(window.location.search);
-  const checkoutId = params.get('checkoutId');
-  if (!checkoutId) return;
-
-  try {
-    const res = await fetch(`/api/checkout-tracks?checkoutId=${checkoutId}`);
-    const data = await res.json();
-    if (!data.success) return;
-
-    const tracks = data.tracks || [];
-    checkoutQueueList.innerHTML = '';
-    let totalMs = 0;
-
-    const currentTitle = document.getElementById('nowTitle').textContent;
-    const currentArtist = document.getElementById('nowArtist').textContent;
-
-    tracks.forEach(track => {
-      totalMs += track.duration_ms || 0;
-      const item = document.createElement('div');
-      item.className = 'queue-item';
-      const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
-
-      let status = 'Queued';
-
-      if (track.title === currentTitle && track.artist === currentArtist) {
-        status = 'Playing';
-        lastPlaying = `${track.title}::${track.artist}`;
-      } else if (lastPlaying === `${track.title}::${track.artist}`) {
-        status = 'Played';
-      }
-
-      const statusSpan = document.createElement('span');
-      statusSpan.className = `status ${status.toLowerCase()}`;
-      statusSpan.textContent = `[${status}]`;
-
-      item.textContent = `${track.title} — ${track.artist} (${duration}) `;
-      item.appendChild(statusSpan);
-
-      checkoutQueueList.appendChild(item);
-    });
-
-    checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
-
-    const checkoutQueueCount = document.getElementById('checkoutQueueCount');
-    const checkoutNextTitle  = document.getElementById('checkoutNextTitle');
-
-    if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `Paid queue: ${tracks.length}`;
-    }
-    if (checkoutNextTitle) {
-      const nextTrack = tracks.find(t => t.title !== currentTitle || t.artist !== currentArtist);
-      checkoutNextTitle.textContent = nextTrack
-        ? `${nextTrack.title} — ${nextTrack.artist}`
-        : 'No paid tracks queued';
-    }
-  } catch (err) {
-    console.error('Failed to load checkout tracks', err);
-  }
-}
 </script>
-
-
-
-
-
-
 
 <script>
 // Read-only UI refresh. Never enqueue or post anything here.
