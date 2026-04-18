@@ -9,14 +9,20 @@ const PaidTrackSchema = new mongoose.Schema({
   albumArt: { type: String, required: true },
   addedAt: { type: Date, default: Date.now },
   played: { type: Boolean, default: false },
-  orderIndex: { type: Number }
+  orderIndex: { type: Number },
+  // ✅ Explicit status field
+  status: { 
+    type: String, 
+    enum: ['Queued', 'Playing', 'Played', 'Paused'], 
+    default: 'Queued' 
+  }
 }, { _id: false });
 
 const PaidSessionSchema = new mongoose.Schema({
   sessionId: { type: String, unique: true, index: true },
   userId: { type: String },
-  checkoutId: { type: String, unique: true, index: true }, // enforce one-to-one
-  checkoutRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Checkout' }, // durable link
+  checkoutId: { type: String, unique: true, index: true }, 
+  checkoutRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Checkout' },
   packagePrice: { type: Number },
   maxSongs: { type: Number },
   songsAdded: { type: Number, default: 0 },
@@ -24,9 +30,11 @@ const PaidSessionSchema = new mongoose.Schema({
   startedAt: { type: Date, default: Date.now },
   endedAt: { type: Date },
   tracks: [PaidTrackSchema],
-  processedAt: { type: Date }, // marker for idempotency
-  playbackStartedAt: { type: Date }, // marker for Spotify playback trigger
-  currentUri: { type: String }       // ✅ NEW: track URI currently playing
+  processedAt: { type: Date }, 
+  playbackStartedAt: { type: Date }, 
+  currentUri: { type: String },
+  // ✅ Persist playback state at session level
+  isPlaying: { type: Boolean, default: false }
 });
 
 export const PaidSession = mongoose.model('PaidSession', PaidSessionSchema);
