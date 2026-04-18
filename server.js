@@ -403,16 +403,21 @@ app.get('/api/status', async (req, res) => {
 
     const data = await r.json();
 
-    // Get canonical paid session
     const activeSession = await PaidSession.findOne({ active: true });
     if (activeSession) {
       const currentUri = data.item?.uri;
       const progressMs = data.progress_ms || 0;
       const durationMs = data.item?.duration_ms || 0;
 
-      // If track is at or past its end, mark it as played
+      // Mark as played if track is finished
       if (currentUri && durationMs > 0 && progressMs >= durationMs - 2000) {
         await markTrackPlayed(activeSession.sessionId, currentUri);
+      }
+
+      // Save current Spotify URI in session for /progress
+      if (currentUri) {
+        activeSession.currentUri = currentUri;
+        await activeSession.save();
       }
     }
 
@@ -438,7 +443,6 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
-
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {

@@ -16,15 +16,13 @@ router.get('/progress', async (req, res) => {
       return res.json({ success: false, message: 'Session not found' });
     }
 
-    // Determine current playing track (first not yet marked as played)
-    const current = session.tracks.find(t => !t.played);
+    const currentUri = session.currentUri; // set by /api/status
 
-    // Build track list with statuses
     const tracksWithStatus = session.tracks.map(t => {
       let status = 'Queued';
       if (t.played) {
         status = 'Played';
-      } else if (current && t.uri === current.uri) {
+      } else if (currentUri && t.uri === currentUri) {
         status = 'Playing';
       }
       return {
@@ -32,7 +30,7 @@ router.get('/progress', async (req, res) => {
         title: t.title,
         artist: t.artist,
         albumArt: t.albumArt,
-        duration_ms: t.durationMs || 0,   
+        duration_ms: t.durationMs || 0,
         status
       };
     });
@@ -40,9 +38,9 @@ router.get('/progress', async (req, res) => {
     res.json({
       success: true,
       sessionId: session.sessionId,
-      title: current?.title || null,
-      artist: current?.artist || null,
-      albumArt: current?.albumArt || null,
+      title: tracksWithStatus.find(t => t.status === 'Playing')?.title || null,
+      artist: tracksWithStatus.find(t => t.status === 'Playing')?.artist || null,
+      albumArt: tracksWithStatus.find(t => t.status === 'Playing')?.albumArt || null,
       mode: session.active ? 'PAID' : 'DEFAULT',
       playedCount: session.tracks.filter(t => t.played).length,
       totalTracks: session.tracks.length,
@@ -53,5 +51,6 @@ router.get('/progress', async (req, res) => {
     res.json({ success: false, message: 'Internal server error' });
   }
 });
+
 
 export default router;
