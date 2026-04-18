@@ -2734,39 +2734,27 @@ let lastPlaying = null; // remember the last track that was playing
 
 async function loadCheckoutQueue() {
   const params = new URLSearchParams(window.location.search);
-  const checkoutId = params.get('checkoutId');
-  if (!checkoutId) return;
+  const sessionId = params.get('checkoutId'); // reuse checkoutId as sessionId
+  if (!sessionId) return;
 
   try {
-    const res = await fetch(`/api/checkout-tracks?checkoutId=${checkoutId}`);
+    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
     const data = await res.json();
     if (!data.success) return;
 
-    const tracks = data.tracks || [];
     checkoutQueueList.innerHTML = '';
     let totalMs = 0;
 
-    const currentTitle = document.getElementById('nowTitle').textContent;
-    const currentArtist = document.getElementById('nowArtist').textContent;
-
-    tracks.forEach(track => {
+    data.tracks.forEach(track => {
       totalMs += track.duration_ms || 0;
       const item = document.createElement('div');
       item.className = 'queue-item';
       const duration = track.duration_ms ? formatMs(track.duration_ms) : '--:--';
 
-      let status = 'Queued';
-
-      if (track.title === currentTitle && track.artist === currentArtist) {
-        status = 'Playing';
-        lastPlaying = `${track.title}::${track.artist}`;
-      } else if (lastPlaying === `${track.title}::${track.artist}`) {
-        status = 'Played';
-      }
-
+      // ✅ Use backend-provided status directly
       const statusSpan = document.createElement('span');
-      statusSpan.className = `status ${status.toLowerCase()}`;
-      statusSpan.textContent = `[${status}]`;
+      statusSpan.className = `status ${track.status.toLowerCase()}`;
+      statusSpan.textContent = `[${track.status}]`;
 
       item.textContent = `${track.title} — ${track.artist} (${duration}) `;
       item.appendChild(statusSpan);
@@ -2780,10 +2768,10 @@ async function loadCheckoutQueue() {
     const checkoutNextTitle  = document.getElementById('checkoutNextTitle');
 
     if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `Paid queue: ${tracks.length}`;
+      checkoutQueueCount.textContent = `Paid queue: ${data.totalTracks}`;
     }
     if (checkoutNextTitle) {
-      const nextTrack = tracks.find(t => t.title !== currentTitle || t.artist !== currentArtist);
+      const nextTrack = data.tracks.find(t => t.status === 'Queued');
       checkoutNextTitle.textContent = nextTrack
         ? `${nextTrack.title} — ${nextTrack.artist}`
         : 'No paid tracks queued';
@@ -2792,6 +2780,7 @@ async function loadCheckoutQueue() {
     console.error('Failed to load checkout tracks', err);
   }
 }
+
 </script>
 
 

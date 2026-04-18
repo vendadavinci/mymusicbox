@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import { PaidSession } from './models/paid_queue.js';
 import { Checkout } from './models/checkout.js'; 
+import progressRouter from './routes/progress.js';
 
 // ✅ Connect to MongoDB Atlas
 mongoose.connect(process.env.MONGO_URI)
@@ -19,6 +20,7 @@ mongoose.connect(process.env.MONGO_URI)
 
 const app = express();
 app.use(express.json());
+app.use('/api', progressRouter);
 
 // In‑memory checkout store (optional fallback, can remove once you rely only on Mongo)
 const checkoutStore = new Map();
@@ -824,14 +826,39 @@ app.get('/api/checkout-tracks', async (req, res) => {
       return res.status(404).json({ error: 'checkout not found or expired' });
     }
 
-    // Ensure tracks are normalized before returning
+    // Normalize tracks
     const normalizedTracks = (entry.tracks || []).map((track, i) =>
       normalizeTrack(track, i + 1)
     );
 
+    // If a PaidSession exists, enrich with authoritative statuses
+    const session = await PaidSession.findOne({ checkoutId: id });
+    let tracksWithStatus = normalizedTracks;
+
+    if (session) {
+      const current = session.tracks.find(t => !t.played);
+      tracksWithStatus = session.tracks.map(t => {
+        let status = 'Queued';
+        if (t.played) status = 'Played';
+        else if (current && t.uri === current.uri) status = 'Playing';
+
+        return {
+          uri: t.uri,
+          title: t.title,
+          artist: t.artist,
+          albumArt: t.albumArt,
+          duration_ms: t.duration_ms || 0,
+          status
+        };
+      });
+    }
+
     return res.json({
       success: true,
-      tracks: normalizedTracks
+      checkoutId: id,
+      mode: session ? 'PAID' : 'DEFAULT',
+      totalTracks: tracksWithStatus.length,
+      tracks: tracksWithStatus
     });
   } catch (err) {
     console.error('/api/checkout-tracks error', err);
