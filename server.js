@@ -384,7 +384,7 @@ app.get('/api/status', async (req, res) => {
 
     if (r.status === 204) {
       const activeSession = await PaidSession.findOne({ active: true }).lean();
-      const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
+      const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0;
       return res.json({
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
@@ -402,7 +402,6 @@ app.get('/api/status', async (req, res) => {
     }
 
     const data = await r.json();
-
     const activeSession = await PaidSession.findOne({ active: true });
     let tracks = activeSession?.tracks || [];
 
@@ -416,7 +415,7 @@ app.get('/api/status', async (req, res) => {
         await markTrackPlayed(activeSession.sessionId, currentUri);
       }
 
-      // Save current Spotify URI in session for /progress
+      // Save current Spotify URI in session
       if (currentUri) {
         activeSession.currentUri = currentUri;
         await activeSession.save();

@@ -1596,16 +1596,18 @@ async function pollStatus() {
     }
 
     for (const t of tracksToEnqueue) {
-      paidQueue.push({
-        uri: t.uri,
-        title: t.title || t.name || 'Unknown',
-        artist: t.artist || (t.artists && t.artists.join(', ')) || '',
-        duration_ms: t.duration_ms || t.durationMs || 0,
-        albumArt: t.albumArt || t.album_art || '',
-        addedAt: Date.now(),
-        played: !!t.played,
-        orderIndex: t.orderIndex || (paidQueue.length + 1)
-      });
+paidQueue.push({
+  uri: t.uri,
+  title: t.title || t.name || 'Unknown',
+  artist: t.artist || (t.artists && t.artists.join(', ')) || '',
+  duration_ms: t.duration_ms || t.durationMs || 0,
+  albumArt: t.albumArt || t.album_art || '',
+  addedAt: Date.now(),
+  played: !!t.played,
+  orderIndex: t.orderIndex || (paidQueue.length + 1),
+  status: 'Queued' // ✅ explicitly set initial status
+});
+
       sessionStorage.setItem(`queued_${checkoutId}_${t.uri}`, 'true');
     }
 
@@ -2762,6 +2764,7 @@ let lastPlaying = null; // remember the last track that was playing
         title: t.title || 'Unknown',
         artist: t.artist || '',
         duration_ms: t.duration_ms || 0,
+        status: 'Queued',
         albumArt: t.albumArt || '',
         addedAt: Date.now()
       })));
