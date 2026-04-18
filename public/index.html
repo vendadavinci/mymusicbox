@@ -1078,7 +1078,7 @@ async function renderQueue() {
       titleDiv.style.whiteSpace = 'nowrap';
       titleDiv.style.overflow = 'hidden';
       titleDiv.style.textOverflow = 'ellipsis';
-      titleDiv.textContent = item.title || 'Unknown';
+      titleDiv.textContent = item.title || '';
 
       const metaDiv = document.createElement('div');
       metaDiv.className = 'meta';
@@ -1656,7 +1656,7 @@ let pollHandle = null;
 let currentInterval = 8000; // default 8s when idle
 
 function setNowPlaying(title, artist, albumArt) {
-  nowTitle.textContent = title || 'Unknown';
+  nowTitle.textContent = title || '';
   nowArtist.textContent = artist || '';
   nowArt.style.backgroundImage = albumArt ? `url(${albumArt})` : '';
 }
@@ -2301,7 +2301,7 @@ function startAddFlow(){
 
       const normalized = {
         uri: track.uri,
-        title: track.title || track.name || 'Unknown',
+        title: track.title || track.name || '',
         artist: track.artist || (track.artists && track.artists.join(', ')) || '',
         duration_ms: track.duration_ms || track.durationMs || 0,
         albumArt: track.albumArt || (track.album?.images?.[0]?.url) || '',
@@ -2386,7 +2386,7 @@ function mergeServerQueueIntoLocal(serverTracks = []) {
   // Normalize serverTracks to minimal shape
   const normalizedServer = (serverTracks || []).map((t, i) => ({
     uri: t.uri,
-    title: t.title || t.name || 'Unknown',
+    title: t.title || t.name || '',
     artist: t.artist || (t.artists && t.artists.join(', ')) || '',
     duration_ms: t.durationMs || t.duration_ms || 0,
     albumArt: t.albumArt || t.album_art || '',
@@ -2447,7 +2447,7 @@ function renderPlayedHistory() {
     titleDiv.style.whiteSpace = 'nowrap';
     titleDiv.style.overflow = 'hidden';
     titleDiv.style.textOverflow = 'ellipsis';
-    titleDiv.textContent = item.title || 'Unknown';
+    titleDiv.textContent = item.title || '';
 
     const metaDiv = document.createElement('div');
     metaDiv.className = 'meta';
@@ -2552,7 +2552,7 @@ async function pollStatusOnce(){
 
 
     function setNowPlaying(title, artist, albumArt){
-      nowTitle.textContent = title || 'Unknown';
+      nowTitle.textContent = title || '';
       nowArtist.textContent = artist || '';
       if(albumArt) nowArt.style.backgroundImage = `url(${albumArt})`;
       else nowArt.style.backgroundImage = '';
@@ -2760,7 +2760,7 @@ let lastPlaying = null; // remember the last track that was playing
     if (tracks && tracks.length > 0) {
       paidQueue.push(...tracks.map(t => ({
         uri: t.uri,
-        title: t.title || 'Unknown',
+        title: t.title || '',
         artist: t.artist || '',
         duration_ms: t.duration_ms || 0,
         albumArt: t.albumArt || '',

@@ -206,7 +206,7 @@ function normalizeTrack(track, orderIndex, currentUri, isPlaying) {
 
   return {
     uri: track.uri,
-    title: track.title || track.name || 'Unknown',
+    title: track.title || track.name || '',
     artist: track.artist || (track.artists && track.artists.join(', ')) || '',
     duration_ms: track.duration_ms || track.durationMs || 0,
     albumArt: track.albumArt || track.album_art || '',
