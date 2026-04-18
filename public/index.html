@@ -2508,9 +2508,9 @@ async function pollStatusOnce(){
     setInterval(pollStatusOnce, 8000);
     renderQueue();
     pollStatusOnce();
-  </script>
 
-<script>
+
+
 async function refreshStatus() {
   const res = await fetch('/api/status');
   const data = await res.json();
