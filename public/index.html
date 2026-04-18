@@ -1026,9 +1026,6 @@ async function initPage() {
       renderQueue();
       paidSessionActive = false;
 
-      if (pending) {
-        showResumePaymentNotice(pending);
-      }
     }
   } catch (e) {
     console.warn('initPage /api/status failed', e);
@@ -1040,9 +1037,7 @@ async function initPage() {
       renderQueue();
     }
 
-    const pending = getPendingSubmission();
-    if (pending) showResumePaymentNotice(pending);
-  }
+
 }
 
 // Run on initial page load
@@ -1414,16 +1409,6 @@ async function startPaidQueuePlayback(sessionId, replace = false) {
   }
 }
 
-function showResumePaymentNotice(pending) {
-  let notice = document.getElementById('pendingNotice');
-  if (!notice) {
-    notice = document.createElement('div');
-    notice.id = 'pendingNotice';
-    notice.className = 'note';
-    notice.style.margin = '8px 0';
-    document.querySelector('.right-col')?.prepend(notice);
-  }
-}
 
 async function resumePendingPayment() {
   const pending = getPendingSubmission();
@@ -2630,16 +2615,6 @@ async function refreshStatus() {
     // Prefer pendingSubmission shape { id, tracks, package, createdAt }
     const idempotencyKey = pending?.id || sessionStorage.getItem('checkoutId') || checkoutIdFromUrl || ('legacy-' + Date.now());
 
-    // Ask backend whether this checkout already completed / enqueued
-    // Backend should return { ok: true, enqueued: true/false, enqueuedUris: [...] }
-    const statusRes = await fetch(`/api/checkout-status?checkoutId=${encodeURIComponent(idempotencyKey)}`);
-    if (!statusRes.ok) {
-      console.warn('checkout-status returned non-ok', statusRes.status);
-      // If backend is unreachable, do not auto-post; show resume notice instead
-      showResumePaymentNotice(pending || { tracks: legacyTracks || [] });
-      return;
-    }
-
     const statusJson = await statusRes.json();
 
     // If backend already enqueued, clear local state and exit
@@ -2693,11 +2668,6 @@ async function refreshStatus() {
       body: JSON.stringify({ tracks: tracksToSubmit, checkoutId: idempotencyKey })
     });
 
-    if (!webhookRes.ok) {
-      console.error('payment-success webhook failed', webhookRes.status);
-      showResumePaymentNotice({ tracks: tracksToSubmit });
-      return;
-    }
 
     // Success: clear local pending state and legacy keys
     sessionStorage.removeItem('tracks');
@@ -2709,15 +2679,6 @@ async function refreshStatus() {
     // Refresh canonical queue/UI
     if (typeof initPage === 'function') initPage();
     history.replaceState(null, '', window.location.pathname);
-
-  } catch (err) {
-    console.error('Error handling payment success:', err);
-    // Do not auto-retry; show resume UI so user can re-attempt intentionally
-    const pending = (() => {
-      try { return JSON.parse(sessionStorage.getItem('pendingSubmission') || 'null'); } catch (e) { return null; }
-    })();
-    showResumePaymentNotice(pending || { tracks: JSON.parse(sessionStorage.getItem('tracks') || '[]') });
-  }
 })();
 </script>
 
