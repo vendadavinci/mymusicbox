@@ -1584,7 +1584,6 @@ function persistPaidQueue() {
 statusPollHandle = setInterval(pollStatus, 6000);
 pollStatus();
 
-// Keep this for Yoco checkout/session lifecycle
 async function pollStatus() {
   try {
     const checkoutId = sessionStorage.getItem('checkoutId');
@@ -1644,12 +1643,57 @@ async function pollStatus() {
     if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
     if (typeof initPage === 'function') initPage();
 
+    // ✅ Kick off adaptive Spotify polling once payment succeeds
+    if (!pollHandle) {
+      pollStatusAdaptive(); // run immediately
+      pollHandle = setInterval(pollStatusAdaptive, currentInterval);
+    }
+
   } catch (err) {
     console.error('pollStatus error:', err);
   }
 }
 
-// Adaptive Spotify playback polling
+// Yoco checkout/session poller
+async function pollStatus() {
+  try {
+    const checkoutId = sessionStorage.getItem('checkoutId');
+    if (!checkoutId) return;
+
+    const res = await fetch(`/api/yoco/session-status?id=${encodeURIComponent(checkoutId)}`);
+    if (!res.ok) {
+      console.warn('session-status returned non-ok', res.status);
+      return;
+    }
+    const data = await res.json();
+
+    if (data.status !== 'successful') return;
+
+    // ... your existing enqueue logic ...
+
+    if (typeof persistPaidQueue === 'function') persistPaidQueue();
+    if (typeof renderQueue === 'function') renderQueue();
+
+    if (!paidSessionActive && typeof startPaidQueuePlayback === 'function') {
+      startPaidQueuePlayback();
+    }
+
+    if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
+    if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
+    if (typeof initPage === 'function') initPage();
+
+    // ✅ Kick off adaptive Spotify polling once payment succeeds
+    if (!pollHandle) {
+      pollStatusAdaptive(); // run immediately
+      pollHandle = setInterval(pollStatusAdaptive, currentInterval);
+    }
+
+  } catch (err) {
+    console.error('pollStatus error:', err);
+  }
+}
+
+// Adaptive Spotify playback poller
 let pollHandle = null;
 let currentInterval = 8000; // default 8s when idle
 
@@ -1698,6 +1742,106 @@ async function pollStatusAdaptive() {
       if (pollHandle) clearInterval(pollHandle);
       pollHandle = setInterval(pollStatusAdaptive, currentInterval);
     }
+
+    // ✅ Stop polling if session ended
+    if (!data.sessionId || data.mode === 'DEFAULT') {
+      if (pollHandle) {
+        clearInterval(pollHandle);
+        pollHandle = null;
+      }
+      statusText.textContent = 'Session ended';
+    }
+
+  } catch (err) {
+    console.error('pollStatusAdaptive error', err);
+  }
+}
+
+
+async function pollStatusLoop() {
+  const sessionId = sessionStorage.getItem('sessionId');
+  if (!sessionId) return;
+
+  try {
+    const res = await fetch('/api/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.success) return;
+
+    // Update "Now Playing"
+    setNowPlaying(data.title, data.artist, data.albumArt);
+
+    // Mode and playback state
+    nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
+    statusText.textContent = data.mode === 'PAID'
+      ? 'Playing paid queue'
+      : (data.isPlaying ? 'Playing' : 'Paused');
+
+    // Show next track info
+    if (data.tracks && data.tracks.length > 0) {
+      const nextTrack = data.tracks.find(t => t.status === 'Queued');
+      if (nextTrack) {
+        nextTitleEl.textContent = `${nextTrack.title} — ${nextTrack.artist}`;
+      }
+      queueCount.textContent = `Paid queue: ${data.totalTracks}`;
+      queueDurationText.textContent = `Estimated duration: ${Math.round(data.tracks.reduce((s, i) => s + (i.duration_ms || 0), 0) / 60000)} min`;
+    }
+  } catch (err) {
+    console.error('pollStatusLoop error', err);
+  }
+
+  // Always refresh queue display
+  renderQueue();
+}
+
+// Run immediately once
+pollStatusLoop();
+
+// Then repeat every 5 seconds
+setInterval(pollStatusLoop, 5000);
+
+let pollHandle = null;
+let currentInterval = 8000; // default 8s when idle
+
+async function pollStatusAdaptive() {
+  const sessionId = sessionStorage.getItem('sessionId');
+  if (!sessionId) return;
+
+  try {
+    const res = await fetch('/api/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.success) return;
+
+    // Update "Now Playing" UI
+    setNowPlaying(data.title, data.artist, data.albumArt);
+    nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
+    statusText.textContent = data.mode === 'PAID'
+      ? 'Playing paid queue'
+      : (data.isPlaying ? 'Playing' : 'Paused');
+
+    // Show next track info
+    if (data.tracks && data.tracks.length > 0) {
+      const nextTrack = data.tracks.find(t => t.status === 'Queued');
+      if (nextTrack) {
+        nextTitleEl.textContent = `${nextTrack.title} — ${nextTrack.artist}`;
+      }
+      queueCount.textContent = `Paid queue: ${data.totalTracks}`;
+      queueDurationText.textContent = `Estimated duration: ${Math.round(
+        data.tracks.reduce((s, i) => s + (i.duration_ms || 0), 0) / 60000
+      )} min`;
+    }
+
+    // Refresh queue display
+    renderQueue();
+
+    // Adjust polling interval dynamically
+    const desiredInterval = data.isPlaying ? 1000 : 8000;
+    if (desiredInterval !== currentInterval) {
+      currentInterval = desiredInterval;
+      if (pollHandle) clearInterval(pollHandle);
+      pollHandle = setInterval(pollStatusAdaptive, currentInterval);
+    }
   } catch (err) {
     console.error('pollStatusAdaptive error', err);
   }
@@ -1708,6 +1852,7 @@ pollStatusAdaptive();
 
 // Start with default interval
 pollHandle = setInterval(pollStatusAdaptive, currentInterval);
+
 
 
 /* ====== Payment success handler ====== */
