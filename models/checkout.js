@@ -9,8 +9,15 @@ const PaidTrackSchema = new mongoose.Schema({
   albumArt: { type: String, required: true },
   addedAt: { type: Date, default: Date.now },
   played: { type: Boolean, default: false },
-  orderIndex: { type: Number }
+  orderIndex: { type: Number },
+  // ✅ Optional: mirror status field for consistency
+  status: { 
+    type: String, 
+    enum: ['Queued', 'Playing', 'Played', 'Paused'], 
+    default: 'Queued' 
+  }
 }, { _id: false });
+
 
 const CheckoutSchema = new mongoose.Schema({
   checkoutId: { type: String, unique: true, index: true },
