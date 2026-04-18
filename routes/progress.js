@@ -16,15 +16,15 @@ router.get('/progress', async (req, res) => {
       return res.json({ success: false, message: 'Session not found' });
     }
 
-    const currentUri = session.currentUri; // should be set by /api/status
-    const isPlaying = session.isPlaying;   // optional: persist Spotify is_playing flag
+    const currentUri = session.currentUri; 
+    const isPlaying = session.isPlaying;   
 
     const tracksWithStatus = session.tracks.map(t => {
       let status = 'Queued';
       if (t.played) {
         status = 'Played';
       } else if (currentUri && t.uri === currentUri) {
-        status = isPlaying ? 'Playing' : 'Paused'; // ✅ distinguish active track
+        status = isPlaying ? 'Playing' : 'Paused'; 
       }
       return {
         uri: t.uri,
