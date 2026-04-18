@@ -11,7 +11,6 @@ import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import { PaidSession } from './models/paid_queue.js';
 import { Checkout } from './models/checkout.js'; 
-import progressRouter from './routes/progress.js'; 
 
 // ✅ Connect to MongoDB Atlas
 mongoose.connect(process.env.MONGO_URI)
@@ -20,7 +19,6 @@ mongoose.connect(process.env.MONGO_URI)
 
 const app = express();
 app.use(express.json());
-app.use('/api', progressRouter);
 
 // In‑memory checkout store (optional fallback, can remove once you rely only on Mongo)
 const checkoutStore = new Map();
@@ -909,45 +907,49 @@ app.post('/api/queue', async (req, res) => {
 });
 
 
-// Run every 10 seconds
+// Poller: update played tracks every 5 seconds
 setInterval(async () => {
+  const activeSession = await isPaidSessionActive();
+  if (!activeSession) return;
+
   try {
-    const activeSessions = await PaidSession.find({ active: true });
+    await refreshAccessTokenIfNeeded();
+    const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
 
-    for (const session of activeSessions) {
-      // Find the first unplayed track
-      const current = session.tracks.find(t => !t.played);
-      if (!current) {
-        // No more tracks, mark session ended
-        if (!session.endedAt) {
-          session.active = false;
-          session.endedAt = new Date();
-          await session.save();
-        }
-        continue;
-      }
+    // Handle 204 (no content)
+    if (r.status === 204) {
+      return; // nothing playing
+    }
 
-      // If playbackStartedAt is missing, set it now
-      if (!session.playbackStartedAt) {
-        session.playbackStartedAt = new Date();
-        await session.save();
-        continue;
-      }
+    // Handle non-OK responses
+    if (!r.ok) {
+      const text = await r.text().catch(() => '<no body>');
+      console.warn(`Spotify status failed ${r.status}: ${text}`);
+      return;
+    }
 
-      // Check if current track has finished
-      const elapsedMs = Date.now() - session.playbackStartedAt.getTime();
-      if (elapsedMs >= current.durationMs) {
-        current.played = true;
-        session.playbackStartedAt = new Date(); // reset for next track
-        await session.save();
-        console.log(`Marked track ${current.title} as played for session ${session.sessionId}`);
+    // Defensive JSON parse
+    let data = null;
+    try {
+      const text = await r.text();
+      if (text && text.trim().length > 0) {
+        data = JSON.parse(text);
       }
+    } catch (err) {
+      console.warn('Spotify returned empty or invalid JSON', err);
+      return;
+    }
+
+    // If we got valid data, mark track played
+    if (data?.item?.uri) {
+      await markTrackPlayed(activeSession.sessionId, data.item.uri);
     }
   } catch (err) {
     console.error('Poller error:', err);
   }
-}, 10000); // every 10 seconds
-
+}, 5000); // every 5 seconds
 
 
 /* -------------------------
