@@ -16,14 +16,15 @@ router.get('/progress', async (req, res) => {
       return res.json({ success: false, message: 'Session not found' });
     }
 
-    const currentUri = session.currentUri; // set by /api/status
+    const currentUri = session.currentUri; // should be set by /api/status
+    const isPlaying = session.isPlaying;   // optional: persist Spotify is_playing flag
 
     const tracksWithStatus = session.tracks.map(t => {
       let status = 'Queued';
       if (t.played) {
         status = 'Played';
       } else if (currentUri && t.uri === currentUri) {
-        status = 'Playing';
+        status = isPlaying ? 'Playing' : 'Paused'; // ✅ distinguish active track
       }
       return {
         uri: t.uri,
@@ -35,12 +36,14 @@ router.get('/progress', async (req, res) => {
       };
     });
 
+    const playingTrack = tracksWithStatus.find(t => t.status === 'Playing');
+
     res.json({
       success: true,
       sessionId: session.sessionId,
-      title: tracksWithStatus.find(t => t.status === 'Playing')?.title || null,
-      artist: tracksWithStatus.find(t => t.status === 'Playing')?.artist || null,
-      albumArt: tracksWithStatus.find(t => t.status === 'Playing')?.albumArt || null,
+      title: playingTrack?.title || null,
+      artist: playingTrack?.artist || null,
+      albumArt: playingTrack?.albumArt || null,
       mode: session.active ? 'PAID' : 'DEFAULT',
       playedCount: session.tracks.filter(t => t.played).length,
       totalTracks: session.tracks.length,
@@ -52,5 +55,5 @@ router.get('/progress', async (req, res) => {
   }
 });
 
-
 export default router;
+

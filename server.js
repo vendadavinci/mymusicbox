@@ -415,9 +415,10 @@ app.get('/api/status', async (req, res) => {
         await markTrackPlayed(activeSession.sessionId, currentUri);
       }
 
-      // Save current Spotify URI in session
+      // ✅ Save both currentUri and isPlaying in session
       if (currentUri) {
         activeSession.currentUri = currentUri;
+        activeSession.isPlaying = data.is_playing; // persist playback state
         await activeSession.save();
       }
 
