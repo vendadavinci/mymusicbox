@@ -352,50 +352,46 @@ body::before {
 
 <main>
   <!-- Left: Now Playing visual (up to 1080px block) -->
-   
-<section class="left-col card" aria-label="Now Playing">
-  <div class="player-visual" id="playerVisual">
-    <!-- Artwork fills the visual and is controlled separately -->
+  <section class="left-col card" aria-label="Now Playing">
+    <div class="player-visual" id="playerVisual">
+      <!-- Artwork fills the visual and is controlled separately -->
+      <div class="art" id="nowArt" role="img" aria-label="Album artwork" style="background-size:cover;background-position:center;"></div>
 
-    <div class="art" id="nowArt" role="img" aria-label="Album artwork"></div>
-
-    <!-- Overlay strip for track info (separate from the art) -->
-      
-    <div class="player-overlay">
-        
-      <div class="meta">
-        <div class="title" id="nowPlaying">NOW PLAYING:</div>
-        <div class="title" id="nowTitle">Idle</div>
-        <div class="artist" id="nowArtist">Default playlist</div>
-        <div class="small" id="nowMode">Mode: DEFAULT</div>
+      <!-- Overlay strip for track info (separate from the art) -->
+      <div class="player-overlay">
+        <div class="meta">
+          <div class="title small-label">NOW PLAYING:</div>
+          <div class="title" id="nowTitle">Idle</div>
+          <div class="artist" id="nowArtist">Default playlist</div>
+          <div class="small" id="nowMode">Mode: DEFAULT</div>
+        </div>
       </div>
     </div>
-  </div>
 
+    <span id="progress-text" class="small" style="display:block;margin-top:8px;"></span>
 
-  <span id="progress-text"></span>
+    <!-- Playing Next strip (aligned with Checkout Queue) -->
+    <div class="playing-next" id="playingNext" style="margin-top:12px;display:flex;flex-direction:column;gap:6px;">
+      <!-- JS historically referenced both checkoutQueueCount/checkoutNextTitle and queueCount/nextTitleEl.
+           Include both IDs so either variant works. -->
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+        <div class="small" id="checkoutQueueCount">Paid queue: 0</div>
+        <div class="small" id="queueCount">Paid queue: 0</div>
+      </div>
+      <div class="small" id="checkoutNextTitle">No paid tracks queued</div>
+      <div class="small" id="nextTitleEl">No paid tracks queued</div>
+    </div>
 
-<!-- Playing Next strip (aligned with Checkout Queue) -->
-<div class="playing-next" id="playingNext" style="margin-top:12px;">
-  <div class="small" id="checkoutQueueCount">Paid queue: 0</div>
-  <div class="small" id="checkoutNextTitle">No paid tracks queued</div>
-</div>
-
-<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
-  <div class="small" id="statusText">Status: idle</div>
-</div>
-
-</section>
-
-
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+      <div class="small" id="statusText">Status: idle</div>
+      <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
+    </div>
+  </section>
 
   <aside class="right-col">
-
     <!-- Add flow -->
     <div class="card" aria-label="Add to paid playlist">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-
-      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;"></div>
 
       <!-- Add Songs button -->
       <div style="margin-top:20px;text-align:center;">
@@ -416,6 +412,7 @@ body::before {
           <option value="150-15">R150 (10–15 songs, ~60 min)</option>
           <option value="200-20">R200 (15–20 songs, ~90 min)</option>
         </select>
+
         <!-- Dynamic form panel -->
         <div class="form-panel" id="formPanel">
           <h3>Select package to continue</h3>
@@ -438,7 +435,6 @@ body::before {
 
           <!-- payment controls -->
           <div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
-            <!-- Pay button (normal) -->
             <button class="btn" id="payBtn" onclick="startPayment()" disabled>Pay</button>
             <button class="btn ghost" onclick="cancelSelection()">Cancel</button>
             <div style="flex:1"></div>
@@ -459,62 +455,79 @@ body::before {
       <div class="search-results" id="searchResults" aria-live="polite"></div>
     </div>
 
+    <!-- Now Playing (compact duplicate for right column if desired) -->
+    <div class="card" aria-label="Now Playing (compact)">
+      <div style="display:flex;gap:12px;align-items:center;">
+        <div id="nowArtSmall" style="width:48px;height:48px;background-size:cover;background-position:center;border-radius:4px;"></div>
+        <div style="flex:1;min-width:0;">
+          <div id="nowTitleSmall" style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Idle</div>
+          <div id="nowArtistSmall" class="small">Default playlist</div>
+          <div id="nowModeSmall" class="small">Mode: DEFAULT</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Paid queue -->
-<div class="card" aria-label="Checkout queue">
-  <div style="display:flex;justify-content:space-between;align-items:center;">
-    <div style="font-weight:700;">You Paid For:</div>
-    <div class="small" id="checkoutQueueInfo">Plays in order; no jumping</div>
-  </div>
+    <div class="card" aria-label="Checkout queue">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-weight:700;">You Paid For:</div>
+        <div class="small" id="checkoutQueueInfo">Plays in order; no jumping</div>
+      </div>
 
-  <div class="queue-list" id="checkoutQueueList"></div>
+      <div class="queue-list" id="checkoutQueueList"></div>
 
-  <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-    <div class="small" id="checkoutQueueDuration">Estimated duration: 0 min</div>
-  </div>
-</div>
-
-      
-
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+        <div class="small" id="checkoutQueueDuration">Estimated duration: 0 min</div>
+      </div>
+    </div>
   </aside>
 </main>
+
   <footer>Powered by TicketMetro</footer>
 
-  <script>
+<script>
 /* ====== Paid queue app (fixed) ====== */
 let paidQueue = [];
-const slots = []; 
+const slots = [];
 let paidSessionActive = false;
 let redirectTimeoutHandle = null;
-let currentMode = 'DEFAULT'; 
+let currentMode = 'DEFAULT';
 let statusPollHandle = null;
 let currentPackage = null;          // { price: "10", maxSongs: 2 }
 let paymentComplete = false;
 let songsAddedThisSession = 0;
 
 /* DOM bindings (cached) */
-const nowTitle = document.getElementById('nowTitle');
-const nowArtist = document.getElementById('nowArtist');
-const nowArt = document.getElementById('nowArt');
-const nowMode = document.getElementById('nowMode');
-const statusText = document.getElementById('statusText');
-const queueCount = document.getElementById('queueCount');
-const paidQueueEl = document.getElementById('paidQueue');
-const queueDurationText = document.getElementById('queueDurationText');
-const searchResultsEl = document.getElementById('searchResults');
-const nextTitleEl = document.getElementById('nextTitle');     
-const formPanel = document.getElementById('formPanel');
-const slotsContainer = document.getElementById('slotsContainer');
-const selectedContainer = document.getElementById('selectedContainer');
-const selectedList = document.getElementById('selectedList');
-const payBtn = document.getElementById('payBtn');
-const addBtn = document.getElementById('addBtn');
-const pkgLabel = document.getElementById('pkgLabel');
-const packageSummary = document.getElementById('packageSummary');
-const priceNote = document.getElementById('priceNote');
-const instructionNote = document.getElementById('instructionNote');
-const checkoutQueueList     = document.getElementById('checkoutQueueList');
+const nowTitle            = document.getElementById('nowTitle');
+const nowArtist           = document.getElementById('nowArtist');
+const nowArt              = document.getElementById('nowArt');
+const nowMode             = document.getElementById('nowMode');
+const statusText          = document.getElementById('statusText');
+const progressText        = document.getElementById('progress-text');
+
+const queueCount          = document.getElementById('queueCount') 
+                          || document.getElementById('checkoutQueueCount');
+const queueDurationText   = document.getElementById('queueDurationText') 
+                          || document.getElementById('checkoutQueueDuration');
+const nextTitleEl         = document.getElementById('nextTitleEl') 
+                          || document.getElementById('checkoutNextTitle');
+
+const searchResultsEl     = document.getElementById('searchResults');
+const formPanel           = document.getElementById('formPanel');
+const slotsContainer      = document.getElementById('slotsContainer');
+const selectedContainer   = document.getElementById('selectedContainer');
+const selectedList        = document.getElementById('selectedList');
+const payBtn              = document.getElementById('payBtn');
+const addBtn              = document.getElementById('addBtn') 
+                          || document.getElementById('addSongsBtn');
+const pkgLabel            = document.getElementById('pkgLabel');
+const packageSummary      = document.getElementById('packageSummary');
+const priceNote           = document.getElementById('priceNote');
+const instructionNote     = document.getElementById('instructionNote');
+
+const checkoutQueueList   = document.getElementById('checkoutQueueList');
 const checkoutQueueDuration = document.getElementById('checkoutQueueDuration');
-const checkoutQueueInfo     = document.getElementById('checkoutQueueInfo');
+const checkoutQueueInfo   = document.getElementById('checkoutQueueInfo');
 
 
     function selectPackage(price, maxSongs){
