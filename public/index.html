@@ -491,7 +491,8 @@ const nowMode             = document.getElementById('nowMode');
 const statusText          = document.getElementById('statusText');
 const progressText        = document.getElementById('progress-text');
 
-const queueCount = document.getElementById('checkoutQueueCount');
+const queueCount          = document.getElementById('queueCount') 
+                          || document.getElementById('checkoutQueueCount');
 const queueDurationText   = document.getElementById('queueDurationText') 
 
 const searchResultsEl     = document.getElementById('searchResults');
@@ -1672,25 +1673,21 @@ async function pollStatusAdaptive() {
 
     // Update "Now Playing"
     setNowPlaying(data.title, data.artist, data.albumArt);
-    const nowModeEl = document.getElementById('nowMode');
-    if (nowModeEl) {
-      nowModeEl.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
-    }
+    nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
+    statusText.textContent = data.mode === 'PAID'
+      ? 'Playing paid queue'
+      : (data.isPlaying ? 'Playing' : 'Paused');
 
-    // Update queue info
+    // Show next track info
     if (data.tracks && data.tracks.length > 0) {
-      const queueCountEl = document.getElementById('checkoutQueueCount');
-      if (queueCountEl) {
-        queueCountEl.textContent = `Paid queue: ${data.totalTracks}`;
+      const nextTrack = data.tracks.find(t => t.status === 'Added');
+      if (nextTrack) {
+        nextTitleEl.textContent = `${nextTrack.title} — ${nextTrack.artist}`;
       }
-
-      const queueDurationEl = document.getElementById('checkoutQueueDuration');
-      if (queueDurationEl) {
-        const totalMinutes = Math.round(
-          data.tracks.reduce((s, i) => s + (i.duration_ms || 0), 0) / 60000
-        );
-        queueDurationEl.textContent = `Estimated duration: ${totalMinutes} min`;
-      }
+      queueCount.textContent = `Paid queue: ${data.totalTracks}`;
+      queueDurationText.textContent = `Estimated duration: ${
+        Math.round(data.tracks.reduce((s, i) => s + (i.duration_ms || 0), 0) / 60000)
+      } min`;
     }
 
     // Refresh queue display
@@ -1713,6 +1710,7 @@ pollStatusAdaptive();
 
 // Start with default interval
 pollHandle = setInterval(pollStatusAdaptive, currentInterval);
+
 
 /* ====== Payment success handler ====== */
 // Robust onPaymentSuccess: idempotent, single /api/play call, prevents re-submits on refresh
@@ -1860,13 +1858,14 @@ async function onPaymentSuccess() {
       append: !!activeSessionId
     };
 
-    // --- UI: disable submit and show progress (if button exists) ---
+    // --- UI: disable submit and show progress ---
     const submitButton = document.querySelector('#payment-complete-button');
     if (submitButton) {
       submitButton.disabled = true;
       submitButton.dataset.prevText = submitButton.textContent;
       submitButton.textContent = 'Adding tracks...';
     }
+    const statusText = document.querySelector('#paid-status-text');
 
     console.info('Submitting paid tracks', { sessionId: payload.sessionId, count: tracks.length, append: payload.append });
 
@@ -1880,6 +1879,7 @@ async function onPaymentSuccess() {
 
     // If server indicates NO_ACTIVE_DEVICE (structured), surface clear message and do not mark submitted
     if (!playRes.ok && playBody?.code === 'NO_ACTIVE_DEVICE') {
+      // Show staff-facing modal or alert
       alert('Venue player is offline. Please start the venue Spotify player and retry. Tracks were not queued.');
       if (submitButton) {
         submitButton.disabled = false;
@@ -1915,6 +1915,9 @@ async function onPaymentSuccess() {
         if (typeof startPaidQueuePlayback === 'function') {
           try { startPaidQueuePlayback(payload.sessionId); } catch (e) { console.warn('startPaidQueuePlayback failed', e); }
         }
+        if (statusText) statusText.textContent = 'Starting paid playback...';
+      } else {
+        if (statusText) statusText.textContent = 'Tracks appended to existing paid queue';
       }
       console.log('All tracks queued successfully', addedUris.length);
       if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
@@ -1922,8 +1925,13 @@ async function onPaymentSuccess() {
     }
 
     // --- Partial or no queueing: attempt per-track retries for any tracks not confirmed queued ---
+    // Build map of requested URIs -> track objects
+    const uriToTrack = new Map(tracks.map(t => [t.uri, t]));
     // Determine which URIs still need queuing
-    const stillToQueue = tracks.filter(t => !addedUris.includes(t.uri));
+    const stillToQueue = [];
+    for (const t of tracks) {
+      if (!addedUris.includes(t.uri)) stillToQueue.push(t);
+    }
 
     // If nothing to retry (edge case), mark submission and exit
     if (stillToQueue.length === 0) {
@@ -1992,6 +2000,9 @@ async function onPaymentSuccess() {
       if (typeof startPaidQueuePlayback === 'function') {
         try { startPaidQueuePlayback(payload.sessionId); } catch (e) { console.warn('startPaidQueuePlayback failed', e); }
       }
+      if (statusText) statusText.textContent = 'Starting paid playback...';
+    } else {
+      if (statusText) statusText.textContent = 'Tracks appended to existing paid queue';
     }
 
     console.log('Payment successful — tracks added (after retries):', tracks.length, 'Session:', payload.sessionId);
