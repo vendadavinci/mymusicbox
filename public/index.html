@@ -2831,12 +2831,12 @@ async function refreshStatus() {
   }
 }
 
-setInterval(refreshStatus, 60000);
+setInterval(refreshStatus, 80000);
 refreshStatus();
 
 document.addEventListener('DOMContentLoaded', () => {
   renderQueueAndHistory();
-  setInterval(renderQueueAndHistory, 2000); 
+  setInterval(renderQueueAndHistory, 10000); 
 });
 
 async function renderQueueAndHistory() {
