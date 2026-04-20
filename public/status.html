@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Status Test</title>
+  <title>Status Debug</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
     section { border: 1px solid #ccc; padding: 16px; margin-top: 20px; }
@@ -11,15 +11,16 @@
     .track-item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #eee; }
     .track-item:last-child { border-bottom: none; }
     .status { font-size: 0.85em; font-weight: bold; }
+    .status.added { color: blue; }
     .status.playing { color: green; }
     .status.paused { color: orange; }
     .status.played { color: gray; }
-    .status.added { color: blue; }
+    pre { background: #f9f9f9; padding: 8px; font-size: 0.85em; overflow-x: auto; }
   </style>
 </head>
 <body>
 
-  <h1>Musicbox Status Test</h1>
+  <h1>Status Debug Page</h1>
 
   <section id="statusSection">
     <h2>Status</h2>
@@ -30,7 +31,11 @@
     <div><strong>Progress:</strong> <span id="progress"></span></div>
     <div><strong>Queue:</strong> <span id="queueCount"></span></div>
 
+    <h3>Tracks</h3>
     <div class="track-list" id="trackList"></div>
+
+    <h3>Raw JSON</h3>
+    <pre id="rawJson"></pre>
   </section>
 
   <script>
@@ -65,6 +70,9 @@
           `;
           trackList.appendChild(div);
         });
+
+        // Show raw JSON for debugging
+        document.getElementById('rawJson').textContent = JSON.stringify(data, null, 2);
 
         console.log('[TEST] Status response:', data);
       } catch (err) {
