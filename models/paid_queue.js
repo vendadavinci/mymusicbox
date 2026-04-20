@@ -2,20 +2,14 @@
 import mongoose from 'mongoose';
 
 const PaidTrackSchema = new mongoose.Schema({
-  uri: { type: String, required: true },
+  uri: { type: String, required: true }, // always store normalized spotify:track:... URIs
   title: { type: String, required: true },
   artist: { type: String, required: true },
-  durationMs: { type: Number, alias: 'duration_ms', required: true },
+  duration_ms: { type: Number, required: true }, // unified field name
   albumArt: { type: String, required: true },
   addedAt: { type: Date, default: Date.now },
   played: { type: Boolean, default: false },
-  orderIndex: { type: Number },
-  // ✅ Explicit status field
-  status: { 
-    type: String, 
-    enum: ['Added', 'Playing', 'Played', 'Paused'], 
-    default: 'Added' 
-  }
+  orderIndex: { type: Number }
 }, { _id: false });
 
 const PaidSessionSchema = new mongoose.Schema({
@@ -32,9 +26,8 @@ const PaidSessionSchema = new mongoose.Schema({
   tracks: [PaidTrackSchema],
   processedAt: { type: Date }, 
   playbackStartedAt: { type: Date }, 
-  currentUri: { type: String },
-  // ✅ Persist playback state at session level
-  isPlaying: { type: Boolean, default: false }
+  currentUri: { type: String }, // normalized
+  isPlaying: { type: Boolean, default: false } // persisted playback state
 });
 
 export const PaidSession = mongoose.model('PaidSession', PaidSessionSchema);

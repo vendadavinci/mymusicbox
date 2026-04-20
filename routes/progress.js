@@ -29,6 +29,7 @@ router.get('/progress', async (req, res) => {
       if (t.played) {
         status = 'Played';
       } else if (currentUriNorm && trackUri === currentUriNorm) {
+        // ✅ Always mark current track correctly
         status = isPlaying ? 'Playing' : 'Paused';
       }
 
@@ -37,7 +38,7 @@ router.get('/progress', async (req, res) => {
         title: t.title,
         artist: t.artist,
         albumArt: t.albumArt,
-        duration_ms: t.duration_ms || 0, // ✅ consistent casing
+        duration_ms: t.duration_ms || t.durationMs || 0, // ✅ handle both cases
         status
       };
     });

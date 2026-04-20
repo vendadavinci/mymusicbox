@@ -197,15 +197,19 @@ function getSession(sessionId) {
 
 // Helper: normalize incoming track shape
 function normalizeTrack(track, orderIndex, currentUri, isPlaying) {
+  const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+  const trackUri = normalizeUri(track.uri);
+  const currentUriNorm = normalizeUri(currentUri);
+
   let status = 'Added';
   if (track.played) {
     status = 'Played';
-  } else if (currentUri && track.uri === currentUri) {
+  } else if (currentUriNorm && trackUri === currentUriNorm) {
     status = isPlaying ? 'Playing' : 'Paused';
   }
 
   return {
-    uri: track.uri,
+    uri: trackUri,
     title: track.title || track.name || '',
     artist: track.artist || (track.artists && track.artists.join(', ')) || '',
     duration_ms: track.duration_ms || track.durationMs || 0,
@@ -213,9 +217,10 @@ function normalizeTrack(track, orderIndex, currentUri, isPlaying) {
     addedAt: track.addedAt ? new Date(track.addedAt) : new Date(),
     played: !!track.played,
     orderIndex: orderIndex || 0,
-    status // ✅ authoritative status
+    status
   };
 }
+
 
 
 
