@@ -1673,21 +1673,17 @@ async function pollStatusAdaptive() {
 
     // Update "Now Playing"
     setNowPlaying(data.title, data.artist, data.albumArt);
-    nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
-    statusText.textContent = data.mode === 'PAID'
-      ? 'Playing paid queue'
-      : (data.isPlaying ? 'Playing' : 'Paused');
 
-    // Show next track info
+    // Show next track info (only if you want to keep this)
     if (data.tracks && data.tracks.length > 0) {
       const nextTrack = data.tracks.find(t => t.status === 'Added');
       if (nextTrack) {
-        nextTitleEl.textContent = `${nextTrack.title} — ${nextTrack.artist}`;
+        console.log(`Next up: ${nextTrack.title} — ${nextTrack.artist}`);
       }
-      queueCount.textContent = `Paid queue: ${data.totalTracks}`;
-      queueDurationText.textContent = `Estimated duration: ${
+      console.log(`Paid queue: ${data.totalTracks}`);
+      console.log(`Estimated duration: ${
         Math.round(data.tracks.reduce((s, i) => s + (i.duration_ms || 0), 0) / 60000)
-      } min`;
+      } min`);
     }
 
     // Refresh queue display
@@ -1710,7 +1706,6 @@ pollStatusAdaptive();
 
 // Start with default interval
 pollHandle = setInterval(pollStatusAdaptive, currentInterval);
-
 
 /* ====== Payment success handler ====== */
 // Robust onPaymentSuccess: idempotent, single /api/play call, prevents re-submits on refresh
