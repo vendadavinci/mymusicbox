@@ -11,7 +11,7 @@ router.get('/checkout-tracks', async (req, res) => {
       return res.status(400).json({ error: 'checkoutId and userId required' });
     }
 
-    // ✅ Scope checkout by both checkoutId and userId
+    // Scope checkout by both checkoutId and userId
     const entry = await Checkout.findOne({ checkoutId, userId });
     if (!entry) {
       return res.status(404).json({ error: 'checkout not found or expired for this user' });
@@ -26,7 +26,7 @@ router.get('/checkout-tracks', async (req, res) => {
       order: i + 1
     }));
 
-    // ✅ Scope PaidSession by both checkoutId and userId
+    // Scope PaidSession by both checkoutId and userId
     const session = await PaidSession.findOne({ checkoutId, userId });
     let tracksWithStatus = normalizedTracks;
 
@@ -36,7 +36,7 @@ router.get('/checkout-tracks', async (req, res) => {
         let status = 'Added';
         if (t.played) status = 'Played';
         else if (current && t.uri === current.uri) status = 'Playing';
-        return { ...t, status };
+        return { ...t.toObject?.() || t, status };
       });
     }
 

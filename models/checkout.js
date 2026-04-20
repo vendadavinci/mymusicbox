@@ -1,5 +1,6 @@
-// models/checkout.js
 import mongoose from 'mongoose';
+import { Checkout } from '../models/checkout.js';
+import { PaidSession } from '../models/paid_queue.js';
 
 const PaidTrackSchema = new mongoose.Schema({
   uri: { type: String, required: true },
@@ -10,7 +11,6 @@ const PaidTrackSchema = new mongoose.Schema({
   addedAt: { type: Date, default: Date.now },
   played: { type: Boolean, default: false },
   orderIndex: { type: Number },
-  // ✅ Optional: mirror status field for consistency
   status: { 
     type: String, 
     enum: ['Added', 'Playing', 'Played', 'Paused'], 
@@ -18,10 +18,9 @@ const PaidTrackSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
-
 const CheckoutSchema = new mongoose.Schema({
   checkoutId: { type: String, unique: true, index: true },
-  userId: { type: String, index: true },   // ✅ add this
+  userId: { type: String, index: true },   // ✅ scoping per user
   amount: { type: Number, required: true },
   currency: { type: String, required: true },
   description: { type: String },
@@ -30,11 +29,7 @@ const CheckoutSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   expiresAt: { type: Date }, // expiry marker for TTL
   tracks: [PaidTrackSchema],
-
-  // Durable link back to the session
   sessionRef: { type: mongoose.Schema.Types.ObjectId, ref: 'PaidSession' },
-
-  // Markers for idempotency and playback
   processedAt: { type: Date },
   playbackStartedAt: { type: Date }
 });
@@ -42,4 +37,5 @@ const CheckoutSchema = new mongoose.Schema({
 // TTL index: automatically remove expired checkouts
 CheckoutSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
+// ✅ Named export
 export const Checkout = mongoose.model('Checkout', CheckoutSchema);

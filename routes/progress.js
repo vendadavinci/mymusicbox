@@ -1,5 +1,7 @@
 import express from 'express';
 import { PaidSession } from '../models/paid_queue.js';
+import { Checkout } from '../models/checkout.js';
+
 
 const router = express.Router();
 
