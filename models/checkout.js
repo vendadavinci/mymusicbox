@@ -1,6 +1,4 @@
 import mongoose from 'mongoose';
-import { Checkout } from '../models/checkout.js';
-import { PaidSession } from '../models/paid_queue.js';
 
 const PaidTrackSchema = new mongoose.Schema({
   uri: { type: String, required: true },
@@ -37,4 +35,5 @@ const CheckoutSchema = new mongoose.Schema({
 // TTL index: automatically remove expired checkouts
 CheckoutSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
-
+// ✅ Named export
+export const Checkout = mongoose.model('Checkout', CheckoutSchema);
