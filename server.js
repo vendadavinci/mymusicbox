@@ -452,7 +452,13 @@ app.get('/api/status', async (req, res) => {
         playedCount,
         totalTracks: activeSession?.tracks?.length || 0,
         tracks: activeSession?.tracks || [],
-        isPlaying: false
+        isPlaying: false,
+        progressMs: 0,
+        durationMs: 0,
+        uri: null,
+        title: null,
+        artist: null,
+        albumArt: null
       });
     }
 
@@ -468,7 +474,6 @@ app.get('/api/status', async (req, res) => {
     const activeSession = await PaidSession.findOne({ active: true });
     let tracks = activeSession?.tracks || [];
 
-    // Declare normalizeUri + currentUri outside so they’re always in scope
     const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
     const currentUri = normalizeUri(data.item?.uri);
 
@@ -486,7 +491,7 @@ app.get('/api/status', async (req, res) => {
 
       // ✅ Save playback state with normalized URI
       if (currentUri) {
-        activeSession.currentUri = currentUri; // always normalized
+        activeSession.currentUri = currentUri;
         activeSession.isPlaying = data.is_playing;
         await activeSession.save();
         console.log('[STATUS] Saved session playback state:', { sessionId: activeSession.sessionId, currentUri, isPlaying: data.is_playing });
@@ -525,7 +530,7 @@ app.get('/api/status', async (req, res) => {
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
-      uri: currentUri, // ✅ normalized, always defined
+      uri: currentUri,
       isPlaying: data.is_playing || false,
       progressMs: data.progress_ms || 0,
       durationMs: data.item?.duration_ms || 0
@@ -535,7 +540,6 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
-
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
@@ -577,12 +581,13 @@ app.post('/webhook/payment-success', async (req, res) => {
       });
     }
 
-    // Guard: if already processed, skip re‑adding and playback
+    // Guard: if already processed, skip duplicate webhook
     if (session.songsAdded > 0 && session.playbackStartedAt) {
       return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
     }
 
     if (tracks.length > 0) {
+      // ✅ Normalize before saving
       session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
       session.songsAdded = tracks.length;
       session.active = true;
@@ -594,6 +599,11 @@ app.post('/webhook/payment-success', async (req, res) => {
         await session.save();
       } catch (err) {
         console.error('startPaidSession error', err);
+        // rollback active state so retries can work
+        session.playbackStartedAt = null;
+        session.active = false;
+        session.songsAdded = 0;
+        await session.save();
         return res.status(500).json({ error: 'playback failed', details: err.message });
       }
     }
@@ -604,7 +614,6 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
-
 
 
 // Check if there is an active paid session
@@ -894,33 +903,30 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
 app.get('/api/checkout-tracks', async (req, res) => {
   try {
     const id = req.query.checkoutId;
-    if (!id) {
-      return res.status(400).json({ error: 'checkoutId required' });
-    }
+    if (!id) return res.status(400).json({ error: 'checkoutId required' });
 
     const entry = await Checkout.findOne({ checkoutId: id });
-    if (!entry) {
-      return res.status(404).json({ error: 'checkout not found or expired' });
-    }
+    if (!entry) return res.status(404).json({ error: 'checkout not found or expired' });
 
-    // Normalize tracks
     const normalizedTracks = (entry.tracks || []).map((track, i) =>
       normalizeTrack(track, i + 1)
     );
 
-    // If a PaidSession exists, enrich with authoritative statuses
     const session = await PaidSession.findOne({ checkoutId: id });
     let tracksWithStatus = normalizedTracks;
 
     if (session) {
-      const current = session.tracks.find(t => !t.played);
+      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+      const currentUri = normalizeUri(session.currentUri);
+
       tracksWithStatus = session.tracks.map(t => {
+        const trackUri = normalizeUri(t.uri);
         let status = 'Added';
         if (t.played) status = 'Played';
-        else if (current && t.uri === current.uri) status = 'Playing';
+        else if (trackUri === currentUri) status = session.isPlaying ? 'Playing' : 'Paused';
 
         return {
-          uri: t.uri,
+          uri: trackUri,
           title: t.title,
           artist: t.artist,
           albumArt: t.albumArt,
@@ -972,7 +978,7 @@ app.post('/api/queue', async (req, res) => {
     );
 
     if (!r.ok) {
-      const text = await r.text();
+      const text = await r.text().catch(() => '<no body>');
       console.error('/api/queue failed', r.status, text);
 
       if (r.status === 404 && text.includes('NO_ACTIVE_DEVICE')) {
@@ -980,6 +986,12 @@ app.post('/api/queue', async (req, res) => {
           error: 'No active Spotify device found. Please open the Spotify app and start playback once.',
           details: text
         });
+      }
+      if (r.status === 401) {
+        return res.status(401).json({ error: 'Spotify token expired. Please refresh and retry.', details: text });
+      }
+      if (r.status === 403) {
+        return res.status(403).json({ error: 'Spotify denied the request. Check playback permissions.', details: text });
       }
 
       return res.status(r.status).json({
@@ -1003,20 +1015,18 @@ app.post('/api/queue', async (req, res) => {
 
     // ✅ Save normalized URI in session
     const orderIndex = session.tracks.length + 1;
-    session.tracks.push(
-      normalizeTrack({ uri: normalizedUri, title, artist, duration_ms, albumArt }, orderIndex)
-    );
+    const trackObj = normalizeTrack({ uri: normalizedUri, title, artist, duration_ms, albumArt }, orderIndex);
+    session.tracks.push(trackObj);
     session.songsAdded += 1;
     await session.save();
 
-    res.json({ ok: true, sessionId, added: normalizedUri });
+    res.json({ ok: true, sessionId, track: trackObj });
   } catch (err) {
     console.error('/api/queue error', err);
     res.status(500).json({ error: 'Queue request failed', details: err.message });
   }
 });
 
-// Poller: update played tracks every 5 seconds
 setInterval(async () => {
   const activeSession = await isPaidSessionActive();
   if (!activeSession) return;
@@ -1027,39 +1037,42 @@ setInterval(async () => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // Handle 204 (no content)
-    if (r.status === 204) {
-      return; // nothing playing
-    }
-
-    // Handle non-OK responses
+    if (r.status === 204) return;
     if (!r.ok) {
       const text = await r.text().catch(() => '<no body>');
       console.warn(`Spotify status failed ${r.status}: ${text}`);
       return;
     }
 
-    // Defensive JSON parse
     let data = null;
     try {
       const text = await r.text();
-      if (text && text.trim().length > 0) {
-        data = JSON.parse(text);
-      }
+      if (text && text.trim().length > 0) data = JSON.parse(text);
     } catch (err) {
       console.warn('Spotify returned empty or invalid JSON', err);
       return;
     }
 
-    // If we got valid data, mark track played
     if (data?.item?.uri) {
-      await markTrackPlayed(activeSession.sessionId, data.item.uri);
+      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+      const currentUri = normalizeUri(data.item.uri);
+
+      // Update session playback state
+      activeSession.currentUri = currentUri;
+      activeSession.isPlaying = data.is_playing;
+      await activeSession.save();
+
+      // Mark track played if finished
+      const progressMs = data.progress_ms || 0;
+      const durationMs = data.item?.duration_ms || 0;
+      if (durationMs > 0 && progressMs >= durationMs - 2000) {
+        await markTrackPlayed(activeSession.sessionId, currentUri);
+      }
     }
   } catch (err) {
     console.error('Poller error:', err);
   }
-}, 5000); // every 5 seconds
-
+}, 5000);
 
 /* -------------------------
    Start server

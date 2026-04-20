@@ -19,11 +19,7 @@ router.get('/progress', async (req, res) => {
     const isPlaying = session.isPlaying;
 
     // ✅ Normalize URIs so DB IDs and Spotify URIs match
-    const normalizeUri = u => {
-      if (!u) return null;
-      return u.startsWith('spotify:track:') ? u : `spotify:track:${u}`;
-    };
-
+    const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
     const currentUriNorm = normalizeUri(session.currentUri);
 
     const tracksWithStatus = session.tracks.map(t => {
@@ -41,7 +37,7 @@ router.get('/progress', async (req, res) => {
         title: t.title,
         artist: t.artist,
         albumArt: t.albumArt,
-        duration_ms: t.durationMs || 0,
+        duration_ms: t.duration_ms || 0, // ✅ consistent casing
         status
       };
     });
@@ -57,10 +53,12 @@ router.get('/progress', async (req, res) => {
     res.json({
       success: true,
       sessionId: session.sessionId,
+      mode: session.active ? 'PAID' : 'DEFAULT',
+      currentUri: currentUriNorm,   // ✅ expose current URI
+      isPlaying,                    // ✅ expose playback state
       title: playingTrack?.title || null,
       artist: playingTrack?.artist || null,
       albumArt: playingTrack?.albumArt || null,
-      mode: session.active ? 'PAID' : 'DEFAULT',
       playedCount: tracksWithStatus.filter(t => t.status === 'Played').length,
       totalTracks: tracksWithStatus.length,
       tracks: tracksWithStatus
