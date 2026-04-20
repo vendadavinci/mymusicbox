@@ -372,12 +372,9 @@ body::before {
 
     <!-- Playing Next strip (aligned with Checkout Queue) -->
     <div class="playing-next" id="playingNext" style="margin-top:12px;display:flex;flex-direction:column;gap:6px;">
-      <!-- JS historically referenced both checkoutQueueCount/checkoutNextTitle and queueCount/nextTitleEl.
-           Include both IDs so either variant works. -->
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
         <div class="small" id="checkoutQueueCount">Paid queue: 0</div>
       </div>
-      <div class="small" id="checkoutNextTitle">No paid tracks added</div>
         <div id="paidQueue" style="display:none;"></div>
 
     </div>
@@ -462,7 +459,6 @@ body::before {
 
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
         <div class="small" id="checkoutQueueDuration">Estimated duration: 0 min</div>
-          <div class="small" id="checkoutNextTitle">No paid tracks queued</div> 
       </div>
     </div>
     <!-- ✅ New Played History section -->
@@ -498,9 +494,6 @@ const progressText        = document.getElementById('progress-text');
 const queueCount          = document.getElementById('queueCount') 
                           || document.getElementById('checkoutQueueCount');
 const queueDurationText   = document.getElementById('queueDurationText') 
-                          || document.getElementById('checkoutQueueDuration');
-const nextTitleEl         = document.getElementById('nextTitleEl') 
-                          || document.getElementById('checkoutNextTitle');
 
 const searchResultsEl     = document.getElementById('searchResults');
 const formPanel           = document.getElementById('formPanel');
@@ -518,7 +511,7 @@ const instructionNote     = document.getElementById('instructionNote');
 const checkoutQueueList   = document.getElementById('checkoutQueueList');
 const checkoutQueueDuration = document.getElementById('checkoutQueueDuration');
 const checkoutQueueInfo   = document.getElementById('checkoutQueueInfo');
-const checkoutNextTitle = document.getElementById('checkoutNextTitle');
+
 
     function selectPackage(price, maxSongs){
       currentPackage = { price: price, maxSongs: maxSongs, label: `R${price} — up to ${maxSongs} songs` };
@@ -1018,7 +1011,6 @@ window.addEventListener('load', () => {
   const paidQueueEl      = document.getElementById('checkoutQueueList');
   const queueCount       = document.getElementById('checkoutQueueCount');
   const queueDurationText= document.getElementById('checkoutQueueDuration');
-  const nextTitleEl      = document.getElementById('checkoutNextTitle');
   const nowTitle         = document.getElementById('nowTitle');
   const statusText       = document.getElementById('statusText');
 
@@ -1026,7 +1018,6 @@ window.addEventListener('load', () => {
   if (!paidQueueEl)       missing.push('checkoutQueueList');
   if (!queueCount)        missing.push('checkoutQueueCount');
   if (!queueDurationText) missing.push('checkoutQueueDuration');
-  if (!nextTitleEl)       missing.push('checkoutNextTitle');
   if (!nowTitle)          missing.push('nowTitle');
 
   if (missing.length) {
@@ -1138,12 +1129,6 @@ async function renderQueue() {
     }
     if (checkoutQueueDuration) {
       checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
-    }
-    if (checkoutNextTitle) {
-      const nextTrack = tracks.find(t => t.status === 'Added');
-      checkoutNextTitle.textContent = nextTrack
-        ? `${nextTrack.title} — ${nextTrack.artist}`
-        : 'No paid tracks queued';
     }
 
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
@@ -2933,12 +2918,7 @@ async function renderQueueAndHistory() {
     if (checkoutQueueDuration) {
       checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
     }
-    if (checkoutNextTitle) {
-      const nextTrack = paidQueue.find(t => t.status === 'Added');
-      checkoutNextTitle.textContent = nextTrack
-        ? `${nextTrack.title} — ${nextTrack.artist}`
-        : 'No paid tracks queued';
-    }
+
 
     // ✅ Render played history from the same response
     const playedQueueList = document.getElementById('playedQueueList');
