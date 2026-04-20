@@ -6,11 +6,16 @@ const router = express.Router();
 
 router.get('/checkout-tracks', async (req, res) => {
   try {
-    const id = req.query.checkoutId;
-    if (!id) return res.status(400).json({ error: 'checkoutId required' });
+    const { checkoutId, userId } = req.query;
+    if (!checkoutId || !userId) {
+      return res.status(400).json({ error: 'checkoutId and userId required' });
+    }
 
-    const entry = await Checkout.findOne({ checkoutId: id });
-    if (!entry) return res.status(404).json({ error: 'checkout not found or expired' });
+    // ✅ Scope checkout by both checkoutId and userId
+    const entry = await Checkout.findOne({ checkoutId, userId });
+    if (!entry) {
+      return res.status(404).json({ error: 'checkout not found or expired for this user' });
+    }
 
     const normalizedTracks = (entry.tracks || []).map((track, i) => ({
       uri: track.uri,
@@ -21,7 +26,8 @@ router.get('/checkout-tracks', async (req, res) => {
       order: i + 1
     }));
 
-    const session = await PaidSession.findOne({ checkoutId: id });
+    // ✅ Scope PaidSession by both checkoutId and userId
+    const session = await PaidSession.findOne({ checkoutId, userId });
     let tracksWithStatus = normalizedTracks;
 
     if (session) {
@@ -36,7 +42,7 @@ router.get('/checkout-tracks', async (req, res) => {
 
     res.json({
       success: true,
-      checkoutId: id,
+      checkoutId,
       mode: session ? 'PAID' : 'DEFAULT',
       totalTracks: tracksWithStatus.length,
       tracks: tracksWithStatus

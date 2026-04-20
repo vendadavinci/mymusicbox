@@ -21,21 +21,22 @@ const PaidTrackSchema = new mongoose.Schema({
 
 const CheckoutSchema = new mongoose.Schema({
   checkoutId: { type: String, unique: true, index: true },
+  userId: { type: String, index: true },   // ✅ add this
   amount: { type: Number, required: true },
   currency: { type: String, required: true },
   description: { type: String },
   successUrl: { type: String },
   cancelUrl: { type: String },
   createdAt: { type: Date, default: Date.now },
-  expiresAt: { type: Date }, // NEW: expiry marker for TTL
+  expiresAt: { type: Date }, // expiry marker for TTL
   tracks: [PaidTrackSchema],
 
   // Durable link back to the session
   sessionRef: { type: mongoose.Schema.Types.ObjectId, ref: 'PaidSession' },
 
   // Markers for idempotency and playback
-  processedAt: { type: Date },          // when this checkout was consumed into a session
-  playbackStartedAt: { type: Date }     // when playback was triggered for this checkout
+  processedAt: { type: Date },
+  playbackStartedAt: { type: Date }
 });
 
 // TTL index: automatically remove expired checkouts

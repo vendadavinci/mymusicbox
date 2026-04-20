@@ -1,4 +1,3 @@
-// routes/progress.js
 import express from 'express';
 import { PaidSession } from '../models/paid_queue.js';
 
@@ -6,19 +5,19 @@ const router = express.Router();
 
 router.get('/progress', async (req, res) => {
   try {
-    const { sessionId } = req.query;
-    if (!sessionId) {
-      return res.json({ success: false, message: 'Missing sessionId' });
+    const { sessionId, userId } = req.query;
+    if (!sessionId || !userId) {
+      return res.json({ success: false, message: 'Missing sessionId or userId' });
     }
 
-    const session = await PaidSession.findOne({ sessionId });
+    // ✅ Scope by both sessionId and userId
+    const session = await PaidSession.findOne({ sessionId, userId });
     if (!session) {
-      return res.json({ success: false, message: 'Session not found' });
+      return res.json({ success: false, message: 'Session not found for this user' });
     }
 
     const isPlaying = session.isPlaying;
 
-    // ✅ Normalize URIs so DB IDs and Spotify URIs match
     const normalizeUri = u => {
       if (!u) return null;
       return u.startsWith('spotify:track:') ? u : `spotify:track:${u}`;
