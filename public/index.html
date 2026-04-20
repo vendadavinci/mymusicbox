@@ -2806,30 +2806,51 @@ let lastPlaying = null; // remember the last track that was playing
 </script>
 
 <script>
-// Read-only UI refresh. Never enqueue or post anything here.
+let statusTimer = null;
+let backoffUntil = 0;
+
 async function refreshStatus() {
   try {
+    const now = Date.now();
+    if (now < backoffUntil) {
+      // Still in backoff window, skip this tick
+      return;
+    }
+
     const res = await fetch('/api/status');
-    if (!res.ok) return;
     const data = await res.json();
 
-    if (data && data.success) {
-      const titleEl = document.getElementById('song-title');
-      const artistEl = document.getElementById('song-artist');
-      const artEl = document.getElementById('album-art');
-      const modeEl = document.getElementById('session-mode');
-      const progressEl = document.getElementById('progress');
-
-      if (titleEl) titleEl.textContent = data.title || '';
-      if (artistEl) artistEl.textContent = data.artist || '';
-      if (artEl) artEl.src = data.albumArt || '';
-      if (modeEl) modeEl.textContent = data.mode || '';
-      if (progressEl) progressEl.textContent = `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
+    if (!res.ok || !data.success) {
+      if (data.error === 'Rate limited' && data.retryAfter) {
+        // Respect Retry-After header
+        const delayMs = data.retryAfter * 1000;
+        console.warn(`Rate limited. Backing off for ${delayMs / 1000}s`);
+        backoffUntil = Date.now() + delayMs;
+      }
+      return;
     }
+
+    // ✅ Normal success path
+    const titleEl = document.getElementById('song-title');
+    const artistEl = document.getElementById('song-artist');
+    const artEl = document.getElementById('album-art');
+    const modeEl = document.getElementById('session-mode');
+    const progressEl = document.getElementById('progress');
+
+    if (titleEl) titleEl.textContent = data.title || '';
+    if (artistEl) artistEl.textContent = data.artist || '';
+    if (artEl) artEl.src = data.albumArt || '';
+    if (modeEl) modeEl.textContent = data.mode || '';
+    if (progressEl) progressEl.textContent = `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
+
   } catch (err) {
     console.warn('refreshStatus error', err);
   }
 }
+
+// Start polling every 10s
+statusTimer = setInterval(refreshStatus, 10000);
+refreshStatus();
 
 async function renderQueueAndHistory() {
   try {
