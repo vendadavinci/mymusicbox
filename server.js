@@ -469,9 +469,11 @@ app.get('/api/status', async (req, res) => {
     const activeSession = await PaidSession.findOne({ active: true });
     let tracks = activeSession?.tracks || [];
 
+    // Declare normalizeUri + currentUri outside so they’re always in scope
+    const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+    const currentUri = normalizeUri(data.item?.uri);
+
     if (activeSession) {
-      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
-      const currentUri = normalizeUri(data.item?.uri);
       const progressMs = data.progress_ms || 0;
       const durationMs = data.item?.duration_ms || 0;
 
@@ -524,7 +526,7 @@ app.get('/api/status', async (req, res) => {
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
-      uri: currentUri, // ✅ normalized
+      uri: currentUri, // ✅ normalized, always defined
       isPlaying: data.is_playing || false,
       progressMs: data.progress_ms || 0,
       durationMs: data.item?.duration_ms || 0
@@ -534,6 +536,7 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
+
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
