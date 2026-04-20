@@ -329,12 +329,18 @@ body::before {
   object-fit: cover;    /* ensures it fills nicely */
 }
 
+.status.playing {
+  font-weight: bold;
+  color: green;
+}
+.status.added {
+  color: goldenrod; /* yellowish */
+}
+.status.played {
+  color: gray;
+  font-style: italic;
+}
 
-
-.status.added { color: blue; font-weight: bold; }
-.status.playing { color: green; font-weight: bold; }
-.status.paused { color: orange; font-weight: bold; }
-.status.played { color: gray; font-weight: bold; }
 
 
 </style>
@@ -466,6 +472,7 @@ body::before {
   <div style="font-weight:700;">Your Paid Queue</div>
   <div class="queue-list" id="queueStatusList"></div>
 </div>
+
 
   </aside>
 </main>
@@ -2984,11 +2991,11 @@ async function renderQueueAndHistory() {
 <script>
   async function renderQueueStatus() {
     try {
-      const params = new URLSearchParams(window.location.search);
-      const sessionId = params.get('checkoutId');
-      if (!sessionId) return;
-
-      const res = await fetch(`/api/progress?sessionId=${sessionId}`);
+      const res = await fetch('/api/status');
+      if (!res.ok) {
+        console.warn('Status fetch failed', res.status);
+        return;
+      }
       const data = await res.json();
       if (!data.success) return;
 
@@ -3014,15 +3021,18 @@ async function renderQueueAndHistory() {
         wrapper.appendChild(right);
         queueStatusList.appendChild(wrapper);
       });
+
+      console.log('[Queue Status] Response:', data);
     } catch (err) {
       console.error('renderQueueStatus error', err);
     }
   }
 
-  // Poll every 10s
+  // Poll every 10 seconds
   setInterval(renderQueueStatus, 10000);
   renderQueueStatus();
 </script>
+
 
 
 </body>
