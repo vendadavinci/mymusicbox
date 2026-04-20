@@ -126,7 +126,7 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
       }
     }
 
-    return { queued: true };
+    return { added: true };
   }
 
   // Replace mode: first start
@@ -530,7 +530,7 @@ app.post('/api/reserve-tracks', async (req, res) => {
       return res.status(400).json({ error: 'tracks required' });
 
     paidQueue.push(...tracks.map(t => ({ uri: t.uri, duration_ms: t.duration_ms || 0 })));
-    return res.json({ success: true, queued: tracks.length });
+    return res.json({ success: true, added: tracks.length });
   } catch (err) {
     console.error('/api/reserve-tracks error', err);
     res.status(500).json({ error: 'reserve failed' });
@@ -632,7 +632,7 @@ app.post('/api/search', async (req, res) => {
       uri: t.uri,
       title: t.name,
       artist: t.artists.map(a => a.name).join(', '),
-      duration_ms: t.duration_ms,
+      duration_ms: t.duration_ms || 0,
       albumArt: t.album?.images?.[0]?.url || null
     }));
 
@@ -988,7 +988,7 @@ app.post('/api/queue', async (req, res) => {
     session.songsAdded += 1;
     await session.save();
 
-    res.json({ ok: true, sessionId, queued: uri });
+    res.json({ ok: true, sessionId, added: uri });
   } catch (err) {
     console.error('/api/queue error', err);
     res.status(500).json({ error: 'Queue request failed', details: err.message });
