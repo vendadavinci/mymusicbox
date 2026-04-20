@@ -394,10 +394,14 @@ app.post('/api/skip', async (req, res) => {
 // Mark a track as played in the given session
 async function markTrackPlayed(sessionId, uri) {
   try {
+    const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+    const normalizedUri = normalizeUri(uri);
+
     const session = await PaidSession.findOne({ sessionId });
     if (!session) return;
 
-    const track = session.tracks.find(t => t.uri === uri && !t.played);
+    // ✅ Normalize both stored and incoming URIs before comparison
+    const track = session.tracks.find(t => normalizeUri(t.uri) === normalizedUri && !t.played);
     if (track) {
       track.played = true;
       session.playedCount = (session.playedCount || 0) + 1;
@@ -408,7 +412,9 @@ async function markTrackPlayed(sessionId, uri) {
       }
 
       await session.save();
-      console.log(`Marked track as played: ${uri} in session ${sessionId}`);
+      console.log(`Marked track as played: ${normalizedUri} in session ${sessionId}`);
+    } else {
+      console.log(`No matching track found for URI: ${normalizedUri} in session ${sessionId}`);
     }
   } catch (err) {
     console.error('markTrackPlayed error:', err);
@@ -462,9 +468,11 @@ app.get('/api/status', async (req, res) => {
     const activeSession = await PaidSession.findOne({ active: true });
     let tracks = activeSession?.tracks || [];
 
+    // Declare normalizeUri + currentUri outside so they’re always in scope
+    const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+    const currentUri = normalizeUri(data.item?.uri);
+
     if (activeSession) {
-      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
-      const currentUri = normalizeUri(data.item?.uri);
       const progressMs = data.progress_ms || 0;
       const durationMs = data.item?.duration_ms || 0;
 
@@ -476,9 +484,9 @@ app.get('/api/status', async (req, res) => {
         await markTrackPlayed(activeSession.sessionId, currentUri);
       }
 
-      // Save playback state
+      // ✅ Save playback state with normalized URI
       if (currentUri) {
-        activeSession.currentUri = currentUri;
+        activeSession.currentUri = currentUri; // always normalized
         activeSession.isPlaying = data.is_playing;
         await activeSession.save();
         console.log('[STATUS] Saved session playback state:', { sessionId: activeSession.sessionId, currentUri, isPlaying: data.is_playing });
@@ -517,7 +525,7 @@ app.get('/api/status', async (req, res) => {
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
-      uri: data.item?.uri || null,
+      uri: currentUri, // ✅ normalized, always defined
       isPlaying: data.is_playing || false,
       progressMs: data.progress_ms || 0,
       durationMs: data.item?.duration_ms || 0
@@ -527,6 +535,7 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
+
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
@@ -943,6 +952,10 @@ app.post('/api/queue', async (req, res) => {
       return res.status(400).json({ error: 'Missing track URI or sessionId' });
     }
 
+    // ✅ Normalize URI before using anywhere
+    const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+    const normalizedUri = normalizeUri(uri);
+
     // Ensure shuffle is off
     await fetch('https://api.spotify.com/v1/me/player/shuffle?state=false', {
       method: 'PUT',
@@ -951,7 +964,7 @@ app.post('/api/queue', async (req, res) => {
 
     // Queue track in Spotify
     const r = await fetch(
-      `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`,
+      `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(normalizedUri)}`,
       {
         method: 'POST',
         headers: { Authorization: `Bearer ${tokens.access_token}` }
@@ -988,19 +1001,20 @@ app.post('/api/queue', async (req, res) => {
       });
     }
 
-    // Use normalizeTrack helper
+    // ✅ Save normalized URI in session
     const orderIndex = session.tracks.length + 1;
-    session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
+    session.tracks.push(
+      normalizeTrack({ uri: normalizedUri, title, artist, duration_ms, albumArt }, orderIndex)
+    );
     session.songsAdded += 1;
     await session.save();
 
-    res.json({ ok: true, sessionId, added: uri });
+    res.json({ ok: true, sessionId, added: normalizedUri });
   } catch (err) {
     console.error('/api/queue error', err);
     res.status(500).json({ error: 'Queue request failed', details: err.message });
   }
 });
-
 
 // Poller: update played tracks every 5 seconds
 setInterval(async () => {
