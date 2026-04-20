@@ -37,5 +37,4 @@ const CheckoutSchema = new mongoose.Schema({
 // TTL index: automatically remove expired checkouts
 CheckoutSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
-// ✅ Named export
-export const Checkout = mongoose.model('Checkout', CheckoutSchema);
+
