@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Status Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    section { border: 1px solid #ccc; padding: 16px; margin-top: 20px; }
+    h2 { margin-top: 0; }
+    .track-list { margin-top: 12px; }
+    .track-item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #eee; }
+    .track-item:last-child { border-bottom: none; }
+    .status { font-size: 0.85em; font-weight: bold; }
+    .status.playing { color: green; }
+    .status.paused { color: orange; }
+    .status.played { color: gray; }
+    .status.added { color: blue; }
+  </style>
+</head>
+<body>
+
+  <h1>Musicbox Status Test</h1>
+
+  <section id="statusSection">
+    <h2>Status</h2>
+    <div><strong>Session ID:</strong> <span id="sessionId"></span></div>
+    <div><strong>Mode:</strong> <span id="mode"></span></div>
+    <div><strong>Now Playing:</strong> <span id="nowTitle"></span> — <span id="nowArtist"></span></div>
+    <div><strong>Album Art:</strong> <img id="albumArt" src="" alt="Album Art" style="height:60px; vertical-align:middle;"></div>
+    <div><strong>Progress:</strong> <span id="progress"></span></div>
+    <div><strong>Queue:</strong> <span id="queueCount"></span></div>
+
+    <div class="track-list" id="trackList"></div>
+  </section>
+
+  <script>
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        if (!res.ok) {
+          console.warn('Status fetch failed', res.status);
+          return;
+        }
+        const data = await res.json();
+        if (!data.success) return;
+
+        // Fill top-level info
+        document.getElementById('sessionId').textContent = data.sessionId || 'None';
+        document.getElementById('mode').textContent = data.mode || 'DEFAULT';
+        document.getElementById('nowTitle').textContent = data.title || '';
+        document.getElementById('nowArtist').textContent = data.artist || '';
+        document.getElementById('albumArt').src = data.albumArt || '';
+        document.getElementById('progress').textContent = `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
+        document.getElementById('queueCount').textContent = `${data.totalTracks || 0} tracks in queue`;
+
+        // Render track list
+        const trackList = document.getElementById('trackList');
+        trackList.innerHTML = '';
+        (data.tracks || []).forEach(t => {
+          const div = document.createElement('div');
+          div.className = 'track-item';
+          div.innerHTML = `
+            <span>${t.title} — ${t.artist}</span>
+            <span class="status ${t.status.toLowerCase()}">${t.status}</span>
+          `;
+          trackList.appendChild(div);
+        });
+
+        console.log('[TEST] Status response:', data);
+      } catch (err) {
+        console.error('fetchStatus error', err);
+      }
+    }
+
+    // Poll every 10 seconds
+    setInterval(fetchStatus, 10000);
+    fetchStatus();
+  </script>
+
+</body>
+</html>
