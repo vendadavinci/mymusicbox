@@ -126,7 +126,7 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
       }
     }
 
-    return { added: true };
+    return { queued: true };
   }
 
   // Replace mode: first start
@@ -423,17 +423,6 @@ app.get('/api/status', async (req, res) => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // ✅ Handle rate limiting
-    if (r.status === 429) {
-      const retryAfter = parseInt(r.headers.get('Retry-After') || '5', 10);
-      console.warn(`[STATUS] Rate limited by Spotify. Retry after ${retryAfter} seconds.`);
-      return res.status(429).json({
-        success: false,
-        error: 'Rate limited',
-        retryAfter
-      });
-    }
-
     if (r.status === 204) {
       const activeSession = await PaidSession.findOne({ active: true }).lean();
       const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0;
@@ -469,13 +458,16 @@ app.get('/api/status', async (req, res) => {
       const progressMs = data.progress_ms || 0;
       const durationMs = data.item?.duration_ms || 0;
 
+      // Debug current playback info
       console.log('[STATUS] Current track:', data.item?.name, 'URI:', currentUri, 'Progress:', progressMs, '/', durationMs, 'isPlaying:', data.is_playing);
 
+      // Mark as played if track is finished
       if (currentUri && durationMs > 0 && progressMs >= durationMs - 2000) {
         console.log('[STATUS] Marking track as played:', currentUri);
         await markTrackPlayed(activeSession.sessionId, currentUri);
       }
 
+      // Save both currentUri and isPlaying in session
       if (currentUri) {
         activeSession.currentUri = currentUri;
         activeSession.isPlaying = data.is_playing;
@@ -483,6 +475,7 @@ app.get('/api/status', async (req, res) => {
         console.log('[STATUS] Saved session playback state:', { sessionId: activeSession.sessionId, currentUri, isPlaying: data.is_playing });
       }
 
+      // Update track statuses with normalized URIs
       tracks = tracks.map(t => {
         const trackUri = normalizeUri(t.uri);
         let status = 'Added';
@@ -500,6 +493,7 @@ app.get('/api/status', async (req, res) => {
         };
       });
 
+      // Debug statuses
       console.log('[STATUS] Track statuses:', tracks.map(t => ({ title: t.title, status: t.status })));
     }
 
@@ -527,6 +521,7 @@ app.get('/api/status', async (req, res) => {
 });
 
 
+
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
   try {
@@ -535,7 +530,7 @@ app.post('/api/reserve-tracks', async (req, res) => {
       return res.status(400).json({ error: 'tracks required' });
 
     paidQueue.push(...tracks.map(t => ({ uri: t.uri, duration_ms: t.duration_ms || 0 })));
-    return res.json({ success: true, added: tracks.length });
+    return res.json({ success: true, queued: tracks.length });
   } catch (err) {
     console.error('/api/reserve-tracks error', err);
     res.status(500).json({ error: 'reserve failed' });
@@ -637,7 +632,7 @@ app.post('/api/search', async (req, res) => {
       uri: t.uri,
       title: t.name,
       artist: t.artists.map(a => a.name).join(', '),
-      duration_ms: t.duration_ms || 0,
+      duration_ms: t.duration_ms,
       albumArt: t.album?.images?.[0]?.url || null
     }));
 
@@ -993,7 +988,7 @@ app.post('/api/queue', async (req, res) => {
     session.songsAdded += 1;
     await session.save();
 
-    res.json({ ok: true, sessionId, added: uri });
+    res.json({ ok: true, sessionId, queued: uri });
   } catch (err) {
     console.error('/api/queue error', err);
     res.status(500).json({ error: 'Queue request failed', details: err.message });
@@ -1043,7 +1038,7 @@ setInterval(async () => {
   } catch (err) {
     console.error('Poller error:', err);
   }
-}, 9000); // every 5 seconds
+}, 5000); // every 5 seconds
 
 
 /* -------------------------
