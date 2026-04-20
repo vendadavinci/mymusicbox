@@ -331,9 +331,9 @@ body::before {
 
 .status.playing {
   font-weight: bold;
-  color: #0cc00c;
+  color: green;
 }
-.status.queued {
+.status.added {
   color: goldenrod; /* yellowish */
 }
 .status.played {
@@ -376,18 +376,13 @@ body::before {
            Include both IDs so either variant works. -->
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
         <div class="small" id="checkoutQueueCount">Paid queue: 0</div>
-        <div class="small" id="queueCount">Paid queue: 0</div>
       </div>
-      <div class="small" id="checkoutNextTitle">No paid tracks queued</div>
-      <div class="small" id="nextTitleEl">No paid tracks queued</div>
+      <div class="small" id="checkoutNextTitle">No paid tracks added</div>
         <div id="paidQueue" style="display:none;"></div>
 
     </div>
 
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
-      <div class="small" id="statusText">Status: idle</div>
-      <div class="small" id="queueDurationText">Estimated duration: 0 min</div>
-    </div>
+
   </section>
 
   <aside class="right-col">
@@ -467,7 +462,13 @@ body::before {
 
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
         <div class="small" id="checkoutQueueDuration">Estimated duration: 0 min</div>
+          <div class="small" id="checkoutNextTitle">No paid tracks queued</div> 
       </div>
+    </div>
+    <!-- ✅ New Played History section -->
+    <div class="card" aria-label="Played history">
+      <div style="font-weight:700;">Your Played History</div>
+      <div class="queue-list" id="playedQueueList"></div>
     </div>
   </aside>
 </main>
@@ -517,7 +518,7 @@ const instructionNote     = document.getElementById('instructionNote');
 const checkoutQueueList   = document.getElementById('checkoutQueueList');
 const checkoutQueueDuration = document.getElementById('checkoutQueueDuration');
 const checkoutQueueInfo   = document.getElementById('checkoutQueueInfo');
-
+const checkoutNextTitle = document.getElementById('checkoutNextTitle');
 
     function selectPackage(price, maxSongs){
       currentPackage = { price: price, maxSongs: maxSongs, label: `R${price} — up to ${maxSongs} songs` };
@@ -1012,18 +1013,31 @@ window.addEventListener('load', () => {
 });
 
 /* ====== Startup validation ====== */
-(function validateDomBindings(){
+/* ====== Startup validation ====== */
+(function validateDomBindings() {
+  const paidQueueEl      = document.getElementById('checkoutQueueList');
+  const queueCount       = document.getElementById('checkoutQueueCount');
+  const queueDurationText= document.getElementById('checkoutQueueDuration');
+  const nextTitleEl      = document.getElementById('checkoutNextTitle');
+  const nowTitle         = document.getElementById('nowTitle');
+  const statusText       = document.getElementById('statusText');
+
   const missing = [];
-  if (!paidQueueEl) missing.push('paidQueueEl');
-  if (!queueCount) missing.push('queueCount');
-  if (!queueDurationText) missing.push('queueDurationText');
-  if (!nextTitleEl) missing.push('nextTitleEl');
-  if (!nowTitle) missing.push('nowTitle');
+  if (!paidQueueEl)       missing.push('checkoutQueueList');
+  if (!queueCount)        missing.push('checkoutQueueCount');
+  if (!queueDurationText) missing.push('checkoutQueueDuration');
+  if (!nextTitleEl)       missing.push('checkoutNextTitle');
+  if (!nowTitle)          missing.push('nowTitle');
+
   if (missing.length) {
     console.error('Missing DOM elements:', missing.join(', '));
-    if (statusText) statusText.textContent = 'UI initialization error: missing elements';
+    if (statusText) {
+      statusText.textContent = 'UI initialization error: missing elements';
+    }
   }
 })();
+
+
 
 /* ====== Helpers ====== */
 function escapeHtml(s){
@@ -1126,7 +1140,7 @@ async function renderQueue() {
       checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
     }
     if (checkoutNextTitle) {
-      const nextTrack = tracks.find(t => t.status === 'Queued');
+      const nextTrack = tracks.find(t => t.status === 'Added');
       checkoutNextTitle.textContent = nextTrack
         ? `${nextTrack.title} — ${nextTrack.artist}`
         : 'No paid tracks queued';
@@ -1194,7 +1208,7 @@ async function backendPlayTracks(tracks, { sessionId, append } = {}) {
     uri: t.uri,
     title: t.title,
     artist: t.artist,
-    duration_ms: t.duration_ms || t.durationMs || 0,
+    duration_ms: t.duration_ms || 0,
     albumArt: t.albumArt || t.album_art || ''
   }));
 
@@ -1606,9 +1620,9 @@ async function pollStatus() {
       ? pending.tracks.slice()
       : JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
-    if (Array.isArray(data.enqueuedUris) && data.enqueuedUris.length) {
-      const enqueuedSet = new Set(data.enqueuedUris);
-      tracksToEnqueue = tracksToEnqueue.filter(t => !enqueuedSet.has(t.uri));
+    if (Array.isArray(data.enaddedUris) && data.enaddedUris.length) {
+      const enaddedSet = new Set(data.enaddedUris);
+      tracksToEnqueue = tracksToEnqueue.filter(t => !enaddedSet.has(t.uri));
     }
 
     const localSet = new Set((paidQueue || []).map(t => t.uri));
@@ -1626,14 +1640,14 @@ async function pollStatus() {
         uri: t.uri,
         title: t.title || t.name || '',
         artist: t.artist || (t.artists && t.artists.join(', ')) || '',
-        duration_ms: t.duration_ms || t.durationMs || 0,
+        duration_ms: t.duration_ms || 0,
         albumArt: t.albumArt || t.album_art || '',
         addedAt: Date.now(),
         played: !!t.played,
-        status: 'Queued',
+        status: 'Added',
         orderIndex: t.orderIndex || (paidQueue.length + 1)
       });
-      sessionStorage.setItem(`queued_${checkoutId}_${t.uri}`, 'true');
+      sessionStorage.setItem(`added_${checkoutId}_${t.uri}`, 'true');
     }
 
     if (typeof persistPaidQueue === 'function') persistPaidQueue();
@@ -1681,7 +1695,7 @@ async function pollStatusAdaptive() {
 
     // Show next track info
     if (data.tracks && data.tracks.length > 0) {
-      const nextTrack = data.tracks.find(t => t.status === 'Queued');
+      const nextTrack = data.tracks.find(t => t.status === 'Added');
       if (nextTrack) {
         nextTitleEl.textContent = `${nextTrack.title} — ${nextTrack.artist}`;
       }
@@ -1903,11 +1917,11 @@ async function onPaymentSuccess() {
 
     // --- Success path: server accepted request but may have queued partially ---
     // Expect server to return structured info when partial: { success:true, added: N, failedTracks: [{uri, reason}], queuedUris: [...] }
-    const queuedUris = Array.isArray(playBody?.queuedUris) ? playBody.queuedUris : [];
+    const addedUris = Array.isArray(playBody?.addedUris) ? playBody.addedUris : [];
     const failedTracks = Array.isArray(playBody?.failedTracks) ? playBody.failedTracks : [];
 
     // If server reports all queued, mark submission and finish
-    if (queuedUris.length >= tracks.length && failedTracks.length === 0) {
+    if (addedUris.length >= tracks.length && failedTracks.length === 0) {
       sessionStorage.setItem(submissionMarkerKey, 'true');
       sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
       sessionStorage.setItem('sessionId', payload.sessionId);
@@ -1920,7 +1934,7 @@ async function onPaymentSuccess() {
       } else {
         if (statusText) statusText.textContent = 'Tracks appended to existing paid queue';
       }
-      console.log('All tracks queued successfully', queuedUris.length);
+      console.log('All tracks queued successfully', addedUris.length);
       if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
       return;
     }
@@ -1931,7 +1945,7 @@ async function onPaymentSuccess() {
     // Determine which URIs still need queuing
     const stillToQueue = [];
     for (const t of tracks) {
-      if (!queuedUris.includes(t.uri)) stillToQueue.push(t);
+      if (!addedUris.includes(t.uri)) stillToQueue.push(t);
     }
 
     // If nothing to retry (edge case), mark submission and exit
@@ -1948,16 +1962,16 @@ async function onPaymentSuccess() {
     const perTrackResults = [];
     for (const t of stillToQueue) {
       // Avoid duplicate per-URI attempts within this client run
-      const alreadyQueuedMarker = sessionStorage.getItem(`queued_${payload.sessionId}_${t.uri}`);
-      if (alreadyQueuedMarker) {
-        perTrackResults.push({ uri: t.uri, ok: true, note: 'client-marked-queued' });
+      const alreadyAddedMarker = sessionStorage.getItem(`added_${payload.sessionId}_${t.uri}`);
+      if (alreadyAddedMarker) {
+        perTrackResults.push({ uri: t.uri, ok: true, note: 'client-marked-added' });
         continue;
       }
 
       const result = await queueTrackWithRetries(t, payload.sessionId, 4).catch(err => ({ ok: false, code: 'EXCEPTION', details: err?.message || String(err) }));
       if (result.ok) {
         // mark locally to avoid re-submitting same URI on refresh
-        sessionStorage.setItem(`queued_${payload.sessionId}_${t.uri}`, 'true');
+        sessionStorage.setItem(`added_${payload.sessionId}_${t.uri}`, 'true');
       }
       perTrackResults.push({ uri: t.uri, ...result });
       // small gap to avoid bursts
@@ -2006,7 +2020,7 @@ async function onPaymentSuccess() {
       if (statusText) statusText.textContent = 'Tracks appended to existing paid queue';
     }
 
-    console.log('Payment successful — tracks queued (after retries):', tracks.length, 'Session:', payload.sessionId);
+    console.log('Payment successful — tracks added (after retries):', tracks.length, 'Session:', payload.sessionId);
     if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
 
   } catch (e) {
@@ -2086,16 +2100,16 @@ function startAddFlow(){
     }
   }
 
-  function markClientQueued(sessionId, uri) {
+  function markClientAdded(sessionId, uri) {
     try {
-      sessionStorage.setItem(`queued_${sessionId}_${uri}`, 'true');
+      sessionStorage.setItem(`added_${sessionId}_${uri}`, 'true');
     } catch (e) {
       // ignore
     }
   }
 
-  function isClientMarkedQueued(sessionId, uri) {
-    return !!sessionStorage.getItem(`queued_${sessionId}_${uri}`);
+  function isClientMarkedAdded(sessionId, uri) {
+    return !!sessionStorage.getItem(`added_${sessionId}_${uri}`);
   }
 
   // --- Core: flush batch to backend with retries and partial handling ---
@@ -2163,11 +2177,11 @@ function startAddFlow(){
         }
 
         // Success: backend accepted. Backend should return structured queuedUris and failedTracks
-        const queuedUris = Array.isArray(body?.queuedUris) ? body.queuedUris : [];
+        const addedUris = Array.isArray(body?.addedUris) ? body.addedUris : [];
         const failedTracks = Array.isArray(body?.failedTracks) ? body.failedTracks : [];
 
         // Mark client-side queued URIs to avoid re-submission
-        queuedUris.forEach(uri => markClientQueued(sessionId, uri));
+        addedUris.forEach(uri => markClientAdded(sessionId, uri));
 
         // If there are failedTracks, attempt per-track retries (best-effort)
         if (failedTracks.length > 0) {
@@ -2181,7 +2195,7 @@ function startAddFlow(){
             if (!r.ok) {
               permanentlyFailed.push({ uri: t.uri, reason: r.details || r.code || 'unknown' });
             } else {
-              markClientQueued(sessionId, t.uri);
+              markClientAdded(sessionId, t.uri);
             }
             // small gap to avoid bursts
             await sleep(120);
@@ -2200,7 +2214,7 @@ function startAddFlow(){
         }
 
         // If backend queued some or all, log and finish
-        console.log('Appended batch result queuedUris:', queuedUris, 'failed:', failedTracks);
+        console.log('Appended batch result addedUris:', addedUris, 'failed:', failedTracks);
         flushInProgress = false;
 
         // If there are still items in appendBatch, schedule immediate flush
@@ -2310,7 +2324,7 @@ function startAddFlow(){
       };
 
       // local dedupe against paidQueue and appendBatch
-      if (paidQueue.some(t => t.uri === normalized.uri) || appendBatch.some(t => t.uri === normalized.uri) || isClientMarkedQueued(sessionId || sessionStorage.getItem('sessionId'), normalized.uri)) {
+      if (paidQueue.some(t => t.uri === normalized.uri) || appendBatch.some(t => t.uri === normalized.uri) || isClientMarkedAdded(sessionId || sessionStorage.getItem('sessionId'), normalized.uri)) {
         console.info('Track already queued or pending, skipping:', normalized.uri);
         statusText && (statusText.textContent = 'Track already in paid queue');
         return;
@@ -2659,8 +2673,8 @@ async function refreshStatus() {
     const statusJson = await statusRes.json();
 
     // If backend already enqueued, clear local state and exit
-    if (statusJson && statusJson.enqueued === true) {
-      console.log('Backend already enqueued tracks for checkout:', idempotencyKey);
+    if (statusJson && statusJson.enadded === true) {
+      console.log('Backend already enadded tracks for checkout:', idempotencyKey);
       sessionStorage.removeItem('tracks');
       sessionStorage.removeItem('checkoutId');
       sessionStorage.removeItem('pendingSubmission');
@@ -2682,9 +2696,9 @@ async function refreshStatus() {
     }
 
     // Final safety: if server returned enqueuedUris, filter out already enqueued URIs
-    if (Array.isArray(statusJson.enqueuedUris) && statusJson.enqueuedUris.length > 0) {
-      const enqueuedSet = new Set(statusJson.enqueuedUris);
-      const filtered = tracksToSubmit.filter(t => !enqueuedSet.has(t.uri));
+    if (Array.isArray(statusJson.enaddedUris) && statusJson.enaddedUris.length > 0) {
+      const enaddedSet = new Set(statusJson.enaddedUris);
+      const filtered = tracksToSubmit.filter(t => !enaddedSet.has(t.uri));
       if (filtered.length === 0) {
         console.log('All tracks already enqueued on server; clearing local pending state.');
         sessionStorage.removeItem('tracks');
@@ -2817,10 +2831,149 @@ async function refreshStatus() {
   }
 }
 
-setInterval(refreshStatus, 60000);
-refreshStatus();
+async function renderQueueAndHistory() {
+  try {
+    if (!checkoutQueueList) return;
 
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('checkoutId'); // reuse checkoutId as sessionId
+    if (!sessionId) return;
 
+    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
+    const data = await res.json();
+    if (!data.success) return;
+
+    const tracks = data.tracks || [];
+    checkoutQueueList.innerHTML = '';
+    const frag = document.createDocumentFragment();
+
+    let totalMs = 0;
+    const playedQueue = [];
+    const paidQueue = [];
+
+    tracks.forEach((item, index) => {
+      totalMs += item.duration_ms || 0;
+
+      // Split into played vs active
+      if (item.status === 'Played') {
+        playedQueue.push(item);
+      } else {
+        paidQueue.push(item);
+      }
+
+      // Build queue UI
+      const wrapper = document.createElement('div');
+      wrapper.className = 'queue-item';
+      wrapper.style.display = 'flex';
+      wrapper.style.justifyContent = 'space-between';
+      wrapper.style.alignItems = 'center';
+      wrapper.style.gap = '12px';
+      wrapper.dataset.index = String(index);
+
+      const left = document.createElement('div');
+      left.style.minWidth = '0';
+      left.style.flex = '1';
+
+      const titleDiv = document.createElement('div');
+      titleDiv.style.fontWeight = '700';
+      titleDiv.style.whiteSpace = 'nowrap';
+      titleDiv.style.overflow = 'hidden';
+      titleDiv.style.textOverflow = 'ellipsis';
+      titleDiv.textContent = item.title || '';
+
+      const metaDiv = document.createElement('div');
+      metaDiv.className = 'meta';
+      metaDiv.style.fontSize = '0.9em';
+      metaDiv.style.color = '#666';
+      metaDiv.textContent = item.artist || '';
+
+      left.appendChild(titleDiv);
+      left.appendChild(metaDiv);
+
+      const right = document.createElement('div');
+      right.style.display = 'flex';
+      right.style.flexDirection = 'column';
+      right.style.gap = '6px';
+      right.style.alignItems = 'flex-end';
+      right.style.minWidth = '90px';
+
+      const durationDiv = document.createElement('div');
+      durationDiv.className = 'small';
+      durationDiv.style.fontSize = '0.85em';
+      durationDiv.style.color = '#333';
+      durationDiv.textContent = formatMs(item.duration_ms || 0);
+
+      const statusDiv = document.createElement('div');
+      statusDiv.style.fontSize = '0.75em';
+      statusDiv.className = `status ${item.status.toLowerCase()}`;
+      statusDiv.textContent = item.status;
+
+      right.appendChild(durationDiv);
+      right.appendChild(statusDiv);
+
+      wrapper.appendChild(left);
+      wrapper.appendChild(right);
+
+      frag.appendChild(wrapper);
+    });
+
+    checkoutQueueList.appendChild(frag);
+
+    if (checkoutQueueCount) {
+      checkoutQueueCount.textContent = `Paid queue: ${paidQueue.length}`;
+    }
+    if (checkoutQueueDuration) {
+      checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
+    }
+    if (checkoutNextTitle) {
+      const nextTrack = paidQueue.find(t => t.status === 'Added');
+      checkoutNextTitle.textContent = nextTrack
+        ? `${nextTrack.title} — ${nextTrack.artist}`
+        : 'No paid tracks queued';
+    }
+
+    // ✅ Render played history from the same response
+    const playedQueueList = document.getElementById('playedQueueList');
+    if (playedQueueList) {
+      playedQueueList.innerHTML = '';
+
+      // Add summary line
+      const summary = document.createElement('div');
+      summary.className = 'small';
+      summary.style.marginBottom = '8px';
+      summary.textContent = `Played ${playedQueue.length} of ${tracks.length}`;
+      playedQueueList.appendChild(summary);
+
+      const fragHistory = document.createDocumentFragment();
+      playedQueue.forEach(t => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'played-item';
+        wrapper.style.display = 'flex';
+        wrapper.style.justifyContent = 'space-between';
+        wrapper.style.alignItems = 'center';
+        wrapper.style.gap = '12px';
+
+        const left = document.createElement('div');
+        left.textContent = `${t.title} — ${t.artist}`;
+
+        const right = document.createElement('div');
+        right.className = 'small';
+        right.textContent = formatMs(t.duration_ms || 0);
+
+        wrapper.appendChild(left);
+        wrapper.appendChild(right);
+        fragHistory.appendChild(wrapper);
+      });
+
+      playedQueueList.appendChild(fragHistory);
+    }
+
+    if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+
+  } catch (err) {
+    console.error('renderQueueAndHistory error', err);
+  }
+}
 </script>
 </body>
 </html>

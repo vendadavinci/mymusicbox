@@ -13,8 +13,8 @@ const PaidTrackSchema = new mongoose.Schema({
   // ✅ Optional: mirror status field for consistency
   status: { 
     type: String, 
-    enum: ['Queued', 'Playing', 'Played', 'Paused'], 
-    default: 'Queued' 
+    enum: ['Added', 'Playing', 'Played', 'Paused'], 
+    default: 'Added' 
   }
 }, { _id: false });
 

@@ -126,7 +126,7 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null) {
       }
     }
 
-    return { queued: true };
+    return { added: true };
   }
 
   // Replace mode: first start
@@ -197,7 +197,7 @@ function getSession(sessionId) {
 
 // Helper: normalize incoming track shape
 function normalizeTrack(track, orderIndex, currentUri, isPlaying) {
-  let status = 'Queued';
+  let status = 'Added';
   if (track.played) {
     status = 'Played';
   } else if (currentUri && track.uri === currentUri) {
@@ -391,6 +391,30 @@ app.post('/api/skip', async (req, res) => {
   res.json({ success: true });
 });
 
+// Mark a track as played in the given session
+async function markTrackPlayed(sessionId, uri) {
+  try {
+    const session = await PaidSession.findOne({ sessionId });
+    if (!session) return;
+
+    const track = session.tracks.find(t => t.uri === uri && !t.played);
+    if (track) {
+      track.played = true;
+      session.playedCount = (session.playedCount || 0) + 1;
+
+      if (session.playedCount >= session.tracks.length) {
+        session.active = false;
+        session.endedAt = new Date();
+      }
+
+      await session.save();
+      console.log(`Marked track as played: ${uri} in session ${sessionId}`);
+    }
+  } catch (err) {
+    console.error('markTrackPlayed error:', err);
+  }
+}
+
 app.get('/api/status', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
@@ -402,6 +426,7 @@ app.get('/api/status', async (req, res) => {
     if (r.status === 204) {
       const activeSession = await PaidSession.findOne({ active: true }).lean();
       const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0;
+      console.log('[STATUS] No track currently playing. Active session:', activeSession?.sessionId, 'Played count:', playedCount);
       return res.json({
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
@@ -415,6 +440,7 @@ app.get('/api/status', async (req, res) => {
 
     if (!r.ok) {
       const text = await r.text().catch(() => '<no body>');
+      console.error('[STATUS] Spotify API error:', r.status, text);
       return res.status(r.status).json({ success: false, error: 'Spotify status failed', details: text });
     }
 
@@ -423,32 +449,52 @@ app.get('/api/status', async (req, res) => {
     let tracks = activeSession?.tracks || [];
 
     if (activeSession) {
-      const currentUri = data.item?.uri;
+      const normalizeUri = u => {
+        if (!u) return null;
+        return u.startsWith('spotify:track:') ? u : `spotify:track:${u}`;
+      };
+
+      const currentUri = normalizeUri(data.item?.uri);
       const progressMs = data.progress_ms || 0;
       const durationMs = data.item?.duration_ms || 0;
 
+      // Debug current playback info
+      console.log('[STATUS] Current track:', data.item?.name, 'URI:', currentUri, 'Progress:', progressMs, '/', durationMs, 'isPlaying:', data.is_playing);
+
       // Mark as played if track is finished
       if (currentUri && durationMs > 0 && progressMs >= durationMs - 2000) {
+        console.log('[STATUS] Marking track as played:', currentUri);
         await markTrackPlayed(activeSession.sessionId, currentUri);
       }
 
-      // ✅ Save both currentUri and isPlaying in session
+      // Save both currentUri and isPlaying in session
       if (currentUri) {
         activeSession.currentUri = currentUri;
-        activeSession.isPlaying = data.is_playing; // persist playback state
+        activeSession.isPlaying = data.is_playing;
         await activeSession.save();
+        console.log('[STATUS] Saved session playback state:', { sessionId: activeSession.sessionId, currentUri, isPlaying: data.is_playing });
       }
 
-      // Update track statuses
+      // Update track statuses with normalized URIs
       tracks = tracks.map(t => {
-        if (t.uri === currentUri) {
-          return { ...t, status: data.is_playing ? 'Playing' : 'Paused' };
+        const trackUri = normalizeUri(t.uri);
+        let status = 'Added';
+        if (trackUri === currentUri) {
+          status = data.is_playing ? 'Playing' : 'Paused';
+        } else if (t.played) {
+          status = 'Played';
         }
-        if (t.played) {
-          return { ...t, status: 'Played' };
-        }
-        return { ...t, status: 'Queued' };
+        return {
+          ...t,
+          uri: trackUri,
+          title: t.title || t.name || 'Unknown',
+          artist: t.artist || (t.artists && t.artists.join(', ')) || '',
+          status
+        };
       });
+
+      // Debug statuses
+      console.log('[STATUS] Track statuses:', tracks.map(t => ({ title: t.title, status: t.status })));
     }
 
     const playedCount = tracks.filter(t => t.status === 'Played').length;
@@ -474,6 +520,8 @@ app.get('/api/status', async (req, res) => {
   }
 });
 
+
+
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
   try {
@@ -482,7 +530,7 @@ app.post('/api/reserve-tracks', async (req, res) => {
       return res.status(400).json({ error: 'tracks required' });
 
     paidQueue.push(...tracks.map(t => ({ uri: t.uri, duration_ms: t.duration_ms || 0 })));
-    return res.json({ success: true, queued: tracks.length });
+    return res.json({ success: true, added: tracks.length });
   } catch (err) {
     console.error('/api/reserve-tracks error', err);
     res.status(500).json({ error: 'reserve failed' });
@@ -556,31 +604,6 @@ async function isPaidSessionActive() {
   }
 }
 
-// Mark a track as played in the given session
-async function markTrackPlayed(sessionId, uri) {
-  try {
-    const session = await PaidSession.findOne({ sessionId });
-    if (!session) return;
-
-    const track = session.tracks.find(t => t.uri === uri && !t.played);
-    if (track) {
-      track.played = true;
-      session.playedCount = (session.playedCount || 0) + 1;
-
-      if (session.playedCount >= session.tracks.length) {
-        session.active = false;
-        session.endedAt = new Date();
-      }
-
-      await session.save();
-      console.log(`Marked track as played: ${uri} in session ${sessionId}`);
-    }
-  } catch (err) {
-    console.error('markTrackPlayed error:', err);
-  }
-}
-
-
 
 // Search
 app.post('/api/search', async (req, res) => {
@@ -609,7 +632,7 @@ app.post('/api/search', async (req, res) => {
       uri: t.uri,
       title: t.name,
       artist: t.artists.map(a => a.name).join(', '),
-      duration_ms: t.duration_ms,
+      duration_ms: t.duration_ms || 0,
       albumArt: t.album?.images?.[0]?.url || null
     }));
 
@@ -877,7 +900,7 @@ app.get('/api/checkout-tracks', async (req, res) => {
     if (session) {
       const current = session.tracks.find(t => !t.played);
       tracksWithStatus = session.tracks.map(t => {
-        let status = 'Queued';
+        let status = 'Added';
         if (t.played) status = 'Played';
         else if (current && t.uri === current.uri) status = 'Playing';
 
@@ -965,7 +988,7 @@ app.post('/api/queue', async (req, res) => {
     session.songsAdded += 1;
     await session.save();
 
-    res.json({ ok: true, sessionId, queued: uri });
+    res.json({ ok: true, sessionId, added: uri });
   } catch (err) {
     console.error('/api/queue error', err);
     res.status(500).json({ error: 'Queue request failed', details: err.message });
@@ -1015,7 +1038,7 @@ setInterval(async () => {
   } catch (err) {
     console.error('Poller error:', err);
   }
-}, 5000); // every 5 seconds
+}, 9000); // every 5 seconds
 
 
 /* -------------------------

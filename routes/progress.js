@@ -16,18 +16,28 @@ router.get('/progress', async (req, res) => {
       return res.json({ success: false, message: 'Session not found' });
     }
 
-    const currentUri = session.currentUri; 
-    const isPlaying = session.isPlaying;   
+    const isPlaying = session.isPlaying;
+
+    // ✅ Normalize URIs so DB IDs and Spotify URIs match
+    const normalizeUri = u => {
+      if (!u) return null;
+      return u.startsWith('spotify:track:') ? u : `spotify:track:${u}`;
+    };
+
+    const currentUriNorm = normalizeUri(session.currentUri);
 
     const tracksWithStatus = session.tracks.map(t => {
-      let status = 'Queued';
+      const trackUri = normalizeUri(t.uri);
+      let status = 'Added';
+
       if (t.played) {
         status = 'Played';
-      } else if (currentUri && t.uri === currentUri) {
-        status = isPlaying ? 'Playing' : 'Paused'; 
+      } else if (currentUriNorm && trackUri === currentUriNorm) {
+        status = isPlaying ? 'Playing' : 'Paused';
       }
+
       return {
-        uri: t.uri,
+        uri: trackUri,
         title: t.title,
         artist: t.artist,
         albumArt: t.albumArt,
@@ -35,6 +45,12 @@ router.get('/progress', async (req, res) => {
         status
       };
     });
+
+    console.log('Progress route statuses:', tracksWithStatus.map(t => ({
+      uri: t.uri,
+      title: t.title,
+      status: t.status
+    })));
 
     const playingTrack = tracksWithStatus.find(t => t.status === 'Playing');
 
@@ -45,8 +61,8 @@ router.get('/progress', async (req, res) => {
       artist: playingTrack?.artist || null,
       albumArt: playingTrack?.albumArt || null,
       mode: session.active ? 'PAID' : 'DEFAULT',
-      playedCount: session.tracks.filter(t => t.played).length,
-      totalTracks: session.tracks.length,
+      playedCount: tracksWithStatus.filter(t => t.status === 'Played').length,
+      totalTracks: tracksWithStatus.length,
       tracks: tracksWithStatus
     });
   } catch (err) {
@@ -56,4 +72,3 @@ router.get('/progress', async (req, res) => {
 });
 
 export default router;
-

@@ -27,7 +27,7 @@ router.get('/checkout-tracks', async (req, res) => {
     if (session) {
       const current = session.tracks.find(t => !t.played);
       tracksWithStatus = session.tracks.map(t => {
-        let status = 'Queued';
+        let status = 'Added';
         if (t.played) status = 'Played';
         else if (current && t.uri === current.uri) status = 'Playing';
         return { ...t, status };
