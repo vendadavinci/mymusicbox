@@ -427,11 +427,7 @@ app.get('/api/status', async (req, res) => {
     if (r.status === 429) {
       const retryAfter = parseInt(r.headers.get('Retry-After') || '5', 10);
       console.warn(`[STATUS] Rate limited by Spotify. Retry after ${retryAfter} seconds.`);
-      return res.status(429).json({
-        success: false,
-        error: 'Rate limited',
-        retryAfter
-      });
+      return res.status(429).json({ success: false, error: 'Rate limited', retryAfter });
     }
 
     // ✅ No track currently playing
@@ -479,12 +475,16 @@ app.get('/api/status', async (req, res) => {
         }
       }
 
-      // ✅ Save playback state
+      // ✅ Save playback state + played flag
       if (currentUri) {
         activeSession.currentUri = currentUri;
         activeSession.isPlaying = data.is_playing;
         await activeSession.save();
-        console.log('[STATUS] Saved session playback state:', { sessionId: activeSession.sessionId, currentUri, isPlaying: data.is_playing });
+        console.log('[STATUS] Saved session playback state:', {
+          sessionId: activeSession.sessionId,
+          currentUri,
+          isPlaying: data.is_playing
+        });
       }
 
       // ✅ Update track statuses for response
@@ -530,6 +530,7 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
+
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
