@@ -2537,10 +2537,11 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
     async function backendResume(){
       try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
     }
-
+// frontend: poll status and update UI; when paidSessionActive show next paid track if available
+// frontend: poll status and update UI; when paidSessionActive show next paid track if available
 async function pollStatusOnce(){
   try{
-    const res = await fetch(`/api/status?userId=${window.currentUserId}`);
+    const res = await fetch('/api/status');
     if(!res.ok) return;
     const data = await res.json();
 
@@ -2551,20 +2552,21 @@ async function pollStatusOnce(){
 
     // Mode and status
     nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
-    statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : (data.isPlaying ? 'Playing' : 'Paused');
+    statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : (data.is_playing ? 'Playing' : 'Paused');
 
-    // Queue info
+    // If we are in a paid session and the local paidQueue still has items,
+    // show the next paid track in the UI (authoritative source is Spotify, but this helps UX)
     if (paidSessionActive && paidQueue.length > 0) {
       nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
       queueCount.textContent = `Paid queue: ${paidQueue.length}`;
       queueDurationText.textContent = `Estimated duration: ${Math.round(paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0)/60000)} min`;
     } else {
+      // If no local paid queue, fall back to server-provided next info if available
       if (data.next_title) nextTitleEl.textContent = data.next_title;
       queueCount.textContent = `Paid queue: ${paidQueue.length}`;
     }
   }catch(e){ console.warn('pollStatusOnce', e); }
 }
-
 
 
 
@@ -2600,7 +2602,7 @@ async function pollStatusOnce(){
 
 <script>
 async function refreshStatus() {
-  const res = await fetch(`/api/status?userId=${window.currentUserId}`);
+  const res = await fetch('/api/status');
   const data = await res.json();
 
   if (data.success) {
@@ -2617,7 +2619,6 @@ async function refreshStatus() {
     }
   }
 }
-
 
 </script>
 
@@ -2812,7 +2813,7 @@ let lastPlaying = null; // remember the last track that was playing
 // Read-only UI refresh. Never enqueue or post anything here.
 async function refreshStatus() {
   try {
-    const res = await fetch(`/api/status?userId=${window.currentUserId}`);
+    const res = await fetch('/api/status');
     if (!res.ok) return;
     const data = await res.json();
 
@@ -2833,7 +2834,6 @@ async function refreshStatus() {
     console.warn('refreshStatus error', err);
   }
 }
-
 
 setInterval(refreshStatus, 80000);
 refreshStatus();
