@@ -6,11 +6,15 @@ const router = express.Router();
 
 router.get('/checkout-tracks', async (req, res) => {
   try {
-    const id = req.query.checkoutId;
-    if (!id) return res.status(400).json({ error: 'checkoutId required' });
+    const { checkoutId, userId } = req.query;
+    if (!checkoutId || !userId) {
+      return res.status(400).json({ error: 'checkoutId and userId required' });
+    }
 
-    const entry = await Checkout.findOne({ checkoutId: id });
-    if (!entry) return res.status(404).json({ error: 'checkout not found or expired' });
+    const entry = await Checkout.findOne({ checkoutId, userId });
+    if (!entry) {
+      return res.status(404).json({ error: 'checkout not found or expired' });
+    }
 
     const normalizedTracks = (entry.tracks || []).map((track, i) => ({
       uri: track.uri,
@@ -21,22 +25,35 @@ router.get('/checkout-tracks', async (req, res) => {
       order: i + 1
     }));
 
-    const session = await PaidSession.findOne({ checkoutId: id });
+    const session = await PaidSession.findOne({ checkoutId: checkoutId, userId });
     let tracksWithStatus = normalizedTracks;
 
     if (session) {
-      const current = session.tracks.find(t => !t.played);
+      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+      const currentUriNorm = normalizeUri(session.currentUri);
+
       tracksWithStatus = session.tracks.map(t => {
+        const trackUri = normalizeUri(t.uri);
         let status = 'Added';
-        if (t.played) status = 'Played';
-        else if (current && t.uri === current.uri) status = 'Playing';
-        return { ...t, status };
+        if (t.played) {
+          status = 'Played';
+        } else if (currentUriNorm && trackUri === currentUriNorm) {
+          status = session.isPlaying ? 'Playing' : 'Paused';
+        }
+        return {
+          uri: trackUri,
+          title: t.title,
+          artist: t.artist,
+          albumArt: t.albumArt,
+          duration_ms: t.durationMs || 0,
+          status
+        };
       });
     }
 
     res.json({
       success: true,
-      checkoutId: id,
+      checkoutId,
       mode: session ? 'PAID' : 'DEFAULT',
       totalTracks: tracksWithStatus.length,
       tracks: tracksWithStatus
@@ -48,3 +65,4 @@ router.get('/checkout-tracks', async (req, res) => {
 });
 
 export default router;
+
