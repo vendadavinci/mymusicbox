@@ -3004,9 +3004,9 @@ async function renderQueueStatus() {
         if (queuePoller) clearInterval(queuePoller);
         // Resume after retryAfter
         setTimeout(() => {
-          queuePoller = setInterval(renderQueueStatus, 10000);
+          queuePoller = setInterval(renderQueueStatus, 20000);
           renderQueueStatus();
-        }, data.retryAfter * 1000);
+        }, data.retryAfter * 2000);
       }
       return;
     }
