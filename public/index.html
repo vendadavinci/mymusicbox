@@ -3000,16 +3000,11 @@ async function renderQueueStatus() {
     if (!res.ok || !data.success) {
       if (data.error === 'Rate limited' && data.retryAfter) {
         console.warn(`Rate limited. Retrying after ${data.retryAfter} seconds.`);
-        // Stop current poller
         if (queuePoller) clearInterval(queuePoller);
-
-        // Cap retry delay to max 60s so UI doesn't freeze for hours
-        const retryMs = Math.min(data.retryAfter * 1000, 60000);
-
         setTimeout(() => {
-          queuePoller = setInterval(renderQueueStatus, 30000); // poll every 30s after resume
+          queuePoller = setInterval(renderQueueStatus, 30000); // poll every 30s
           renderQueueStatus();
-        }, retryMs);
+        }, data.retryAfter * 1000);
       }
       return;
     }

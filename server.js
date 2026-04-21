@@ -423,8 +423,10 @@ app.get('/api/status', async (req, res) => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
+    // ✅ Handle rate limiting with capped retryAfter
     if (r.status === 429) {
-      const retryAfter = parseInt(r.headers.get('Retry-After') || '5', 10);
+      let retryAfter = parseInt(r.headers.get('Retry-After') || '5', 10);
+      retryAfter = Math.min(retryAfter, 60); // cap at 60 seconds
       return res.status(429).json({ success: false, error: 'Rate limited', retryAfter });
     }
 
@@ -456,7 +458,7 @@ app.get('/api/status', async (req, res) => {
       const progressMs = data.progress_ms || 0;
       const durationMs = data.item?.duration_ms || 0;
 
-      // Mark as played if finished
+      // ✅ Mark as played if finished
       if (currentUri && durationMs > 0 && progressMs >= durationMs - 2000) {
         const track = activeSession.tracks.find(t => normalizeUri(t.uri) === currentUri);
         if (track && !track.played) {
@@ -465,7 +467,7 @@ app.get('/api/status', async (req, res) => {
         }
       }
 
-      // Update playback state + track statuses
+      // ✅ Update playback state + track statuses
       if (currentUri) {
         activeSession.currentUri = currentUri;
         activeSession.isPlaying = data.is_playing;
@@ -518,7 +520,6 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
-
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
