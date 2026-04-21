@@ -8,7 +8,14 @@ const PaidTrackSchema = new mongoose.Schema({
   durationMs: { type: Number, alias: 'duration_ms', required: true },
   albumArt: { type: String, required: true },
   addedAt: { type: Date, default: Date.now },
-  orderIndex: { type: Number }
+  played: { type: Boolean, default: false },
+  orderIndex: { type: Number },
+  // ✅ Explicit status field
+  status: { 
+    type: String, 
+    enum: ['Added', 'Playing', 'Played', 'Paused'], 
+    default: 'Added' 
+  }
 }, { _id: false });
 
 const PaidSessionSchema = new mongoose.Schema({
@@ -26,6 +33,7 @@ const PaidSessionSchema = new mongoose.Schema({
   processedAt: { type: Date }, 
   playbackStartedAt: { type: Date }, 
   currentUri: { type: String },
+  // ✅ Persist playback state at session level
   isPlaying: { type: Boolean, default: false }
 });
 
