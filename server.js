@@ -427,13 +427,17 @@ app.get('/api/status', async (req, res) => {
     if (r.status === 429) {
       const retryAfter = parseInt(r.headers.get('Retry-After') || '5', 10);
       console.warn(`[STATUS] Rate limited by Spotify. Retry after ${retryAfter} seconds.`);
-      return res.status(429).json({ success: false, error: 'Rate limited', retryAfter });
+      return res.status(429).json({
+        success: false,
+        error: 'Rate limited',
+        retryAfter
+      });
     }
 
     // ✅ No track currently playing
     if (r.status === 204) {
       const activeSession = await PaidSession.findOne({ active: true }).lean();
-      const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
+      const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0;
       console.log('[STATUS] No track currently playing. Active session:', activeSession?.sessionId, 'Played count:', playedCount);
       return res.json({
         success: true,
@@ -466,38 +470,31 @@ app.get('/api/status', async (req, res) => {
 
       console.log('[STATUS] Current track:', data.item?.name, 'URI:', currentUri, 'Progress:', progressMs, '/', durationMs, 'isPlaying:', data.is_playing);
 
-      // ✅ Mark as played if finished (update in-memory + DB)
+      // Mark as played if finished
       if (currentUri && durationMs > 0 && progressMs >= durationMs - 2000) {
-        const track = activeSession.tracks.find(t => normalizeUri(t.uri) === currentUri);
-        if (track && !track.played) {
-          track.played = true;
-          console.log('[STATUS] Marking track as played:', currentUri);
-        }
+        console.log('[STATUS] Marking track as played:', currentUri);
+        await markTrackPlayed(activeSession.sessionId, currentUri);
       }
 
-      // ✅ Save playback state + played flag
+      // Save playback state
       if (currentUri) {
         activeSession.currentUri = currentUri;
         activeSession.isPlaying = data.is_playing;
         await activeSession.save();
-        console.log('[STATUS] Saved session playback state:', {
-          sessionId: activeSession.sessionId,
-          currentUri,
-          isPlaying: data.is_playing
-        });
+        console.log('[STATUS] Saved session playback state:', { sessionId: activeSession.sessionId, currentUri, isPlaying: data.is_playing });
       }
 
-      // ✅ Update track statuses for response
-      tracks = activeSession.tracks.map(t => {
+      // Update track statuses
+      tracks = tracks.map(t => {
         const trackUri = normalizeUri(t.uri);
         let status = 'Added';
-        if (t.played) {
-          status = 'Played';
-        } else if (trackUri === currentUri) {
+        if (trackUri === currentUri) {
           status = data.is_playing ? 'Playing' : 'Paused';
+        } else if (t.played) {
+          status = 'Played';
         }
         return {
-          ...t.toObject?.() || t,
+          ...t,
           uri: trackUri,
           title: t.title || t.name || 'Unknown',
           artist: t.artist || (t.artists && t.artists.join(', ')) || '',
@@ -530,7 +527,6 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
-
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
