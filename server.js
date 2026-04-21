@@ -453,19 +453,17 @@ app.get('/api/status', async (req, res) => {
     if (activeSession) {
       const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
       const currentUri = normalizeUri(data.item?.uri);
-      const progressMs = data.progress_ms || 0;
-      const durationMs = data.item?.duration_ms || 0;
 
-      // Mark as played if finished
-      if (currentUri && durationMs > 0 && progressMs >= durationMs - 2000) {
-        const track = activeSession.tracks.find(t => normalizeUri(t.uri) === currentUri);
-        if (track && !track.played) {
-          track.played = true;
-          track.status = 'Played';
+      // ✅ Mark previous track as played when Spotify moves on
+      if (activeSession.currentUri && activeSession.currentUri !== currentUri) {
+        const prevTrack = activeSession.tracks.find(t => normalizeUri(t.uri) === activeSession.currentUri);
+        if (prevTrack && !prevTrack.played) {
+          prevTrack.played = true;
+          prevTrack.status = 'Played';
         }
       }
 
-      // Update playback state + track statuses
+      // ✅ Update playback state + track statuses
       if (currentUri) {
         activeSession.currentUri = currentUri;
         activeSession.isPlaying = data.is_playing;
