@@ -871,21 +871,23 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
 
 app.get('/api/checkout-tracks', async (req, res) => {
   try {
-    const { checkoutId, userId } = req.query;
-    if (!checkoutId || !userId) {
-      return res.status(400).json({ error: 'checkoutId and userId required' });
+    const id = req.query.checkoutId;
+    if (!id) {
+      return res.status(400).json({ error: 'checkoutId required' });
     }
 
-    const entry = await Checkout.findOne({ checkoutId, userId });
+    const entry = await Checkout.findOne({ checkoutId: id });
     if (!entry) {
-      return res.status(404).json({ error: 'checkout not found or expired for this user' });
+      return res.status(404).json({ error: 'checkout not found or expired' });
     }
 
+    // Normalize tracks
     const normalizedTracks = (entry.tracks || []).map((track, i) =>
       normalizeTrack(track, i + 1)
     );
 
-    const session = await PaidSession.findOne({ checkoutId, userId });
+    // If a PaidSession exists, enrich with authoritative statuses
+    const session = await PaidSession.findOne({ checkoutId: id });
     let tracksWithStatus = normalizedTracks;
 
     if (session) {
@@ -908,7 +910,7 @@ app.get('/api/checkout-tracks', async (req, res) => {
 
     return res.json({
       success: true,
-      checkoutId,
+      checkoutId: id,
       mode: session ? 'PAID' : 'DEFAULT',
       totalTracks: tracksWithStatus.length,
       tracks: tracksWithStatus
@@ -924,8 +926,8 @@ app.post('/api/queue', async (req, res) => {
     await refreshAccessTokenIfNeeded();
 
     const { uri, sessionId, userId, title, artist, duration_ms, albumArt } = req.body || {};
-    if (!uri || !sessionId || !userId) {
-      return res.status(400).json({ error: 'Missing track URI, sessionId, or userId' });
+    if (!uri || !sessionId) {
+      return res.status(400).json({ error: 'Missing track URI or sessionId' });
     }
 
     // Ensure shuffle is off
@@ -960,8 +962,8 @@ app.post('/api/queue', async (req, res) => {
       });
     }
 
-    // ✅ Find or create session scoped by both sessionId and userId
-    let session = await PaidSession.findOne({ sessionId, userId });
+    // Find or create session
+    let session = await PaidSession.findOne({ sessionId });
     if (!session) {
       session = new PaidSession({
         sessionId,
@@ -975,13 +977,11 @@ app.post('/api/queue', async (req, res) => {
 
     // Use normalizeTrack helper
     const orderIndex = session.tracks.length + 1;
-    session.tracks.push(
-      normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex)
-    );
+    session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
     session.songsAdded += 1;
     await session.save();
 
-    res.json({ ok: true, sessionId, userId, added: uri });
+    res.json({ ok: true, sessionId, added: uri });
   } catch (err) {
     console.error('/api/queue error', err);
     res.status(500).json({ error: 'Queue request failed', details: err.message });
@@ -991,42 +991,45 @@ app.post('/api/queue', async (req, res) => {
 
 // Poller: update played tracks every 5 seconds
 setInterval(async () => {
+  const activeSession = await isPaidSessionActive();
+  if (!activeSession) return;
+
   try {
-    // ✅ Get all active sessions instead of just one
-    const activeSessions = await PaidSession.find({ active: true });
-    if (!activeSessions.length) return;
-
     await refreshAccessTokenIfNeeded();
+    const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
 
-    for (const session of activeSessions) {
-      try {
-        const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
-          headers: { Authorization: `Bearer ${tokens.access_token}` }
-        });
+    // Handle 204 (no content)
+    if (r.status === 204) {
+      return; // nothing playing
+    }
 
-        if (r.status === 204) continue; // nothing playing
-        if (!r.ok) {
-          const text = await r.text().catch(() => '<no body>');
-          console.warn(`Spotify status failed ${r.status}: ${text}`);
-          continue;
-        }
+    // Handle non-OK responses
+    if (!r.ok) {
+      const text = await r.text().catch(() => '<no body>');
+      console.warn(`Spotify status failed ${r.status}: ${text}`);
+      return;
+    }
 
-        const data = await r.json();
-        if (data?.item?.uri) {
-          // ✅ Mark track played for this specific session
-          await markTrackPlayed(session.sessionId, data.item.uri);
-
-          // ✅ Persist playback state per session
-          session.currentUri = data.item.uri;
-          session.isPlaying = data.is_playing;
-          await session.save();
-        }
-      } catch (err) {
-        console.error('Poller error for session', session.sessionId, err);
+    // Defensive JSON parse
+    let data = null;
+    try {
+      const text = await r.text();
+      if (text && text.trim().length > 0) {
+        data = JSON.parse(text);
       }
+    } catch (err) {
+      console.warn('Spotify returned empty or invalid JSON', err);
+      return;
+    }
+
+    // If we got valid data, mark track played
+    if (data?.item?.uri) {
+      await markTrackPlayed(activeSession.sessionId, data.item.uri);
     }
   } catch (err) {
-    console.error('Poller outer error:', err);
+    console.error('Poller error:', err);
   }
 }, 5000); // every 5 seconds
 
