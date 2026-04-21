@@ -465,11 +465,11 @@ body::before {
           <div class="small" id="checkoutNextTitle">No paid tracks queued</div> 
       </div>
     </div>
-    <!-- ✅ New Played History section -->
-    <div class="card" aria-label="Played history">
-      <div style="font-weight:700;">Your Played History</div>
-      <div class="queue-list" id="playedQueueList"></div>
-    </div>
+
+<div class="card" aria-label="Queue status">
+  <div style="font-weight:700;">Your Paid Queue Status:</div>
+  <div class="queue-list" id="queueStatusList"></div>
+</div>
   </aside>
 </main>
 
@@ -2983,5 +2983,52 @@ async function renderQueueAndHistory() {
   }
 }
 </script>
+
+<script>
+  async function renderQueueStatus() {
+    try {
+      const res = await fetch('/api/status');
+      if (!res.ok) {
+        console.warn('Status fetch failed', res.status);
+        return;
+      }
+      const data = await res.json();
+      if (!data.success) return;
+
+      const queueStatusList = document.getElementById('queueStatusList');
+      queueStatusList.innerHTML = '';
+
+      (data.tracks || []).forEach(t => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'queue-item';
+        wrapper.style.display = 'flex';
+        wrapper.style.justifyContent = 'space-between';
+        wrapper.style.alignItems = 'center';
+        wrapper.style.gap = '12px';
+
+        const left = document.createElement('div');
+        left.textContent = `${t.title} — ${t.artist}`;
+
+        const right = document.createElement('div');
+        right.className = `status ${t.status.toLowerCase()}`;
+        right.textContent = t.status;
+
+        wrapper.appendChild(left);
+        wrapper.appendChild(right);
+        queueStatusList.appendChild(wrapper);
+      });
+
+      console.log('[Queue Status] Response:', data);
+    } catch (err) {
+      console.error('renderQueueStatus error', err);
+    }
+  }
+
+  // Poll every 10 seconds
+  setInterval(renderQueueStatus, 10000);
+  renderQueueStatus();
+</script>
+
+
 </body>
 </html>
