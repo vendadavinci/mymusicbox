@@ -428,25 +428,15 @@ app.get('/api/status', async (req, res) => {
       return res.status(429).json({ success: false, error: 'Rate limited', retryAfter });
     }
 
-    // ✅ No track currently playing
     if (r.status === 204) {
-      const activeSession = await PaidSession.findOne({ active: true });
-      if (activeSession) {
-        // If no tracks left, end and delete session
-        if (activeSession.tracks.length === 0) {
-          activeSession.active = false;
-          activeSession.endedAt = new Date();
-          await activeSession.deleteOne();
-          console.log('[STATUS] Session ended and deleted:', activeSession.sessionId);
-        }
-      }
+      const activeSession = await PaidSession.findOne({ active: true }).lean();
       return res.json({
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
         sessionId: activeSession?.sessionId || null,
-        playedCount: 0,
+        playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0,
         totalTracks: activeSession?.tracks?.length || 0,
-        tracks: [],
+        tracks: activeSession?.tracks?.filter(t => t.addedAt >= activeSession.startedAt) || [],
         isPlaying: false
       });
     }
@@ -458,71 +448,55 @@ app.get('/api/status', async (req, res) => {
 
     const data = await r.json();
     const activeSession = await PaidSession.findOne({ active: true });
-    let tracks = [];
+    let tracks = activeSession?.tracks || [];
 
     if (activeSession) {
       const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
       const currentUri = normalizeUri(data.item?.uri);
 
-      // ✅ Mark previous track as played when Spotify moves on
-      if (activeSession.currentUri && activeSession.currentUri !== currentUri) {
-        const prevTrack = activeSession.tracks.find(
-          t => normalizeUri(t.uri) === activeSession.currentUri
-        );
+// ✅ Mark previous track as played when Spotify moves on
+if (activeSession.currentUri && activeSession.currentUri !== currentUri) {
+  const prevTrackIndex = activeSession.tracks.findIndex(
+    t => normalizeUri(t.uri) === activeSession.currentUri
+  );
+  if (prevTrackIndex !== -1) {
+    // Remove the played track entirely from the session
+    activeSession.tracks.splice(prevTrackIndex, 1);
+    console.log('[STATUS] Removed played track:', activeSession.currentUri);
+  }
+}
 
-        // Remove from DB
-        activeSession.tracks = activeSession.tracks.filter(
-          t => normalizeUri(t.uri) !== activeSession.currentUri
-        );
 
-        // Add ephemeral "Played" entry to response
-        if (prevTrack) {
-          tracks.unshift({
-            uri: prevTrack.uri,
-            title: prevTrack.title,
-            artist: prevTrack.artist,
-            albumArt: prevTrack.albumArt,
-            duration_ms: prevTrack.durationMs,
-            status: 'Played'
-          });
-        }
-      }
-
-      // ✅ Update playback state
+      // ✅ Update playback state + track statuses
       if (currentUri) {
         activeSession.currentUri = currentUri;
         activeSession.isPlaying = data.is_playing;
+
+        activeSession.tracks.forEach(t => {
+          const trackUri = normalizeUri(t.uri);
+          if (t.played) {
+            t.status = 'Played';
+          } else if (trackUri === currentUri) {
+            t.status = data.is_playing ? 'Playing' : 'Paused';
+          } else {
+            t.status = 'Added';
+          }
+        });
+
         await activeSession.save();
       }
 
-      // ✅ Build response tracks (ephemeral statuses)
-      const queueTracks = activeSession.tracks
+      // ✅ Only include tracks from this session
+      tracks = activeSession.tracks
         .filter(t => t.addedAt >= activeSession.startedAt)
-        .map(t => {
-          const trackUri = normalizeUri(t.uri);
-          let status = 'Added';
-          if (trackUri === currentUri) {
-            status = data.is_playing ? 'Playing' : 'Paused';
-          }
-          return {
-            uri: trackUri,
-            title: t.title || 'Unknown',
-            artist: t.artist || '',
-            albumArt: t.albumArt,
-            duration_ms: t.durationMs || 0,
-            status
-          };
-        });
-
-      tracks = [...tracks, ...queueTracks];
-
-      // ✅ End and delete session if queue empty and not playing
-      if (activeSession.tracks.length === 0 && !data.is_playing) {
-        activeSession.active = false;
-        activeSession.endedAt = new Date();
-        await activeSession.deleteOne();
-        console.log('[STATUS] Session ended and deleted:', activeSession.sessionId);
-      }
+        .map(t => ({
+          uri: normalizeUri(t.uri),
+          title: t.title || 'Unknown',
+          artist: t.artist || '',
+          albumArt: t.albumArt,
+          duration_ms: t.durationMs || 0,
+          status: t.status
+        }));
     }
 
     const playedCount = tracks.filter(t => t.status === 'Played').length;
@@ -546,6 +520,7 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
+
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
