@@ -3002,11 +3002,14 @@ async function renderQueueStatus() {
         console.warn(`Rate limited. Retrying after ${data.retryAfter} seconds.`);
         // Stop current poller
         if (queuePoller) clearInterval(queuePoller);
-        // Resume after retryAfter
+
+        // Cap retry delay to max 60s so UI doesn't freeze for hours
+        const retryMs = Math.min(data.retryAfter * 1000, 60000);
+
         setTimeout(() => {
-          queuePoller = setInterval(renderQueueStatus, 15000); // poll every 15s after resume
+          queuePoller = setInterval(renderQueueStatus, 30000); // poll every 30s after resume
           renderQueueStatus();
-        }, data.retryAfter * 1000); // ✅ correct conversion to ms
+        }, retryMs);
       }
       return;
     }
@@ -3041,12 +3044,10 @@ async function renderQueueStatus() {
   }
 }
 
-// Start polling
-queuePoller = setInterval(renderQueueStatus, 15000);
+// Start polling every 30s
+queuePoller = setInterval(renderQueueStatus, 30000);
 renderQueueStatus();
 </script>
-
-
 
 </body>
 </html>
