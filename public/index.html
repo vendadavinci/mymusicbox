@@ -2987,7 +2987,7 @@ async function renderQueueAndHistory() {
 <script>
   async function renderQueueStatus() {
     try {
-      const res = await fetch('/api/status');
+      const res = await fetch(`/api/status?userId=${window.currentUserId}`);
       if (!res.ok) {
         console.warn('Status fetch failed', res.status);
         return;
@@ -3010,7 +3010,8 @@ async function renderQueueAndHistory() {
         left.textContent = `${t.title} — ${t.artist}`;
 
         const right = document.createElement('div');
-        right.className = `status ${t.status.toLowerCase()}`;
+        const statusClass = t.status ? t.status.toLowerCase() : 'added';
+        right.className = `status ${statusClass}`;
         right.textContent = t.status;
 
         wrapper.appendChild(left);
