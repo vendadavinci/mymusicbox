@@ -1063,7 +1063,7 @@ setInterval(async () => {
   } catch (err) {
     console.error('Poller error:', err);
   }
-}, 5000); // every 5 seconds
+}, 10000);
 
 
 /* -------------------------

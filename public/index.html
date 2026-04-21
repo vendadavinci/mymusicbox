@@ -2594,7 +2594,7 @@ async function pollStatusOnce(){
     function focusAdd(){
       document.getElementById('searchInput').focus();
     }
-    setInterval(pollStatusOnce, 8000);
+    setInterval(pollStatusOnce, 10000);
     renderQueue();
     pollStatusOnce();
   </script>
@@ -2801,7 +2801,7 @@ let lastPlaying = null; // remember the last track that was playing
       setInterval(() => {
         pollStatusOnce();
         renderQueue(); // ✅ refresh queue from backend
-      }, 8000);
+      }, 10000);
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
@@ -2836,7 +2836,7 @@ async function refreshStatus() {
   }
 }
 
-setInterval(refreshStatus, 80000);
+setInterval(refreshStatus, 10000);
 refreshStatus();
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -3004,7 +3004,7 @@ async function renderQueueStatus() {
         // Pause polling temporarily
         clearInterval(window.queuePoller);
         setTimeout(() => {
-          window.queuePoller = setInterval(renderQueueStatus, 5000);
+          window.queuePoller = setInterval(renderQueueStatus, 10000);
           renderQueueStatus();
         }, data.retryAfter * 1000);
       }
