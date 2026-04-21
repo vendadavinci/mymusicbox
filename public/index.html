@@ -2990,21 +2990,21 @@ async function renderQueueAndHistory() {
 </script>
 
 <script>
+let queuePoller = null;
+
 async function renderQueueStatus() {
   try {
     const res = await fetch('/api/status');
-    if (!res.ok) {
-      console.warn('Status fetch failed', res.status);
-      return;
-    }
     const data = await res.json();
-    if (!data.success) {
+
+    if (!res.ok || !data.success) {
       if (data.error === 'Rate limited' && data.retryAfter) {
         console.warn(`Rate limited. Retrying after ${data.retryAfter} seconds.`);
-        // Pause polling temporarily
-        clearInterval(window.queuePoller);
+        // Stop current poller
+        if (queuePoller) clearInterval(queuePoller);
+        // Resume after retryAfter
         setTimeout(() => {
-          window.queuePoller = setInterval(renderQueueStatus, 10000);
+          queuePoller = setInterval(renderQueueStatus, 10000);
           renderQueueStatus();
         }, data.retryAfter * 1000);
       }
@@ -3041,11 +3041,11 @@ async function renderQueueStatus() {
   }
 }
 
-
-window.queuePoller = setInterval(renderQueueStatus, 10000);
+// Start polling
+queuePoller = setInterval(renderQueueStatus, 100000);
 renderQueueStatus();
-
 </script>
+
 
 
 </body>
