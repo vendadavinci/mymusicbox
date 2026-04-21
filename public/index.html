@@ -2990,50 +2990,62 @@ async function renderQueueAndHistory() {
 </script>
 
 <script>
-  async function renderQueueStatus() {
-    try {
-      const res = await fetch('/api/status'); // no userId for now
-      if (!res.ok) {
-        console.warn('Status fetch failed', res.status);
-        return;
+let queuePoller = null;
+
+async function renderQueueStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      if (data.error === 'Rate limited' && data.retryAfter) {
+        console.warn(`Rate limited. Retrying after ${data.retryAfter} seconds.`);
+        // Stop current poller
+        if (queuePoller) clearInterval(queuePoller);
+        // Resume after retryAfter
+        setTimeout(() => {
+          queuePoller = setInterval(renderQueueStatus, 15000); // poll every 15s after resume
+          renderQueueStatus();
+        }, data.retryAfter * 1000); // ✅ correct conversion to ms
       }
-      const data = await res.json();
-      if (!data.success) return;
-
-      const queueStatusList = document.getElementById('queueStatusList');
-      queueStatusList.innerHTML = '';
-
-      (data.tracks || []).forEach(t => {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'queue-item';
-        wrapper.style.display = 'flex';
-        wrapper.style.justifyContent = 'space-between';
-        wrapper.style.alignItems = 'center';
-        wrapper.style.gap = '12px';
-
-        const left = document.createElement('div');
-        left.textContent = `${t.title} — ${t.artist}`;
-
-        const right = document.createElement('div');
-        const statusClass = t.status ? t.status.toLowerCase() : 'added';
-        right.className = `status ${statusClass}`;
-        right.textContent = t.status;
-
-        wrapper.appendChild(left);
-        wrapper.appendChild(right);
-        queueStatusList.appendChild(wrapper);
-      });
-
-      console.log('[Queue Status] Response:', data);
-    } catch (err) {
-      console.error('renderQueueStatus error', err);
+      return;
     }
-  }
 
-  // Poll every 5 seconds for fresher updates
-  setInterval(renderQueueStatus, 15000);
-  renderQueueStatus();
+    const queueStatusList = document.getElementById('queueStatusList');
+    queueStatusList.innerHTML = '';
+
+    (data.tracks || []).forEach(t => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'queue-item';
+      wrapper.style.display = 'flex';
+      wrapper.style.justifyContent = 'space-between';
+      wrapper.style.alignItems = 'center';
+      wrapper.style.gap = '12px';
+
+      const left = document.createElement('div');
+      left.textContent = `${t.title} — ${t.artist}`;
+
+      const right = document.createElement('div');
+      const statusClass = t.status ? t.status.toLowerCase() : 'added';
+      right.className = `status ${statusClass}`;
+      right.textContent = t.status;
+
+      wrapper.appendChild(left);
+      wrapper.appendChild(right);
+      queueStatusList.appendChild(wrapper);
+    });
+
+    console.log('[Queue Status] Response:', data);
+  } catch (err) {
+    console.error('renderQueueStatus error', err);
+  }
+}
+
+// Start polling
+queuePoller = setInterval(renderQueueStatus, 15000);
+renderQueueStatus();
 </script>
+
 
 
 </body>
