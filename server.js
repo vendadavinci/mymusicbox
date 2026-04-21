@@ -434,7 +434,7 @@ app.get('/api/status', async (req, res) => {
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
         sessionId: activeSession?.sessionId || null,
-        playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0,
+        playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0,
         totalTracks: activeSession?.tracks?.length || 0,
         tracks: activeSession?.tracks || [],
         isPlaying: false

@@ -2992,7 +2992,7 @@ async function renderQueueAndHistory() {
 <script>
   async function renderQueueStatus() {
     try {
-      const res = await fetch(`/api/status?userId=${window.currentUserId}`);
+      const res = await fetch('/api/status'); // no userId for now
       if (!res.ok) {
         console.warn('Status fetch failed', res.status);
         return;
@@ -3030,8 +3030,8 @@ async function renderQueueAndHistory() {
     }
   }
 
-  // Poll every 10 seconds
-  setInterval(renderQueueStatus, 10000);
+  // Poll every 5 seconds for fresher updates
+  setInterval(renderQueueStatus, 5000);
   renderQueueStatus();
 </script>
 
