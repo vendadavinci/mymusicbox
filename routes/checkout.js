@@ -6,16 +6,11 @@ const router = express.Router();
 
 router.get('/checkout-tracks', async (req, res) => {
   try {
-    const { checkoutId, userId } = req.query;
-    if (!checkoutId || !userId) {
-      return res.status(400).json({ error: 'checkoutId and userId required' });
-    }
+    const id = req.query.checkoutId;
+    if (!id) return res.status(400).json({ error: 'checkoutId required' });
 
-    // Scope checkout by both checkoutId and userId
-    const entry = await Checkout.findOne({ checkoutId, userId });
-    if (!entry) {
-      return res.status(404).json({ error: 'checkout not found or expired for this user' });
-    }
+    const entry = await Checkout.findOne({ checkoutId: id });
+    if (!entry) return res.status(404).json({ error: 'checkout not found or expired' });
 
     const normalizedTracks = (entry.tracks || []).map((track, i) => ({
       uri: track.uri,
@@ -26,8 +21,7 @@ router.get('/checkout-tracks', async (req, res) => {
       order: i + 1
     }));
 
-    // Scope PaidSession by both checkoutId and userId
-    const session = await PaidSession.findOne({ checkoutId, userId });
+    const session = await PaidSession.findOne({ checkoutId: id });
     let tracksWithStatus = normalizedTracks;
 
     if (session) {
@@ -36,13 +30,13 @@ router.get('/checkout-tracks', async (req, res) => {
         let status = 'Added';
         if (t.played) status = 'Played';
         else if (current && t.uri === current.uri) status = 'Playing';
-        return { ...t.toObject?.() || t, status };
+        return { ...t, status };
       });
     }
 
     res.json({
       success: true,
-      checkoutId,
+      checkoutId: id,
       mode: session ? 'PAID' : 'DEFAULT',
       totalTracks: tracksWithStatus.length,
       tracks: tracksWithStatus

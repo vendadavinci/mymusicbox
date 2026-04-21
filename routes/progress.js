@@ -1,25 +1,24 @@
+// routes/progress.js
 import express from 'express';
 import { PaidSession } from '../models/paid_queue.js';
-import { Checkout } from '../models/checkout.js';
-
 
 const router = express.Router();
 
 router.get('/progress', async (req, res) => {
   try {
-    const { sessionId, userId } = req.query;
-    if (!sessionId || !userId) {
-      return res.json({ success: false, message: 'Missing sessionId or userId' });
+    const { sessionId } = req.query;
+    if (!sessionId) {
+      return res.json({ success: false, message: 'Missing sessionId' });
     }
 
-    // ✅ Scope by both sessionId and userId
-    const session = await PaidSession.findOne({ sessionId, userId });
+    const session = await PaidSession.findOne({ sessionId });
     if (!session) {
-      return res.json({ success: false, message: 'Session not found for this user' });
+      return res.json({ success: false, message: 'Session not found' });
     }
 
     const isPlaying = session.isPlaying;
 
+    // ✅ Normalize URIs so DB IDs and Spotify URIs match
     const normalizeUri = u => {
       if (!u) return null;
       return u.startsWith('spotify:track:') ? u : `spotify:track:${u}`;

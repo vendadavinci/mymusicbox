@@ -1,3 +1,4 @@
+// models/paid_queue.js
 import mongoose from 'mongoose';
 
 const PaidTrackSchema = new mongoose.Schema({
@@ -9,6 +10,7 @@ const PaidTrackSchema = new mongoose.Schema({
   addedAt: { type: Date, default: Date.now },
   played: { type: Boolean, default: false },
   orderIndex: { type: Number },
+  // ✅ Explicit status field
   status: { 
     type: String, 
     enum: ['Added', 'Playing', 'Played', 'Paused'], 
@@ -18,7 +20,7 @@ const PaidTrackSchema = new mongoose.Schema({
 
 const PaidSessionSchema = new mongoose.Schema({
   sessionId: { type: String, unique: true, index: true },
-  userId: { type: String, index: true },
+  userId: { type: String },
   checkoutId: { type: String, unique: true, index: true }, 
   checkoutRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Checkout' },
   packagePrice: { type: Number },
@@ -31,8 +33,8 @@ const PaidSessionSchema = new mongoose.Schema({
   processedAt: { type: Date }, 
   playbackStartedAt: { type: Date }, 
   currentUri: { type: String },
+  // ✅ Persist playback state at session level
   isPlaying: { type: Boolean, default: false }
 });
 
-// ✅ Named export
 export const PaidSession = mongoose.model('PaidSession', PaidSessionSchema);
