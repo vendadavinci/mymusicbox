@@ -436,7 +436,7 @@ app.get('/api/status', async (req, res) => {
         sessionId: activeSession?.sessionId || null,
         playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0,
         totalTracks: activeSession?.tracks?.length || 0,
-        tracks: activeSession?.tracks || [],
+        tracks: activeSession?.tracks?.filter(t => t.addedAt >= activeSession.startedAt) || [],
         isPlaying: false
       });
     }
@@ -484,14 +484,17 @@ app.get('/api/status', async (req, res) => {
         await activeSession.save();
       }
 
-      tracks = activeSession.tracks.map(t => ({
-        uri: normalizeUri(t.uri),
-        title: t.title || 'Unknown',
-        artist: t.artist || '',
-        albumArt: t.albumArt,
-        duration_ms: t.durationMs || 0,
-        status: t.status
-      }));
+      // ✅ Only include tracks from this session
+      tracks = activeSession.tracks
+        .filter(t => t.addedAt >= activeSession.startedAt)
+        .map(t => ({
+          uri: normalizeUri(t.uri),
+          title: t.title || 'Unknown',
+          artist: t.artist || '',
+          albumArt: t.albumArt,
+          duration_ms: t.durationMs || 0,
+          status: t.status
+        }));
     }
 
     const playedCount = tracks.filter(t => t.status === 'Played').length;
@@ -515,6 +518,7 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
+
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
