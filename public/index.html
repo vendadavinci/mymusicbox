@@ -949,7 +949,8 @@ async function startPayment() {
 // initPage: fetch server status and merge canonical session into local queue
 async function initPage() {
   try {
-    const res = await fetch('/api/status');
+    const res = await fetch(`/api/status?userId=${window.currentUserId}`);
+
     const data = await res.json();
     if (!data || !data.success) return;
 
@@ -1681,7 +1682,8 @@ async function pollStatusAdaptive() {
   if (!sessionId) return;
 
   try {
-    const res = await fetch('/api/status');
+    const res = await fetch(`/api/status?userId=${window.currentUserId}`);
+
     if (!res.ok) return;
     const data = await res.json();
     if (!data.success) return;
@@ -2537,7 +2539,8 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
 // frontend: poll status and update UI; when paidSessionActive show next paid track if available
 async function pollStatusOnce(){
   try{
-    const res = await fetch('/api/status');
+    const res = await fetch(`/api/status?userId=${window.currentUserId}`);
+
     if(!res.ok) return;
     const data = await res.json();
 
@@ -2598,7 +2601,8 @@ async function pollStatusOnce(){
 
 <script>
 async function refreshStatus() {
-  const res = await fetch('/api/status');
+  const res = await fetch(`/api/status?userId=${window.currentUserId}`);
+
   const data = await res.json();
 
   if (data.success) {
@@ -2809,7 +2813,8 @@ let lastPlaying = null; // remember the last track that was playing
 // Read-only UI refresh. Never enqueue or post anything here.
 async function refreshStatus() {
   try {
-    const res = await fetch('/api/status');
+    const res = await fetch(`/api/status?userId=${window.currentUserId}`);
+
     if (!res.ok) return;
     const data = await res.json();
 
