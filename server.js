@@ -419,43 +419,41 @@ app.get('/api/status', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
+    // Expect userId passed in query string or from auth middleware
+    const { userId } = req.query;
+    if (!userId) {
+      return res.json({ success: false, error: 'Missing userId' });
+    }
+
     const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // ✅ Handle rate limiting
     if (r.status === 429) {
       const retryAfter = parseInt(r.headers.get('Retry-After') || '5', 10);
-      console.warn(`[STATUS] Rate limited by Spotify. Retry after ${retryAfter} seconds.`);
       return res.status(429).json({ success: false, error: 'Rate limited', retryAfter });
     }
 
-    // ✅ No track currently playing
     if (r.status === 204) {
-      const activeSession = await PaidSession.findOne({ active: true }).lean();
-      const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
-      console.log('[STATUS] No track currently playing. Active session:', activeSession?.sessionId, 'Played count:', playedCount);
+      const activeSession = await PaidSession.findOne({ active: true, userId }).lean();
       return res.json({
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
         sessionId: activeSession?.sessionId || null,
-        playedCount,
+        playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0,
         totalTracks: activeSession?.tracks?.length || 0,
         tracks: activeSession?.tracks || [],
         isPlaying: false
       });
     }
 
-    // ✅ Other errors
     if (!r.ok) {
       const text = await r.text().catch(() => '<no body>');
-      console.error('[STATUS] Spotify API error:', r.status, text);
       return res.status(r.status).json({ success: false, error: 'Spotify status failed', details: text });
     }
 
-    // ✅ Parse playback data
     const data = await r.json();
-    const activeSession = await PaidSession.findOne({ active: true });
+    const activeSession = await PaidSession.findOne({ active: true, userId });
     let tracks = activeSession?.tracks || [];
 
     if (activeSession) {
@@ -464,30 +462,22 @@ app.get('/api/status', async (req, res) => {
       const progressMs = data.progress_ms || 0;
       const durationMs = data.item?.duration_ms || 0;
 
-      console.log('[STATUS] Current track:', data.item?.name, 'URI:', currentUri, 'Progress:', progressMs, '/', durationMs, 'isPlaying:', data.is_playing);
-
-      // ✅ Mark as played if finished (update in-memory + DB)
+      // Mark as played if finished
       if (currentUri && durationMs > 0 && progressMs >= durationMs - 2000) {
         const track = activeSession.tracks.find(t => normalizeUri(t.uri) === currentUri);
         if (track && !track.played) {
           track.played = true;
-          console.log('[STATUS] Marking track as played:', currentUri);
         }
       }
 
-      // ✅ Save playback state + played flag
+      // Save playback state
       if (currentUri) {
         activeSession.currentUri = currentUri;
         activeSession.isPlaying = data.is_playing;
         await activeSession.save();
-        console.log('[STATUS] Saved session playback state:', {
-          sessionId: activeSession.sessionId,
-          currentUri,
-          isPlaying: data.is_playing
-        });
       }
 
-      // ✅ Update track statuses for response
+      // Build statuses
       tracks = activeSession.tracks.map(t => {
         const trackUri = normalizeUri(t.uri);
         let status = 'Added';
@@ -497,24 +487,19 @@ app.get('/api/status', async (req, res) => {
           status = data.is_playing ? 'Playing' : 'Paused';
         }
         return {
-          ...t.toObject?.() || t,
           uri: trackUri,
           title: t.title || t.name || 'Unknown',
           artist: t.artist || (t.artists && t.artists.join(', ')) || '',
           status
         };
       });
-
-      console.log('[STATUS] Track statuses:', tracks.map(t => ({ title: t.title, status: t.status })));
     }
-
-    const playedCount = tracks.filter(t => t.status === 'Played').length;
 
     return res.json({
       success: true,
       mode: activeSession ? 'PAID' : 'DEFAULT',
       sessionId: activeSession?.sessionId || null,
-      playedCount,
+      playedCount: tracks.filter(t => t.status === 'Played').length,
       totalTracks: tracks.length,
       tracks,
       title: data.item?.name || 'Unknown',
@@ -526,11 +511,9 @@ app.get('/api/status', async (req, res) => {
       durationMs: data.item?.duration_ms || 0
     });
   } catch (err) {
-    console.error('/api/status error', err);
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
-
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
