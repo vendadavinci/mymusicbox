@@ -454,18 +454,14 @@ app.get('/api/status', async (req, res) => {
       const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
       const currentUri = normalizeUri(data.item?.uri);
 
-// ✅ Mark previous track as played when Spotify moves on
-if (activeSession.currentUri && activeSession.currentUri !== currentUri) {
-  const prevTrackIndex = activeSession.tracks.findIndex(
-    t => normalizeUri(t.uri) === activeSession.currentUri
-  );
-  if (prevTrackIndex !== -1) {
-    // Remove the played track entirely from the session
-    activeSession.tracks.splice(prevTrackIndex, 1);
-    console.log('[STATUS] Removed played track:', activeSession.currentUri);
-  }
-}
-
+      // ✅ Mark previous track as played when Spotify moves on
+      if (activeSession.currentUri && activeSession.currentUri !== currentUri) {
+        const prevTrack = activeSession.tracks.find(t => normalizeUri(t.uri) === activeSession.currentUri);
+        if (prevTrack && !prevTrack.played) {
+          prevTrack.played = true;
+          prevTrack.status = 'Played';
+        }
+      }
 
       // ✅ Update playback state + track statuses
       if (currentUri) {
