@@ -2989,60 +2989,7 @@ async function renderQueueAndHistory() {
 }
 </script>
 
-<script>
-let queuePoller = null;
 
-async function renderQueueStatus() {
-  try {
-    const res = await fetch('/api/status');
-    const data = await res.json();
-
-    if (!res.ok || !data.success) {
-      if (data.error === 'Rate limited' && data.retryAfter) {
-        console.warn(`Rate limited. Retrying after ${data.retryAfter} seconds.`);
-        if (queuePoller) clearInterval(queuePoller);
-        setTimeout(() => {
-          queuePoller = setInterval(renderQueueStatus, 30000); // poll every 30s
-          renderQueueStatus();
-        }, data.retryAfter * 1000);
-      }
-      return;
-    }
-
-    const queueStatusList = document.getElementById('queueStatusList');
-    queueStatusList.innerHTML = '';
-
-    (data.tracks || []).forEach(t => {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'queue-item';
-      wrapper.style.display = 'flex';
-      wrapper.style.justifyContent = 'space-between';
-      wrapper.style.alignItems = 'center';
-      wrapper.style.gap = '12px';
-
-      const left = document.createElement('div');
-      left.textContent = `${t.title} — ${t.artist}`;
-
-      const right = document.createElement('div');
-      const statusClass = t.status ? t.status.toLowerCase() : 'added';
-      right.className = `status ${statusClass}`;
-      right.textContent = t.status;
-
-      wrapper.appendChild(left);
-      wrapper.appendChild(right);
-      queueStatusList.appendChild(wrapper);
-    });
-
-    console.log('[Queue Status] Response:', data);
-  } catch (err) {
-    console.error('renderQueueStatus error', err);
-  }
-}
-
-// Start polling every 30s
-queuePoller = setInterval(renderQueueStatus, 30000);
-renderQueueStatus();
-</script>
 
 </body>
 </html>
