@@ -57,12 +57,11 @@ router.get('/progress', async (req, res) => {
     res.json({
       success: true,
       sessionId: session.sessionId,
-      checkoutId: session.checkoutId,   // ✅ Added here
       title: playingTrack?.title || null,
       artist: playingTrack?.artist || null,
       albumArt: playingTrack?.albumArt || null,
       mode: session.active ? 'PAID' : 'DEFAULT',
-      playedCount: tracksWithStatus.filter(t => t.status === 'Played' || t.status === 'Playing').length,
+      playedCount: tracksWithStatus.filter(t => t.status === 'Played').length,
       totalTracks: tracksWithStatus.length,
       tracks: tracksWithStatus
     });
