@@ -375,7 +375,7 @@ body::before {
       <!-- JS historically referenced both checkoutQueueCount/checkoutNextTitle and queueCount/nextTitleEl.
            Include both IDs so either variant works. -->
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
-        
+        <div class="small" id="checkoutQueueCount">Paid queue: 0</div>
       </div>
       <div class="small" id="checkoutNextTitle">No paid tracks added</div>
         <div id="paidQueue" style="display:none;"></div>
@@ -462,7 +462,7 @@ body::before {
 
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
         <div class="small" id="checkoutQueueDuration">Estimated duration: 0 min</div>
-          <div class="small" id="checkoutQueueCount">Paid queue: 0</div>
+          <div class="small" id="checkoutNextTitle">No paid tracks queued</div> 
       </div>
     </div>
 
