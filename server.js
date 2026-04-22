@@ -525,7 +525,7 @@ app.get('/api/status', async (req, res) => {
       }
     }
 
-    const playedCount = tracks.filter(t => t.status === 'Played' || t.status === 'Playing').length;
+    const playedCount = tracks.filter(t => t.status === 'Played').length;
 
     return res.json({
       success: true,
