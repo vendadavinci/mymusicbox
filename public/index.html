@@ -462,7 +462,7 @@ body::before {
 
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
         <div class="small" id="checkoutQueueDuration">Estimated duration: 0 min</div>
-          <div class="small" id="checkoutQueueCountRight"></div> > 
+          <div class="small" id="checkoutQueueCount"></div> 
       </div>
     </div>
 
@@ -515,7 +515,6 @@ const checkoutQueueList   = document.getElementById('checkoutQueueList');
 const checkoutQueueDuration = document.getElementById('checkoutQueueDuration');
 const checkoutQueueInfo   = document.getElementById('checkoutQueueInfo');
 const checkoutNextTitle = document.getElementById('checkoutNextTitle');
-const checkoutQueueCountRight = document.getElementById('checkoutQueueCountRight');
 
     function selectPackage(price, maxSongs){
       currentPackage = { price: price, maxSongs: maxSongs, label: `R${price} — up to ${maxSongs} songs` };
@@ -1064,9 +1063,7 @@ async function renderQueue() {
     // ✅ Pass both IDs to backend
     const res = await fetch(`/api/progress?sessionId=${sessionId || ''}&checkoutId=${checkoutId || ''}`);
     const data = await res.json();
-
-    // 👀 Debug: check what backend is returning
-    console.log('Progress API response:', data);
+    console.log('Progress API response:', data); // debug
 
     if (!data.success) return;
 
@@ -1150,8 +1147,7 @@ async function renderQueue() {
         ? `${nextTrack.title} — ${nextTrack.artist}`
         : 'No paid tracks queued';
     }
-    
-    
+
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
   } catch (err) {
