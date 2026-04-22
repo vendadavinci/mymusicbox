@@ -375,7 +375,7 @@ body::before {
       <!-- JS historically referenced both checkoutQueueCount/checkoutNextTitle and queueCount/nextTitleEl.
            Include both IDs so either variant works. -->
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
-        <div class="small" id="checkoutQueueCount">Paid queue:</div>
+        <div class="small" id="checkoutQueueCount">Paid queue: 0</div>
       </div>
       <div class="small" id="checkoutNextTitle">No paid tracks added</div>
         <div id="paidQueue" style="display:none;"></div>
@@ -462,10 +462,14 @@ body::before {
 
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
         <div class="small" id="checkoutQueueDuration">Estimated duration: 0 min</div>
-          <div class="small" id="checkoutQueueCount"></div> 
+          <div class="small" id="checkoutNextTitle">No paid tracks queued</div> 
       </div>
     </div>
 
+<div class="card" aria-label="Queue status">
+  <div style="font-weight:700;">Your Paid Queue Status:</div>
+  <div class="queue-list" id="queueStatusList"></div>
+</div>
   </aside>
 </main>
 
@@ -1055,16 +1059,11 @@ async function renderQueue() {
     if (!checkoutQueueList) return;
 
     const params = new URLSearchParams(window.location.search);
-    const checkoutId = params.get('checkoutId');
-    const sessionId = sessionStorage.getItem('sessionId'); // or however you persist it
+    const sessionId = params.get('checkoutId'); // reuse checkoutId as sessionId
+    if (!sessionId) return;
 
-    if (!checkoutId && !sessionId) return;
-
-    // ✅ Pass both IDs to backend
-    const res = await fetch(`/api/progress?sessionId=${sessionId || ''}&checkoutId=${checkoutId || ''}`);
+    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
     const data = await res.json();
-    console.log('Progress API response:', data); // debug
-
     if (!data.success) return;
 
     const tracks = data.tracks || [];
@@ -1084,6 +1083,7 @@ async function renderQueue() {
       wrapper.style.gap = '12px';
       wrapper.dataset.index = String(index);
 
+      // Left column: title + artist
       const left = document.createElement('div');
       left.style.minWidth = '0';
       left.style.flex = '1';
@@ -1104,6 +1104,7 @@ async function renderQueue() {
       left.appendChild(titleDiv);
       left.appendChild(metaDiv);
 
+      // Right column: duration + backend status
       const right = document.createElement('div');
       right.style.display = 'flex';
       right.style.flexDirection = 'column';
@@ -1134,13 +1135,11 @@ async function renderQueue() {
     checkoutQueueList.appendChild(frag);
 
     if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `${data.playedCount}/${data.totalTracks}`;
+      checkoutQueueCount.textContent = `Paid queue: ${tracks.length}`;
     }
-
     if (checkoutQueueDuration) {
       checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
     }
-
     if (checkoutNextTitle) {
       const nextTrack = tracks.find(t => t.status === 'Added');
       checkoutNextTitle.textContent = nextTrack
