@@ -30,6 +30,7 @@ router.get('/progress', async (req, res) => {
       const trackUri = normalizeUri(t.uri);
       let status = 'Added';
 
+      // If you persist a "played" flag in DB
       if (t.played) {
         status = 'Played';
       } else if (currentUriNorm && trackUri === currentUriNorm) {
@@ -54,6 +55,11 @@ router.get('/progress', async (req, res) => {
 
     const playingTrack = tracksWithStatus.find(t => t.status === 'Playing');
 
+    // ✅ Count both Played and Playing for progress
+    const playedCount = tracksWithStatus.filter(
+      t => t.status === 'Played' || t.status === 'Playing'
+    ).length;
+
     res.json({
       success: true,
       sessionId: session.sessionId,
@@ -61,7 +67,7 @@ router.get('/progress', async (req, res) => {
       artist: playingTrack?.artist || null,
       albumArt: playingTrack?.albumArt || null,
       mode: session.active ? 'PAID' : 'DEFAULT',
-      playedCount: tracksWithStatus.filter(t => t.status === 'Played').length,
+      playedCount,
       totalTracks: tracksWithStatus.length,
       tracks: tracksWithStatus
     });

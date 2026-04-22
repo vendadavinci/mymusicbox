@@ -1055,7 +1055,7 @@ async function renderQueue() {
     if (!checkoutQueueList) return;
 
     const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('checkoutId'); // reuse checkoutId as sessionId
+    const sessionId = params.get('checkoutId');
     if (!sessionId) return;
 
     const res = await fetch(`/api/progress?sessionId=${sessionId}`);
@@ -1067,15 +1067,9 @@ async function renderQueue() {
     const frag = document.createDocumentFragment();
 
     let totalMs = 0;
-    let playedCount = 0;
 
     tracks.forEach((item, index) => {
       totalMs += item.duration_ms || 0;
-
-      // ✅ Count both Played and Playing
-      if (item.status === 'Played' || item.status === 'Playing') {
-        playedCount++;
-      }
 
       const wrapper = document.createElement('div');
       wrapper.className = 'queue-item';
@@ -1085,7 +1079,6 @@ async function renderQueue() {
       wrapper.style.gap = '12px';
       wrapper.dataset.index = String(index);
 
-      // Left column: title + artist
       const left = document.createElement('div');
       left.style.minWidth = '0';
       left.style.flex = '1';
@@ -1106,7 +1099,6 @@ async function renderQueue() {
       left.appendChild(titleDiv);
       left.appendChild(metaDiv);
 
-      // Right column: duration + backend status
       const right = document.createElement('div');
       right.style.display = 'flex';
       right.style.flexDirection = 'column';
@@ -1136,9 +1128,9 @@ async function renderQueue() {
 
     checkoutQueueList.appendChild(frag);
 
-    // ✅ Update progress counter (e.g. 0/2, 1/2, 2/2)
+    // ✅ Use backend values directly
     if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `${playedCount}/${tracks.length}`;
+      checkoutQueueCount.textContent = `${data.playedCount}/${data.totalTracks}`;
     }
 
     if (checkoutQueueDuration) {
@@ -1158,6 +1150,7 @@ async function renderQueue() {
     console.error('renderQueue error', err);
   }
 }
+
 
 // Helper: fetch with timeout and one retry
 async function fetchWithTimeout(url, opts = {}, timeout = 10000, retry = true) {
