@@ -1050,6 +1050,7 @@ function escapeHtml(s){
 
 
 
+/* ====== Queue rendering & controls ====== */
 async function renderQueue() {
   try {
     if (!checkoutQueueList) return;
@@ -1135,10 +1136,8 @@ async function renderQueue() {
 
     checkoutQueueList.appendChild(frag);
 
-    // ✅ Update the new right‑hand counter
-    const checkoutQueueCountRight = document.getElementById('checkoutQueueCountRight');
-    if (checkoutQueueCountRight) {
-      checkoutQueueCountRight.textContent = `${data.playedCount}/${data.totalTracks}`;
+    if (checkoutQueueCount) {
+      checkoutQueueCount.textContent = `${data.playedCount}/${data.totalTracks}`;
     }
 
     if (checkoutQueueDuration) {
@@ -1151,14 +1150,14 @@ async function renderQueue() {
         ? `${nextTrack.title} — ${nextTrack.artist}`
         : 'No paid tracks queued';
     }
-
+    
+    
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
   } catch (err) {
     console.error('renderQueue error', err);
   }
 }
-
 
 
 // Helper: fetch with timeout and one retry
