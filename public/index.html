@@ -1055,8 +1055,6 @@ function escapeHtml(s){
 
 
 /* ====== Queue rendering & controls ====== */
-
-
 async function renderQueue() {
   try {
     if (!checkoutQueueList) return;
@@ -1156,10 +1154,7 @@ async function renderQueue() {
         ? `${nextTrack.title} — ${nextTrack.artist}`
         : 'No paid tracks queued';
     }
-    
-    if (checkoutQueueCountRight) {
-  checkoutQueueCountRight.textContent = `${data.playedCount}/${data.totalTracks}`;
-}
+
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
   } catch (err) {

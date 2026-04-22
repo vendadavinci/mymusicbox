@@ -6,19 +6,27 @@ const router = express.Router();
 
 router.get('/progress', async (req, res) => {
   try {
-    const { sessionId } = req.query;
-    if (!sessionId) {
-      return res.json({ success: false, message: 'Missing sessionId' });
+    const { sessionId, checkoutId } = req.query;
+
+    if (!sessionId && !checkoutId) {
+      return res.json({ success: false, message: 'Missing sessionId or checkoutId' });
     }
 
-    const session = await PaidSession.findOne({ sessionId });
+    // ✅ Try to find by sessionId first, then fallback to checkoutId
+    let session = null;
+    if (sessionId) {
+      session = await PaidSession.findOne({ sessionId });
+    }
+    if (!session && checkoutId) {
+      session = await PaidSession.findOne({ checkoutId });
+    }
+
     if (!session) {
       return res.json({ success: false, message: 'Session not found' });
     }
 
     const isPlaying = session.isPlaying;
 
-    // ✅ Normalize URIs so DB IDs and Spotify URIs match
     const normalizeUri = u => {
       if (!u) return null;
       return u.startsWith('spotify:track:') ? u : `spotify:track:${u}`;
@@ -46,22 +54,21 @@ router.get('/progress', async (req, res) => {
       };
     });
 
-    console.log('Progress route statuses:', tracksWithStatus.map(t => ({
-      uri: t.uri,
-      title: t.title,
-      status: t.status
-    })));
-
     const playingTrack = tracksWithStatus.find(t => t.status === 'Playing');
+
+    const playedCount = tracksWithStatus.filter(
+      t => t.status === 'Played' || t.status === 'Playing'
+    ).length;
 
     res.json({
       success: true,
       sessionId: session.sessionId,
+      checkoutId: session.checkoutId,
       title: playingTrack?.title || null,
       artist: playingTrack?.artist || null,
       albumArt: playingTrack?.albumArt || null,
       mode: session.active ? 'PAID' : 'DEFAULT',
-      playedCount: tracksWithStatus.filter(t => t.status === 'Played').length,
+      playedCount,
       totalTracks: tracksWithStatus.length,
       tracks: tracksWithStatus
     });
