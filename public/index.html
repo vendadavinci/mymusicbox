@@ -462,7 +462,7 @@ body::before {
 
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
         <div class="small" id="checkoutQueueDuration">Estimated duration: 0 min</div>
-          <div class="small" id="checkoutQueueCount"></div> 
+          <div class="small" id="checkoutQueueCountRight"></div> > 
       </div>
     </div>
 
@@ -515,6 +515,7 @@ const checkoutQueueList   = document.getElementById('checkoutQueueList');
 const checkoutQueueDuration = document.getElementById('checkoutQueueDuration');
 const checkoutQueueInfo   = document.getElementById('checkoutQueueInfo');
 const checkoutNextTitle = document.getElementById('checkoutNextTitle');
+const checkoutQueueCountRight = document.getElementById('checkoutQueueCountRight');
 
     function selectPackage(price, maxSongs){
       currentPackage = { price: price, maxSongs: maxSongs, label: `R${price} — up to ${maxSongs} songs` };
@@ -1049,7 +1050,6 @@ function escapeHtml(s){
 
 
 
-/* ====== Queue rendering & controls ====== */
 async function renderQueue() {
   try {
     if (!checkoutQueueList) return;
@@ -1135,8 +1135,10 @@ async function renderQueue() {
 
     checkoutQueueList.appendChild(frag);
 
-    if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `${data.playedCount}/${data.totalTracks}`;
+    // ✅ Update the new right‑hand counter
+    const checkoutQueueCountRight = document.getElementById('checkoutQueueCountRight');
+    if (checkoutQueueCountRight) {
+      checkoutQueueCountRight.textContent = `${data.playedCount}/${data.totalTracks}`;
     }
 
     if (checkoutQueueDuration) {
@@ -1156,6 +1158,7 @@ async function renderQueue() {
     console.error('renderQueue error', err);
   }
 }
+
 
 
 // Helper: fetch with timeout and one retry
