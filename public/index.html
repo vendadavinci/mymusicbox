@@ -1055,11 +1055,16 @@ async function renderQueue() {
     if (!checkoutQueueList) return;
 
     const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('checkoutId');
-    if (!sessionId) return;
+    const checkoutId = params.get('checkoutId');
+    const sessionId = sessionStorage.getItem('sessionId'); // or however you persist it
 
-    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
+    if (!checkoutId && !sessionId) return;
+
+    // ✅ Pass both IDs to backend
+    const res = await fetch(`/api/progress?sessionId=${sessionId || ''}&checkoutId=${checkoutId || ''}`);
     const data = await res.json();
+    console.log('Progress API response:', data); // debug
+
     if (!data.success) return;
 
     const tracks = data.tracks || [];
@@ -1128,7 +1133,6 @@ async function renderQueue() {
 
     checkoutQueueList.appendChild(frag);
 
-    // ✅ Use backend values directly
     if (checkoutQueueCount) {
       checkoutQueueCount.textContent = `${data.playedCount}/${data.totalTracks}`;
     }
