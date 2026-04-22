@@ -6,15 +6,16 @@ const router = express.Router();
 
 router.get('/progress', async (req, res) => {
   try {
-    const { sessionId, checkoutId, } = req.query;
-      
-        if (!session && checkoutId) {
-      session = await PaidSession.findOne({ checkoutId });
-    }
+    const { sessionId } = req.query;
     if (!sessionId) {
       return res.json({ success: false, message: 'Missing sessionId' });
     }
-      
+
+    const session = await PaidSession.findOne({ sessionId });
+    if (!session) {
+      return res.json({ success: false, message: 'Session not found' });
+    }
+
     const isPlaying = session.isPlaying;
 
     // ✅ Normalize URIs so DB IDs and Spotify URIs match
