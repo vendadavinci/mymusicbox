@@ -1054,11 +1054,16 @@ async function renderQueue() {
     if (!checkoutQueueList) return;
 
     const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('checkoutId'); // reuse checkoutId as sessionId
-    if (!sessionId) return;
+    const checkoutId = params.get('checkoutId'); // ✅ use checkoutId directly
+    if (!checkoutId) return;
 
-    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
+    // ✅ Pass checkoutId to backend
+    const res = await fetch(`/api/progress?checkoutId=${checkoutId}`);
     const data = await res.json();
+
+    // 👀 Debug: check what backend is returning
+    console.log('Progress API response:', data);
+
     if (!data.success) return;
 
     const tracks = data.tracks || [];
@@ -1129,8 +1134,9 @@ async function renderQueue() {
 
     checkoutQueueList.appendChild(frag);
 
+    // ✅ Use backend values for progress
     if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `Paid queue: ${tracks.length}`;
+      checkoutQueueCount.textContent = `${data.playedCount}/${data.totalTracks}`;
     }
     if (checkoutQueueDuration) {
       checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
