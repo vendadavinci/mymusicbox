@@ -1067,9 +1067,11 @@ async function renderQueue() {
     const frag = document.createDocumentFragment();
 
     let totalMs = 0;
+    let playedCount = 0;
 
     tracks.forEach((item, index) => {
       totalMs += item.duration_ms || 0;
+      if (item.status === 'Played') playedCount++;
 
       const wrapper = document.createElement('div');
       wrapper.className = 'queue-item';
@@ -1131,7 +1133,8 @@ async function renderQueue() {
     checkoutQueueList.appendChild(frag);
 
     if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `Paid queue: ${tracks.length}`;
+      // ✅ Show progress like 0/2, 1/2, 2/2
+      checkoutQueueCount.textContent = `${playedCount}/${tracks.length}`;
     }
     if (checkoutQueueDuration) {
       checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
