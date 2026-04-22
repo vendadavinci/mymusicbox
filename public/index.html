@@ -375,7 +375,7 @@ body::before {
       <!-- JS historically referenced both checkoutQueueCount/checkoutNextTitle and queueCount/nextTitleEl.
            Include both IDs so either variant works. -->
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
-        <div class="small" id="checkoutQueueCount">Paid queue: 0</div>
+        <div class="small" id="checkoutQueueCount">Paid queue:</div>
       </div>
       <div class="small" id="checkoutNextTitle">No paid tracks added</div>
         <div id="paidQueue" style="display:none;"></div>
@@ -1071,7 +1071,11 @@ async function renderQueue() {
 
     tracks.forEach((item, index) => {
       totalMs += item.duration_ms || 0;
-      if (item.status === 'Played') playedCount++;
+
+      // ✅ Count both Played and Playing
+      if (item.status === 'Played' || item.status === 'Playing') {
+        playedCount++;
+      }
 
       const wrapper = document.createElement('div');
       wrapper.className = 'queue-item';
@@ -1132,13 +1136,15 @@ async function renderQueue() {
 
     checkoutQueueList.appendChild(frag);
 
+    // ✅ Update progress counter
     if (checkoutQueueCount) {
-      // ✅ Show progress like 0/2, 1/2, 2/2
       checkoutQueueCount.textContent = `${playedCount}/${tracks.length}`;
     }
+
     if (checkoutQueueDuration) {
       checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
     }
+
     if (checkoutNextTitle) {
       const nextTrack = tracks.find(t => t.status === 'Added');
       checkoutNextTitle.textContent = nextTrack
@@ -1152,7 +1158,6 @@ async function renderQueue() {
     console.error('renderQueue error', err);
   }
 }
-
 
 // Helper: fetch with timeout and one retry
 async function fetchWithTimeout(url, opts = {}, timeout = 10000, retry = true) {
