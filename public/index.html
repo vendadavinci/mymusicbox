@@ -1063,7 +1063,9 @@ async function renderQueue() {
     // ✅ Pass both IDs to backend
     const res = await fetch(`/api/progress?sessionId=${sessionId || ''}&checkoutId=${checkoutId || ''}`);
     const data = await res.json();
-    console.log('Progress API response:', data); // debug
+
+    // 👀 Debug: check what backend is returning
+    console.log('Progress API response:', data);
 
     if (!data.success) return;
 
