@@ -384,30 +384,69 @@ app.post('/api/resume', async (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/skip', async (req, res) => {
+  if (await isPaidSessionActive()) {
+    return res.status(403).json({ success: false, error: 'Cannot skip during paid session' });
+  }
+  res.json({ success: true });
+});
 
+// Mark a track as played in the given session
+async function markTrackPlayed(sessionId, uri) {
+  try {
+    const session = await PaidSession.findOne({ sessionId });
+    if (!session) return;
 
+    const track = session.tracks.find(t => t.uri === uri && !t.played);
+    if (track) {
+      track.played = true;
+      session.playedCount = (session.playedCount || 0) + 1;
+
+      if (session.playedCount >= session.tracks.length) {
+        session.active = false;
+        session.endedAt = new Date();
+      }
+
+      await session.save();
+      console.log(`Marked track as played: ${uri} in session ${sessionId}`);
+    }
+  } catch (err) {
+    console.error('markTrackPlayed error:', err);
+  }
+}
 
 app.get('/api/status', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    // Ask Spotify for current playback
     const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // If no active device / nothing playing
+    if (r.status === 429) {
+      const retryAfter = parseInt(r.headers.get('Retry-After') || '5', 10);
+      return res.status(429).json({ success: false, error: 'Rate limited', retryAfter });
+    }
+
+    // ✅ No track currently playing
     if (r.status === 204) {
-      // Still return canonical session info if any
-      const activeSession = await PaidSession.findOne({ active: true }).lean();
-      const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
+      const activeSession = await PaidSession.findOne({ active: true });
+      if (activeSession) {
+        // If no tracks left, end and delete session
+        if (activeSession.tracks.length === 0) {
+          activeSession.active = false;
+          activeSession.endedAt = new Date();
+          await activeSession.deleteOne();
+          console.log('[STATUS] Session ended and deleted:', activeSession.sessionId);
+        }
+      }
       return res.json({
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
         sessionId: activeSession?.sessionId || null,
-        playedCount,
+        playedCount: 0,
         totalTracks: activeSession?.tracks?.length || 0,
-        tracks: activeSession?.tracks || [],
+        tracks: [],
         isPlaying: false
       });
     }
@@ -418,21 +457,83 @@ app.get('/api/status', async (req, res) => {
     }
 
     const data = await r.json();
+    const activeSession = await PaidSession.findOne({ active: true });
+    let tracks = [];
 
-    // Get canonical paid session from DB
-    const activeSession = await PaidSession.findOne({ active: true }).lean();
+    if (activeSession) {
+      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+      const currentUri = normalizeUri(data.item?.uri);
 
-    const playedCount = activeSession ? (activeSession.tracks || []).filter(t => t.played).length : 0;
+      // ✅ Mark previous track as played when Spotify moves on
+      if (activeSession.currentUri && activeSession.currentUri !== currentUri) {
+        const prevTrack = activeSession.tracks.find(
+          t => normalizeUri(t.uri) === activeSession.currentUri
+        );
+
+        // Remove from DB
+        activeSession.tracks = activeSession.tracks.filter(
+          t => normalizeUri(t.uri) !== activeSession.currentUri
+        );
+
+        // Add ephemeral "Played" entry to response
+        if (prevTrack) {
+          tracks.unshift({
+            uri: prevTrack.uri,
+            title: prevTrack.title,
+            artist: prevTrack.artist,
+            albumArt: prevTrack.albumArt,
+            duration_ms: prevTrack.durationMs,
+            status: 'Played'
+          });
+        }
+      }
+
+      // ✅ Update playback state
+      if (currentUri) {
+        activeSession.currentUri = currentUri;
+        activeSession.isPlaying = data.is_playing;
+        await activeSession.save();
+      }
+
+      // ✅ Build response tracks (ephemeral statuses)
+      const queueTracks = activeSession.tracks
+        .filter(t => t.addedAt >= activeSession.startedAt)
+        .map(t => {
+          const trackUri = normalizeUri(t.uri);
+          let status = 'Added';
+          if (trackUri === currentUri) {
+            status = data.is_playing ? 'Playing' : 'Paused';
+          }
+          return {
+            uri: trackUri,
+            title: t.title || 'Unknown',
+            artist: t.artist || '',
+            albumArt: t.albumArt,
+            duration_ms: t.durationMs || 0,
+            status
+          };
+        });
+
+      tracks = [...tracks, ...queueTracks];
+
+      // ✅ End and delete session if queue empty and not playing
+      if (activeSession.tracks.length === 0 && !data.is_playing) {
+        activeSession.active = false;
+        activeSession.endedAt = new Date();
+        await activeSession.deleteOne();
+        console.log('[STATUS] Session ended and deleted:', activeSession.sessionId);
+      }
+    }
+
+    const playedCount = tracks.filter(t => t.status === 'Played').length;
 
     return res.json({
       success: true,
       mode: activeSession ? 'PAID' : 'DEFAULT',
       sessionId: activeSession?.sessionId || null,
       playedCount,
-      totalTracks: activeSession?.tracks?.length || 0,
-      // include full server-side track list so client can merge and mark played
-      tracks: activeSession?.tracks || [],
-      // Spotify playback info
+      totalTracks: tracks.length,
+      tracks,
       title: data.item?.name || 'Unknown',
       artist: data.item?.artists?.map(a => a.name).join(', ') || '',
       albumArt: data.item?.album?.images?.[0]?.url || '',
@@ -442,11 +543,9 @@ app.get('/api/status', async (req, res) => {
       durationMs: data.item?.duration_ms || 0
     });
   } catch (err) {
-    console.error('/api/status error', err);
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
-
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
