@@ -462,7 +462,7 @@ body::before {
 
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
         <div class="small" id="checkoutQueueDuration">Estimated duration: 0 min</div>
-          <div class="small" id="checkoutNextTitle">No paid tracks queued</div> 
+          <div class="small" id="checkoutQueueCountRight"></div>
       </div>
     </div>
 
@@ -1054,16 +1054,25 @@ function escapeHtml(s){
 
 
 /* ====== Queue rendering & controls ====== */
+
+
 async function renderQueue() {
   try {
     if (!checkoutQueueList) return;
 
     const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('checkoutId'); // reuse checkoutId as sessionId
-    if (!sessionId) return;
+    const checkoutId = params.get('checkoutId');
+    const sessionId = sessionStorage.getItem('sessionId'); // or however you persist it
 
-    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
+    if (!checkoutId && !sessionId) return;
+
+    // ✅ Pass both IDs to backend
+    const res = await fetch(`/api/progress?sessionId=${sessionId || ''}&checkoutId=${checkoutId || ''}`);
     const data = await res.json();
+
+    // 👀 Debug: check what backend is returning
+    console.log('Progress API response:', data);
+
     if (!data.success) return;
 
     const tracks = data.tracks || [];
@@ -1083,7 +1092,6 @@ async function renderQueue() {
       wrapper.style.gap = '12px';
       wrapper.dataset.index = String(index);
 
-      // Left column: title + artist
       const left = document.createElement('div');
       left.style.minWidth = '0';
       left.style.flex = '1';
@@ -1104,7 +1112,6 @@ async function renderQueue() {
       left.appendChild(titleDiv);
       left.appendChild(metaDiv);
 
-      // Right column: duration + backend status
       const right = document.createElement('div');
       right.style.display = 'flex';
       right.style.flexDirection = 'column';
@@ -1135,25 +1142,29 @@ async function renderQueue() {
     checkoutQueueList.appendChild(frag);
 
     if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `Paid queue: ${tracks.length}`;
+      checkoutQueueCount.textContent = `${data.playedCount}/${data.totalTracks}`;
     }
+
     if (checkoutQueueDuration) {
       checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
     }
+
     if (checkoutNextTitle) {
       const nextTrack = tracks.find(t => t.status === 'Added');
       checkoutNextTitle.textContent = nextTrack
         ? `${nextTrack.title} — ${nextTrack.artist}`
         : 'No paid tracks queued';
     }
-
+    
+    if (checkoutQueueCountRight) {
+  checkoutQueueCountRight.textContent = `${data.playedCount}/${data.totalTracks}`;
+}
     if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
 
   } catch (err) {
     console.error('renderQueue error', err);
   }
 }
-
 
 // Helper: fetch with timeout and one retry
 async function fetchWithTimeout(url, opts = {}, timeout = 10000, retry = true) {
