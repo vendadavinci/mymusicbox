@@ -519,7 +519,8 @@ const checkoutQueueList   = document.getElementById('checkoutQueueList');
 const checkoutQueueDuration = document.getElementById('checkoutQueueDuration');
 const checkoutQueueInfo   = document.getElementById('checkoutQueueInfo');
 const checkoutNextTitle = document.getElementById('checkoutNextTitle');
-
+const checkoutQueueCountRight = document.getElementById('checkoutQueueCountRight');
+    
     function selectPackage(price, maxSongs){
       currentPackage = { price: price, maxSongs: maxSongs, label: `R${price} — up to ${maxSongs} songs` };
       slots.length = 0;
