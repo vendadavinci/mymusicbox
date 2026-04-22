@@ -1058,7 +1058,7 @@ async function renderQueue() {
     const sessionId = params.get('checkoutId'); // reuse checkoutId as sessionId
     if (!sessionId) return;
 
-    const res = await fetch(`/api/status?sessionId=${sessionId}`);
+    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
     const data = await res.json();
     if (!data.success) return;
 
@@ -1138,8 +1138,7 @@ async function renderQueue() {
 
     // ✅ Update progress counter (e.g. 0/2, 1/2, 2/2)
     if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `${data.playedCount}/${data.totalTracks}`;
-
+      checkoutQueueCount.textContent = `${playedCount}/${tracks.length}`;
     }
 
     if (checkoutQueueDuration) {
@@ -2938,8 +2937,7 @@ async function renderQueueAndHistory() {
     checkoutQueueList.appendChild(frag);
 
     if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `${data.playedCount}/${data.totalTracks}`;
-
+      checkoutQueueCount.textContent = `Paid queue: ${paidQueue.length}`;
     }
     if (checkoutQueueDuration) {
       checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
