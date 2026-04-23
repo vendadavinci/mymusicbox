@@ -63,15 +63,15 @@ router.get('/progress', async (req, res) => {
     };
 
     // ✅ Cleanup logic: delete when all tracks are played and nothing is playing
-    const allPlayed = tracksWithStatus.length > 0 &&
-      tracksWithStatus.every(t => t.status === 'Played');
+const allPlayed = tracksWithStatus.length > 0 &&
+  tracksWithStatus.every(t => t.status === 'Played');
 
-    if (allPlayed && !session.isPlaying) {
-      session.active = false;
-      session.endedAt = new Date();
-      await PaidSession.deleteOne({ checkoutId: session.checkoutId });
-      console.log(`[CLEANUP] Deleted finished session: ${session.checkoutId}`);
-    }
+if (allPlayed && !session.isPlaying) {
+  session.active = false;
+  session.endedAt = new Date();
+  await PaidSession.deleteOne({ _id: session._id });  // <-- delete by _id
+  console.log(`[CLEANUP] Deleted finished session: ${session._id}`);
+}
 
     return res.json(responsePayload);
   } catch (err) {

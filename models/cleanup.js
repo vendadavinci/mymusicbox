@@ -17,10 +17,11 @@ cron.schedule('* * * * *', async () => {
         session.tracks.every(t => t.status === 'Played');
 
       // ✅ Delete if all tracks are played and playback has stopped
-      if (allPlayed && !session.isPlaying) {
-        console.log(`[CLEANUP] Deleting session: ${session.checkoutId} (${session.sessionId})`);
-        await PaidSession.deleteOne({ _id: session._id });
-      }
+if (allPlayed && !session.isPlaying) {
+  console.log(`[CLEANUP] Deleting session: ${session._id}`);
+  await PaidSession.deleteOne({ _id: session._id });  // <-- delete by _id
+}
+
 
       // ✅ Optional safeguard: delete sessions older than 2 hours
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);

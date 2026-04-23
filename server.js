@@ -515,16 +515,17 @@ app.get('/api/status', async (req, res) => {
       durationMs: data.item?.duration_ms || 0
     };
 
-    // ✅ Cleanup logic: delete when all tracks are played and nothing is playing
-    if (activeSession) {
-      const allPlayed = tracks.length > 0 && tracks.every(t => t.status === 'Played');
-      if (allPlayed && !activeSession.isPlaying) {
-        activeSession.active = false;
-        activeSession.endedAt = new Date();
-        await PaidSession.deleteOne({ checkoutId: activeSession.checkoutId });
-        console.log(`[CLEANUP] Deleted finished session: ${activeSession.checkoutId}`);
-      }
-    }
+// Cleanup logic: delete when all tracks are played and nothing is playing
+if (activeSession) {
+  const allPlayed = tracks.length > 0 && tracks.every(t => t.status === 'Played');
+  if (allPlayed && !activeSession.isPlaying) {
+    activeSession.active = false;
+    activeSession.endedAt = new Date();
+    await PaidSession.deleteOne({ _id: activeSession._id });  // <-- delete by _id
+    console.log(`[CLEANUP] Deleted finished session: ${activeSession._id}`);
+  }
+}
+
 
     return res.json(responsePayload);
   } catch (err) {
