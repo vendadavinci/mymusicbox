@@ -466,17 +466,16 @@ app.get('/api/status', async (req, res) => {
     }
 
     if (r.status === 204) {
-      const activeSessions = await PaidSession.find({ active: true }).lean();
+      const activeSession = await PaidSession.findOne({ active: true }).lean();
       return res.json({
         success: true,
-        sessions: activeSessions.map(s => ({
-          sessionId: s.sessionId,
-          checkoutId: s.checkoutId,
-          playedCount: (s.tracks || []).filter(t => t.status === 'Played').length,
-          totalTracks: s.tracks?.length || 0,
-          tracks: s.tracks || [],
-          isPlaying: false
-        }))
+        mode: activeSession ? 'PAID' : 'DEFAULT',
+        sessionId: activeSession?.sessionId || null,
+        checkoutId: activeSession?.checkoutId || null,
+        playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0,
+        totalTracks: activeSession?.tracks?.length || 0,
+        tracks: activeSession?.tracks?.filter(t => t.addedAt >= activeSession.startedAt) || [],
+        isPlaying: false
       });
     }
 
@@ -486,91 +485,86 @@ app.get('/api/status', async (req, res) => {
     }
 
     const data = await r.json();
-    const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
-    const currentUri = normalizeUri(data.item?.uri);
-    const progressMs = data.progress_ms || 0;
-    const durationMs = data.item?.duration_ms || 0;
+    const activeSession = await PaidSession.findOne({ active: true });
+    let tracks = activeSession?.tracks || [];
 
-    // ✅ Update all active sessions
-    const activeSessions = await PaidSession.find({ active: true });
-    const responses = [];
+    if (activeSession) {
+      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+      const currentUri = normalizeUri(data.item?.uri);
+      const progressMs = data.progress_ms || 0;
+      const durationMs = data.item?.duration_ms || 0;
 
-    for (const session of activeSessions) {
       // Mark as played if finished
       if (currentUri && durationMs > 0 && progressMs >= durationMs - 2000) {
-        const track = session.tracks.find(t => normalizeUri(t.uri) === currentUri);
+        const track = activeSession.tracks.find(t => normalizeUri(t.uri) === currentUri);
         if (track && !track.played) {
           track.played = true;
           track.status = 'Played';
         }
       }
 
-      // Update playback state
-      session.currentUri = currentUri || null;
-      session.isPlaying = data.is_playing || false;
+      // Update playback state + track statuses
+      activeSession.currentUri = currentUri || null;
+      activeSession.isPlaying = data.is_playing || false;
 
-      // Explicitly mark current track
-      if (currentUri) {
-        const currentTrack = session.tracks.find(t => normalizeUri(t.uri) === currentUri);
-        if (currentTrack && !currentTrack.played) {
-          currentTrack.status = data.is_playing ? 'Playing' : 'Paused';
-        }
-      }
-
-      // Update all other tracks
-      session.tracks.forEach(t => {
+      activeSession.tracks.forEach(t => {
         const trackUri = normalizeUri(t.uri);
         if (t.played) {
           t.status = 'Played';
         } else if (currentUri && trackUri === currentUri) {
-          // already handled above
+          t.status = data.is_playing ? 'Playing' : 'Paused';
         } else {
           t.status = 'Added';
         }
       });
 
-      await session.save();
+      await activeSession.save();
 
-      // Cleanup logic
-      const allPlayed = session.tracks.length > 0 && session.tracks.every(t => t.status === 'Played');
-      if (allPlayed && !session.isPlaying) {
-        session.active = false;
-        session.endedAt = new Date();
-        await PaidSession.deleteOne({ _id: session._id });
-        console.log(`[CLEANUP] Deleted finished session: ${session._id}`);
-      }
-
-      // Build response for this session
-      responses.push({
-        sessionId: session.sessionId,
-        checkoutId: session.checkoutId,
-        playedCount: session.tracks.filter(t => t.status === 'Played').length,
-        totalTracks: session.tracks.length,
-        tracks: session.tracks.map(t => ({
+      // ✅ Only include tracks from this session
+      tracks = activeSession.tracks
+        .filter(t => t.addedAt >= activeSession.startedAt)
+        .map(t => ({
           uri: normalizeUri(t.uri),
-          title: t.title,
-          artist: t.artist,
+          title: t.title || 'Unknown',
+          artist: t.artist || '',
           albumArt: t.albumArt,
           duration_ms: t.durationMs || 0,
           status: t.status
-        })),
-        isPlaying: session.isPlaying
-      });
+        }));
     }
 
-    return res.json({
+    const playedCount = tracks.filter(t => t.status === 'Played').length;
+
+    const responsePayload = {
       success: true,
-      sessions: responses,
-      nowPlaying: {
-        title: data.item?.name || 'Unknown',
-        artist: data.item?.artists?.map(a => a.name).join(', ') || '',
-        albumArt: data.item?.album?.images?.[0]?.url || '',
-        uri: data.item?.uri || null,
-        isPlaying: data.is_playing || false,
-        progressMs,
-        durationMs
-      }
-    });
+      mode: activeSession ? 'PAID' : 'DEFAULT',
+      sessionId: activeSession?.sessionId || null,
+      checkoutId: activeSession?.checkoutId || null,
+      playedCount,
+      totalTracks: tracks.length,
+      tracks,
+      title: data.item?.name || 'Unknown',
+      artist: data.item?.artists?.map(a => a.name).join(', ') || '',
+      albumArt: data.item?.album?.images?.[0]?.url || '',
+      uri: data.item?.uri || null,
+      isPlaying: data.is_playing || false,
+      progressMs: data.progress_ms || 0,
+      durationMs: data.item?.duration_ms || 0
+    };
+
+// Cleanup logic: delete when all tracks are played and nothing is playing
+if (activeSession) {
+  const allPlayed = tracks.length > 0 && tracks.every(t => t.status === 'Played');
+  if (allPlayed && !activeSession.isPlaying) {
+    activeSession.active = false;
+    activeSession.endedAt = new Date();
+    await PaidSession.deleteOne({ _id: activeSession._id });  // <-- delete by _id
+    console.log(`[CLEANUP] Deleted finished session: ${activeSession._id}`);
+  }
+}
+
+
+    return res.json(responsePayload);
   } catch (err) {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
