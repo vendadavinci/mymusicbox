@@ -1726,9 +1726,7 @@ pollHandle = setInterval(pollStatusAdaptive, currentInterval);
 
 
 /* ====== Payment success handler ====== */
-// Robust onPaymentSuccess: idempotent, single /api/play call, prevents re-submits on refresh
 async function onPaymentSuccess() {
-  // --- Helpers ---
   const fetchWithTimeout = async (url, opts = {}, timeout = 10000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
@@ -1744,7 +1742,6 @@ async function onPaymentSuccess() {
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-  // Post /api/play with network retry/backoff (returns Response or throws)
   const postPlayWithBackoff = async (payload, attempts = 3) => {
     let delay = 800;
     for (let i = 1; i <= attempts; i++) {
@@ -1768,7 +1765,6 @@ async function onPaymentSuccess() {
     }
   };
 
-  // Queue a single track via /api/queue with retries and structured error handling
   const queueTrackWithRetries = async (track, sessionId, maxAttempts = 4) => {
     let attempt = 0;
     let delay = 600;
@@ -1791,11 +1787,9 @@ async function onPaymentSuccess() {
           body: JSON.stringify(payload)
         }, 10000);
 
-        // Try to parse JSON body
         let body = null;
         try { body = await res.json().catch(() => null); } catch (e) { body = null; }
 
-        // Handle structured NO_ACTIVE_DEVICE
         if (!res.ok && body?.code === 'NO_ACTIVE_DEVICE') {
           return { ok: false, code: 'NO_ACTIVE_DEVICE', details: body };
         }
@@ -1803,7 +1797,6 @@ async function onPaymentSuccess() {
         if (!res.ok) {
           const txt = body || await res.text().catch(() => '<no body>');
           console.warn('queueTrack failed', res.status, txt);
-          // Retry on 5xx or network-like errors; break on 4xx other than NO_ACTIVE_DEVICE
           if (res.status >= 500 || res.status === 0) {
             if (attempt < maxAttempts) await sleep(delay);
             delay *= 2;
@@ -1812,7 +1805,6 @@ async function onPaymentSuccess() {
           return { ok: false, code: 'FAILED', details: txt };
         }
 
-        // success
         return { ok: true, body };
       } catch (err) {
         console.warn(`queueTrack attempt ${attempt} error`, err);
@@ -1825,32 +1817,24 @@ async function onPaymentSuccess() {
   };
 
   try {
-    // --- Read tracks saved during checkout flow ---
     const tracksJson = sessionStorage.getItem('tracks');
-    if (!tracksJson) {
-      console.warn('No tracks found in sessionStorage after payment.');
-      return;
-    }
+    if (!tracksJson) return;
     const tracks = JSON.parse(tracksJson);
     if (!Array.isArray(tracks) || tracks.length === 0) {
-      console.warn('Tracks payload empty or invalid.');
       sessionStorage.removeItem('tracks');
       return;
     }
 
-    // --- Idempotency guard (per-checkout) ---
     const checkoutId = sessionStorage.getItem('checkoutId') || crypto.randomUUID();
     const today = new Date().toISOString().slice(0, 10);
     const sessionId = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
     const submissionMarkerKey = `paidSubmitted_${checkoutId}`;
 
     if (sessionStorage.getItem(submissionMarkerKey)) {
-      console.info('Payment already submitted for this checkoutId; skipping re-submit.');
       sessionStorage.setItem('sessionId', sessionStorage.getItem(`sessionId_${checkoutId}`) || sessionId);
       return;
     }
 
-    // --- Check server for active paid session to decide append vs replace ---
     let activeSessionId = null;
     try {
       const statusRes = await fetchWithTimeout('/api/status', { method: 'GET' }, 8000);
@@ -1871,7 +1855,6 @@ async function onPaymentSuccess() {
       append: !!activeSessionId
     };
 
-    // --- UI: disable submit and show progress ---
     const submitButton = document.querySelector('#payment-complete-button');
     if (submitButton) {
       submitButton.disabled = true;
@@ -1880,19 +1863,13 @@ async function onPaymentSuccess() {
     }
     const statusText = document.querySelector('#paid-status-text');
 
-    console.info('Submitting paid tracks', { sessionId: payload.sessionId, count: tracks.length, append: payload.append });
-
-    // --- Send batch request to /api/play ---
     const playRes = await postPlayWithBackoff(payload, 3);
     if (!playRes) throw new Error('No response from /api/play');
 
-    // Parse response body safely
     let playBody = null;
     try { playBody = await playRes.json().catch(() => null); } catch (e) { playBody = null; }
 
-    // If server indicates NO_ACTIVE_DEVICE (structured), surface clear message and do not mark submitted
     if (!playRes.ok && playBody?.code === 'NO_ACTIVE_DEVICE') {
-      // Show staff-facing modal or alert
       alert('Venue player is offline. Please start the venue Spotify player and retry. Tracks were not queued.');
       if (submitButton) {
         submitButton.disabled = false;
@@ -1901,10 +1878,8 @@ async function onPaymentSuccess() {
       return;
     }
 
-    // If server returned non-ok and not NO_ACTIVE_DEVICE, show generic error
     if (!playRes.ok) {
       const details = playBody || await playRes.text().catch(() => '<no body>');
-      console.error('/api/play failed', playRes.status, details);
       alert('Could not add tracks to the paid queue. Please try again or contact support.');
       if (submitButton) {
         submitButton.disabled = false;
@@ -1913,12 +1888,9 @@ async function onPaymentSuccess() {
       return;
     }
 
-    // --- Success path: server accepted request but may have queued partially ---
-    // Expect server to return structured info when partial: { success:true, added: N, failedTracks: [{uri, reason}], queuedUris: [...] }
     const addedUris = Array.isArray(playBody?.addedUris) ? playBody.addedUris : [];
     const failedTracks = Array.isArray(playBody?.failedTracks) ? playBody.failedTracks : [];
 
-    // If server reports all queued, mark submission and finish
     if (addedUris.length >= tracks.length && failedTracks.length === 0) {
       sessionStorage.setItem(submissionMarkerKey, 'true');
       sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
@@ -1932,21 +1904,11 @@ async function onPaymentSuccess() {
       } else {
         if (statusText) statusText.textContent = 'Tracks appended to existing paid queue';
       }
-      console.log('All tracks queued successfully', addedUris.length);
       if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
       return;
     }
 
-    // --- Partial or no queueing: attempt per-track retries for any tracks not confirmed queued ---
-    // Build map of requested URIs -> track objects
-    const uriToTrack = new Map(tracks.map(t => [t.uri, t]));
-    // Determine which URIs still need queuing
-    const stillToQueue = [];
-    for (const t of tracks) {
-      if (!addedUris.includes(t.uri)) stillToQueue.push(t);
-    }
-
-    // If nothing to retry (edge case), mark submission and exit
+    const stillToQueue = tracks.filter(t => !addedUris.includes(t.uri));
     if (stillToQueue.length === 0) {
       sessionStorage.setItem(submissionMarkerKey, 'true');
       sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
@@ -1956,10 +1918,8 @@ async function onPaymentSuccess() {
       return;
     }
 
-    // Retry each remaining track individually via /api/queue
     const perTrackResults = [];
     for (const t of stillToQueue) {
-      // Avoid duplicate per-URI attempts within this client run
       const alreadyAddedMarker = sessionStorage.getItem(`added_${payload.sessionId}_${t.uri}`);
       if (alreadyAddedMarker) {
         perTrackResults.push({ uri: t.uri, ok: true, note: 'client-marked-added' });
@@ -1968,20 +1928,16 @@ async function onPaymentSuccess() {
 
       const result = await queueTrackWithRetries(t, payload.sessionId, 4).catch(err => ({ ok: false, code: 'EXCEPTION', details: err?.message || String(err) }));
       if (result.ok) {
-        // mark locally to avoid re-submitting same URI on refresh
         sessionStorage.setItem(`added_${payload.sessionId}_${t.uri}`, 'true');
       }
       perTrackResults.push({ uri: t.uri, ...result });
-      // small gap to avoid bursts
       await sleep(120);
     }
 
-    // Analyze per-track results
     const failedAfterRetries = perTrackResults.filter(r => !r.ok && r.code !== 'NO_ACTIVE_DEVICE');
     const noDeviceHits = perTrackResults.filter(r => r.code === 'NO_ACTIVE_DEVICE');
 
     if (noDeviceHits.length > 0) {
-      // If device offline during retries, inform staff and do not mark submission
       alert('Venue player is currently offline. Some tracks were not queued. Please start the venue Spotify player and retry the failed submissions from the admin UI.');
       if (submitButton) {
         submitButton.disabled = false;
@@ -1990,10 +1946,7 @@ async function onPaymentSuccess() {
       return;
     }
 
-    // If there are permanent failures, surface them but still mark submission so duplicates are avoided.
     if (failedAfterRetries.length > 0) {
-      console.warn('Some tracks failed to queue after retries', failedAfterRetries);
-      // Mark submission so we don't duplicate; backend should track failed flags and worker will retry
       sessionStorage.setItem(submissionMarkerKey, 'true');
       sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
       sessionStorage.setItem('sessionId', payload.sessionId);
@@ -2003,7 +1956,6 @@ async function onPaymentSuccess() {
       return;
     }
 
-    // All per-track retries succeeded
     sessionStorage.setItem(submissionMarkerKey, 'true');
     sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
     sessionStorage.setItem('sessionId', payload.sessionId);
@@ -2018,12 +1970,9 @@ async function onPaymentSuccess() {
       if (statusText) statusText.textContent = 'Tracks appended to existing paid queue';
     }
 
-    console.log('Payment successful — tracks added (after retries):', tracks.length, 'Session:', payload.sessionId);
     if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
-
   } catch (e) {
     console.error('onPaymentSuccess error', e);
-    // If the error message mentions device offline, show a clearer message
     const msg = (e && e.message) ? e.message : 'Something went wrong adding your tracks after payment.';
     if (msg.toLowerCase().includes('no active') || msg.toLowerCase().includes('device')) {
       alert('Venue player appears offline. Please start the venue Spotify player and retry.');
