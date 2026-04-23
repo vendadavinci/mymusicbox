@@ -593,29 +593,41 @@ app.post('/webhook/payment-success', async (req, res) => {
       return res.status(400).json({ error: 'Missing checkoutId' });
     }
 
-    const effectiveCheckoutId = checkoutId; // always full UUID
+    const effectiveCheckoutId = checkoutId;
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    // ✅ Attach to existing session by checkoutId
-    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
+    // ✅ Atomic lookup/update by checkoutId + userId
+    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId, userId });
     if (!session) {
       return res.status(404).json({ error: 'No session found for checkoutId' });
     }
 
-    // Guard: skip duplicate webhook
-    if (session.songsAdded > 0 && session.playbackStartedAt) {
-      return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
+    // ✅ Guard: skip duplicate webhook if already processed
+    if (session.processed === true) {
+      return res.json({ ok: true, message: 'Webhook already processed for this checkoutId' });
     }
 
     if (tracks.length > 0) {
-      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
-      session.songsAdded = tracks.length;
+      // Deduplicate tracks by URI before saving
+      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+      const existingUris = new Set(session.tracks.map(t => normalizeUri(t.uri)));
+
+      const newTracks = tracks
+        .map((track, i) => normalizeTrack(track, i + 1))
+        .filter(t => !existingUris.has(normalizeUri(t.uri)));
+
+      if (newTracks.length > 0) {
+        session.tracks.push(...newTracks);
+        session.songsAdded += newTracks.length;
+      }
+
       session.active = true;
       await session.save();
 
       try {
-        await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
+        await startPaidSession(session.sessionId, session.tracks, estimatedTotalMs);
         session.playbackStartedAt = new Date();
+        session.processed = true; // ✅ mark webhook as processed
         await session.save();
       } catch (err) {
         console.error('startPaidSession error', err);
@@ -629,6 +641,7 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
+
 
 
 // Check if there is an active paid session
@@ -841,34 +854,51 @@ app.post('/api/create-payment', async (req, res) => {
 
     console.log('Yoco response data:', response.data);
 
-    // persist checkout in Mongo
-    await Checkout.create({
-      checkoutId,
-      tracks,
-      amount,
-      currency,
-      description,
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000) // 30 min TTL
-    });
+    // ✅ Upsert checkout to avoid duplicates
+    await Checkout.findOneAndUpdate(
+      { checkoutId },
+      {
+        $setOnInsert: {
+          checkoutId,
+          tracks,
+          amount,
+          currency,
+          description,
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000)
+        }
+      },
+      { upsert: true, new: true }
+    );
 
-    // automatically create a PaidSession linked to this checkout
+    // ✅ Atomic PaidSession creation (idempotent)
     const sessionId = `${Date.now()}-${checkoutId}`;
-    await PaidSession.create({
-      sessionId,
-      userId,
-      checkoutId,
-      packagePrice: amount,
-      maxSongs: tracks.length,
-      songsAdded: 0,
-      active: false,
-      startedAt: new Date(),
-      tracks: tracks.map((track, i) => normalizeTrack(track, i + 1))
-    });
+    const session = await PaidSession.findOneAndUpdate(
+      { checkoutId, userId },
+      {
+        $setOnInsert: {
+          sessionId,
+          userId,
+          checkoutId,
+          packagePrice: amount,
+          maxSongs: tracks.length,
+          songsAdded: 0,
+          active: false,
+          startedAt: new Date(),
+          tracks: tracks.map((track, i) => normalizeTrack(track, i + 1))
+        }
+      },
+      { upsert: true, new: true }
+    );
 
-    return res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId, sessionId });
+    return res.json({
+      success: true,
+      checkoutUrl: response.data.redirectUrl,
+      checkoutId,
+      sessionId: session.sessionId
+    });
   } catch (err) {
-    console.error('/api/create-payment error:', err.response?.status, err.response?.data || err.message);
+    console.error('/api/create-payment error', err.response?.status, err.response?.data || err.message);
     const message = err.response?.data || err.message || 'Checkout creation failed';
     return res.status(500).json({ success: false, error: message });
   }
@@ -918,43 +948,51 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
 app.get('/api/checkout-tracks', async (req, res) => {
   try {
     const id = req.query.checkoutId;
-    if (!id) {
-      return res.status(400).json({ error: 'checkoutId required' });
-    }
+    if (!id) return res.status(400).json({ error: 'checkoutId required' });
 
-    const entry = await Checkout.findOne({ checkoutId: id });
-    if (!entry) {
-      return res.status(404).json({ error: 'checkout not found or expired' });
-    }
+    const entry = await Checkout.findOne({ checkoutId: id }).lean();
+    if (!entry) return res.status(404).json({ error: 'checkout not found or expired' });
 
-    // Normalize tracks
-    const normalizedTracks = (entry.tracks || []).map((track, i) =>
-      normalizeTrack(track, i + 1)
-    );
+    const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
 
-    // If a PaidSession exists, enrich with authoritative statuses
-    const session = await PaidSession.findOne({ checkoutId: id });
-    let tracksWithStatus = normalizedTracks;
+    let tracksWithStatus = (entry.tracks || []).map((track, i) => ({
+      uri: normalizeUri(track.uri),
+      title: track.title,
+      artist: track.artist,
+      albumArt: track.albumArt,
+      duration_ms: track.duration_ms || 0,
+      order: i + 1,
+      status: 'Added'
+    }));
 
+    const session = await PaidSession.findOne({ checkoutId: id }).lean();
     if (session) {
-      const current = session.tracks.find(t => !t.played);
+      const currentUri = normalizeUri(session.currentUri);
       tracksWithStatus = session.tracks.map(t => {
+        const trackUri = normalizeUri(t.uri);
         let status = 'Added';
         if (t.played) status = 'Played';
-        else if (current && t.uri === current.uri) status = 'Playing';
-
+        else if (currentUri && trackUri === currentUri) status = session.isPlaying ? 'Playing' : 'Paused';
         return {
-          uri: t.uri,
+          uri: trackUri,
           title: t.title,
           artist: t.artist,
           albumArt: t.albumArt,
-          duration_ms: t.duration_ms || 0,
+          duration_ms: t.durationMs || 0,
           status
         };
       });
     }
 
-    return res.json({
+    // ✅ Deduplicate by URI before returning
+    const seen = new Set();
+    tracksWithStatus = tracksWithStatus.filter(t => {
+      if (seen.has(t.uri)) return false;
+      seen.add(t.uri);
+      return true;
+    });
+
+    res.json({
       success: true,
       checkoutId: id,
       mode: session ? 'PAID' : 'DEFAULT',
@@ -963,7 +1001,7 @@ app.get('/api/checkout-tracks', async (req, res) => {
     });
   } catch (err) {
     console.error('/api/checkout-tracks error', err);
-    return res.status(500).json({ error: 'server error', details: err.message });
+    res.status(500).json({ error: 'server error', details: err.message });
   }
 });
 
@@ -982,7 +1020,6 @@ app.post('/api/queue', async (req, res) => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // Queue track in Spotify
     const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
     const r = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
 
@@ -995,24 +1032,26 @@ app.post('/api/queue', async (req, res) => {
       return res.status(r.status).json({ error: 'Spotify queue request failed', details: text });
     }
 
-    // Attach to existing PaidSession by checkoutId
     let session = await PaidSession.findOne({ checkoutId });
-    if (!session) {
-      return res.status(404).json({ error: 'No active session for checkoutId' });
+    if (!session) return res.status(404).json({ error: 'No active session for checkoutId' });
+
+    const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+    const normalizedUri = normalizeUri(uri);
+
+    // ✅ Deduplicate: only add if not already present
+    if (!session.tracks.some(t => normalizeUri(t.uri) === normalizedUri)) {
+      const orderIndex = session.tracks.length + 1;
+      session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
+      session.songsAdded += 1;
+      await session.save();
     }
 
-    const orderIndex = session.tracks.length + 1;
-    session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
-    session.songsAdded += 1;
-    await session.save();
-
-    res.json({ ok: true, checkoutId, added: uri });
+    res.json({ ok: true, checkoutId, added: normalizedUri });
   } catch (err) {
     console.error('/api/queue error', err);
     res.status(500).json({ error: 'Queue request failed', details: err.message });
   }
 });
-
 
 
 // Poller: update played tracks every 5 seconds
