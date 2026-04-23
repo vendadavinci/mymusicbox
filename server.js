@@ -990,7 +990,6 @@ app.post('/api/queue', async (req, res) => {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
 
-    // Queue track in Spotify
     const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
     const r = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
 
@@ -1003,24 +1002,26 @@ app.post('/api/queue', async (req, res) => {
       return res.status(r.status).json({ error: 'Spotify queue request failed', details: text });
     }
 
-    // Attach to existing PaidSession by checkoutId
     let session = await PaidSession.findOne({ checkoutId });
-    if (!session) {
-      return res.status(404).json({ error: 'No active session for checkoutId' });
+    if (!session) return res.status(404).json({ error: 'No active session for checkoutId' });
+
+    const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+    const normalizedUri = normalizeUri(uri);
+
+    // ✅ Deduplicate: only add if not already present
+    if (!session.tracks.some(t => normalizeUri(t.uri) === normalizedUri)) {
+      const orderIndex = session.tracks.length + 1;
+      session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
+      session.songsAdded += 1;
+      await session.save();
     }
 
-    const orderIndex = session.tracks.length + 1;
-    session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
-    session.songsAdded += 1;
-    await session.save();
-
-    res.json({ ok: true, checkoutId, added: uri });
+    res.json({ ok: true, checkoutId, added: normalizedUri });
   } catch (err) {
     console.error('/api/queue error', err);
     res.status(500).json({ error: 'Queue request failed', details: err.message });
   }
 });
-
 
 
 // Poller: update played tracks every 5 seconds
