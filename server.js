@@ -431,16 +431,17 @@ app.get('/api/status', async (req, res) => {
     }
 
     if (r.status === 204) {
-      const activeSession = await PaidSession.findOne({ active: true }).lean();
+      const activeSessions = await PaidSession.find({ active: true }).lean();
       return res.json({
         success: true,
-        mode: activeSession ? 'PAID' : 'DEFAULT',
-        sessionId: activeSession?.sessionId || null,
-        checkoutId: activeSession?.checkoutId || null,
-        playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0,
-        totalTracks: activeSession?.tracks?.length || 0,
-        tracks: activeSession?.tracks || [],
-        isPlaying: false
+        sessions: activeSessions.map(s => ({
+          sessionId: s.sessionId,
+          checkoutId: s.checkoutId,
+          playedCount: (s.tracks || []).filter(t => t.status === 'Played').length,
+          totalTracks: s.tracks?.length || 0,
+          tracks: s.tracks || [],
+          isPlaying: false
+        }))
       });
     }
 
@@ -450,18 +451,19 @@ app.get('/api/status', async (req, res) => {
     }
 
     const data = await r.json();
-    const activeSession = await PaidSession.findOne({ active: true });
-    let tracks = activeSession?.tracks || [];
+    const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+    const currentUri = normalizeUri(data.item?.uri);
+    const progressMs = data.progress_ms || 0;
+    const durationMs = data.item?.duration_ms || 0;
 
-    if (activeSession) {
-      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
-      const currentUri = normalizeUri(data.item?.uri);
-      const progressMs = data.progress_ms || 0;
-      const durationMs = data.item?.duration_ms || 0;
+    // ✅ Update all active sessions
+    const activeSessions = await PaidSession.find({ active: true });
+    const responses = [];
 
+    for (const session of activeSessions) {
       // Mark as played if finished
       if (currentUri && durationMs > 0 && progressMs >= durationMs - 2000) {
-        const track = activeSession.tracks.find(t => normalizeUri(t.uri) === currentUri);
+        const track = session.tracks.find(t => normalizeUri(t.uri) === currentUri);
         if (track && !track.played) {
           track.played = true;
           track.status = 'Played';
@@ -469,19 +471,19 @@ app.get('/api/status', async (req, res) => {
       }
 
       // Update playback state
-      activeSession.currentUri = currentUri || null;
-      activeSession.isPlaying = data.is_playing || false;
+      session.currentUri = currentUri || null;
+      session.isPlaying = data.is_playing || false;
 
-      // Explicitly mark current track as Playing/Paused
+      // Explicitly mark current track
       if (currentUri) {
-        const currentTrack = activeSession.tracks.find(t => normalizeUri(t.uri) === currentUri);
+        const currentTrack = session.tracks.find(t => normalizeUri(t.uri) === currentUri);
         if (currentTrack && !currentTrack.played) {
           currentTrack.status = data.is_playing ? 'Playing' : 'Paused';
         }
       }
 
       // Update all other tracks
-      activeSession.tracks.forEach(t => {
+      session.tracks.forEach(t => {
         const trackUri = normalizeUri(t.uri);
         if (t.played) {
           t.status = 'Played';
@@ -492,54 +494,53 @@ app.get('/api/status', async (req, res) => {
         }
       });
 
-      await activeSession.save();
+      await session.save();
 
-      // Build response tracks
-      tracks = activeSession.tracks.map(t => ({
-        uri: normalizeUri(t.uri),
-        title: t.title || 'Unknown',
-        artist: t.artist || '',
-        albumArt: t.albumArt,
-        duration_ms: t.durationMs || 0,
-        status: t.status
-      }));
-    }
-
-    const playedCount = tracks.filter(t => t.status === 'Played').length;
-
-    const responsePayload = {
-      success: true,
-      mode: activeSession ? 'PAID' : 'DEFAULT',
-      sessionId: activeSession?.sessionId || null,
-      checkoutId: activeSession?.checkoutId || null,
-      playedCount,
-      totalTracks: tracks.length,
-      tracks,
-      title: data.item?.name || 'Unknown',
-      artist: data.item?.artists?.map(a => a.name).join(', ') || '',
-      albumArt: data.item?.album?.images?.[0]?.url || '',
-      uri: data.item?.uri || null,
-      isPlaying: data.is_playing || false,
-      progressMs: data.progress_ms || 0,
-      durationMs: data.item?.duration_ms || 0
-    };
-
-    // Cleanup logic
-    if (activeSession) {
-      const allPlayed = tracks.length > 0 && tracks.every(t => t.status === 'Played');
-      if (allPlayed && !activeSession.isPlaying) {
-        activeSession.active = false;
-        activeSession.endedAt = new Date();
-        await PaidSession.deleteOne({ _id: activeSession._id });
-        console.log(`[CLEANUP] Deleted finished session: ${activeSession._id}`);
+      // Cleanup logic
+      const allPlayed = session.tracks.length > 0 && session.tracks.every(t => t.status === 'Played');
+      if (allPlayed && !session.isPlaying) {
+        session.active = false;
+        session.endedAt = new Date();
+        await PaidSession.deleteOne({ _id: session._id });
+        console.log(`[CLEANUP] Deleted finished session: ${session._id}`);
       }
+
+      // Build response for this session
+      responses.push({
+        sessionId: session.sessionId,
+        checkoutId: session.checkoutId,
+        playedCount: session.tracks.filter(t => t.status === 'Played').length,
+        totalTracks: session.tracks.length,
+        tracks: session.tracks.map(t => ({
+          uri: normalizeUri(t.uri),
+          title: t.title,
+          artist: t.artist,
+          albumArt: t.albumArt,
+          duration_ms: t.durationMs || 0,
+          status: t.status
+        })),
+        isPlaying: session.isPlaying
+      });
     }
 
-    return res.json(responsePayload);
+    return res.json({
+      success: true,
+      sessions: responses,
+      nowPlaying: {
+        title: data.item?.name || 'Unknown',
+        artist: data.item?.artists?.map(a => a.name).join(', ') || '',
+        albumArt: data.item?.album?.images?.[0]?.url || '',
+        uri: data.item?.uri || null,
+        isPlaying: data.is_playing || false,
+        progressMs,
+        durationMs
+      }
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
+
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
   try {
