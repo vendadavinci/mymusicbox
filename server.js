@@ -540,7 +540,6 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
-
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {
   try {
