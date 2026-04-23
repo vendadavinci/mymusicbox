@@ -51,6 +51,17 @@ if (!tokens.refresh_token) {
   console.warn('Warning: SPOTIFY_REFRESH_TOKEN not set in environment. Visit /auth to obtain one.');
 }
 
+async function isPaidSessionActive() {
+  try {
+    const activeSession = await PaidSession.findOne({ active: true });
+    return activeSession || null;
+  } catch (err) {
+    console.error('isPaidSessionActive error:', err);
+    return null;
+  }
+}
+
+
 async function refreshAccessTokenIfNeeded() {
   if (!tokens.refresh_token) throw new Error('No refresh token stored (set SPOTIFY_REFRESH_TOKEN env or call /auth and save it).');
   // If token still valid for >5s, skip refresh
@@ -1072,7 +1083,7 @@ setInterval(async () => {
   } catch (err) {
     console.error('Poller error:', err);
   }
-}, 5000); // every 5 seconds
+}, 5000);
 
 
 /* -------------------------
