@@ -841,41 +841,55 @@ app.post('/api/create-payment', async (req, res) => {
 
     console.log('Yoco response data:', response.data);
 
-    // persist checkout in Mongo
-    await Checkout.create({
-      checkoutId,
-      tracks,
-      amount,
-      currency,
-      description,
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000) // 30 min TTL
-    });
+    // ✅ Upsert checkout to avoid duplicates
+    await Checkout.findOneAndUpdate(
+      { checkoutId },
+      {
+        $setOnInsert: {
+          checkoutId,
+          tracks,
+          amount,
+          currency,
+          description,
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000)
+        }
+      },
+      { upsert: true, new: true }
+    );
 
-    // automatically create a PaidSession linked to this checkout
+    // ✅ Atomic PaidSession creation (idempotent)
     const sessionId = `${Date.now()}-${checkoutId}`;
-    await PaidSession.create({
-      sessionId,
-      userId,
-      checkoutId,
-      packagePrice: amount,
-      maxSongs: tracks.length,
-      songsAdded: 0,
-      active: false,
-      startedAt: new Date(),
-      tracks: tracks.map((track, i) => normalizeTrack(track, i + 1))
-    });
+    const session = await PaidSession.findOneAndUpdate(
+      { checkoutId, userId },
+      {
+        $setOnInsert: {
+          sessionId,
+          userId,
+          checkoutId,
+          packagePrice: amount,
+          maxSongs: tracks.length,
+          songsAdded: 0,
+          active: false,
+          startedAt: new Date(),
+          tracks: tracks.map((track, i) => normalizeTrack(track, i + 1))
+        }
+      },
+      { upsert: true, new: true }
+    );
 
-    return res.json({ success: true, checkoutUrl: response.data.redirectUrl, checkoutId, sessionId });
+    return res.json({
+      success: true,
+      checkoutUrl: response.data.redirectUrl,
+      checkoutId,
+      sessionId: session.sessionId
+    });
   } catch (err) {
-    console.error('/api/create-payment error:', err.response?.status, err.response?.data || err.message);
+    console.error('/api/create-payment error', err.response?.status, err.response?.data || err.message);
     const message = err.response?.data || err.message || 'Checkout creation failed';
     return res.status(500).json({ success: false, error: message });
   }
 });
-
-
-// create checkout route (adapted)
 
 app.post("/api/yoco/create-checkout", async (req, res) => {
   const { amount, currency = "ZAR", description = "Musicbox Paid Session", tracks = [] } = req.body;
