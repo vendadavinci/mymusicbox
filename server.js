@@ -208,14 +208,15 @@ function normalizeTrack(track, orderIndex, currentUri, isPlaying) {
     uri: track.uri,
     title: track.title || track.name || '',
     artist: track.artist || (track.artists && track.artists.join(', ')) || '',
-    duration_ms: track.duration_ms || track.durationMs || 0,
+    durationMs: track.duration_ms || track.durationMs || 0,  
     albumArt: track.albumArt || track.album_art || '',
     addedAt: track.addedAt ? new Date(track.addedAt) : new Date(),
     played: !!track.played,
     orderIndex: orderIndex || 0,
-    status // ✅ authoritative status
+    status
   };
 }
+
 
 
 
@@ -438,7 +439,7 @@ app.get('/api/status', async (req, res) => {
         checkoutId: activeSession?.checkoutId || null,
         playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0,
         totalTracks: activeSession?.tracks?.length || 0,
-        tracks: activeSession?.tracks?.filter(t => t.addedAt >= activeSession.startedAt) || [],
+        tracks: activeSession?.tracks || [],
         isPlaying: false
       });
     }
@@ -467,16 +468,25 @@ app.get('/api/status', async (req, res) => {
         }
       }
 
-      // Update playback state + track statuses
+      // Update playback state
       activeSession.currentUri = currentUri || null;
       activeSession.isPlaying = data.is_playing || false;
 
+      // Explicitly mark current track as Playing/Paused
+      if (currentUri) {
+        const currentTrack = activeSession.tracks.find(t => normalizeUri(t.uri) === currentUri);
+        if (currentTrack && !currentTrack.played) {
+          currentTrack.status = data.is_playing ? 'Playing' : 'Paused';
+        }
+      }
+
+      // Update all other tracks
       activeSession.tracks.forEach(t => {
         const trackUri = normalizeUri(t.uri);
         if (t.played) {
           t.status = 'Played';
         } else if (currentUri && trackUri === currentUri) {
-          t.status = data.is_playing ? 'Playing' : 'Paused';
+          // already handled above
         } else {
           t.status = 'Added';
         }
@@ -484,17 +494,15 @@ app.get('/api/status', async (req, res) => {
 
       await activeSession.save();
 
-      // ✅ Only include tracks from this session
-      tracks = activeSession.tracks
-        .filter(t => t.addedAt >= activeSession.startedAt)
-        .map(t => ({
-          uri: normalizeUri(t.uri),
-          title: t.title || 'Unknown',
-          artist: t.artist || '',
-          albumArt: t.albumArt,
-          duration_ms: t.durationMs || 0,
-          status: t.status
-        }));
+      // Build response tracks
+      tracks = activeSession.tracks.map(t => ({
+        uri: normalizeUri(t.uri),
+        title: t.title || 'Unknown',
+        artist: t.artist || '',
+        albumArt: t.albumArt,
+        duration_ms: t.durationMs || 0,
+        status: t.status
+      }));
     }
 
     const playedCount = tracks.filter(t => t.status === 'Played').length;
@@ -516,17 +524,16 @@ app.get('/api/status', async (req, res) => {
       durationMs: data.item?.duration_ms || 0
     };
 
-// Cleanup logic: delete when all tracks are played and nothing is playing
-if (activeSession) {
-  const allPlayed = tracks.length > 0 && tracks.every(t => t.status === 'Played');
-  if (allPlayed && !activeSession.isPlaying) {
-    activeSession.active = false;
-    activeSession.endedAt = new Date();
-    await PaidSession.deleteOne({ _id: activeSession._id });  // <-- delete by _id
-    console.log(`[CLEANUP] Deleted finished session: ${activeSession._id}`);
-  }
-}
-
+    // Cleanup logic
+    if (activeSession) {
+      const allPlayed = tracks.length > 0 && tracks.every(t => t.status === 'Played');
+      if (allPlayed && !activeSession.isPlaying) {
+        activeSession.active = false;
+        activeSession.endedAt = new Date();
+        await PaidSession.deleteOne({ _id: activeSession._id });
+        console.log(`[CLEANUP] Deleted finished session: ${activeSession._id}`);
+      }
+    }
 
     return res.json(responsePayload);
   } catch (err) {

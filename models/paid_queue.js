@@ -28,7 +28,7 @@ const PaidSessionSchema = new mongoose.Schema({
   songsAdded: { type: Number, default: 0 },
   active: { type: Boolean, default: true },
   startedAt: { type: Date, default: Date.now },
-  endedAt: { type: Date },   // ✅ used for TTL cleanup
+  endedAt: { type: Date },  
   tracks: [PaidTrackSchema],
   processedAt: { type: Date }, 
   playbackStartedAt: { type: Date }, 
