@@ -942,38 +942,26 @@ app.post('/webhook/payment-success', async (req, res) => {
     const effectiveCheckoutId = checkoutId;
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    // Find session by checkoutId + userId
-    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId, userId });
+    // ✅ Attach to existing session by checkoutId
+    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
     if (!session) {
       return res.status(404).json({ error: 'No session found for checkoutId' });
     }
 
-    // ✅ Guard: skip if already processed
-    if (session.processed === true) {
-      return res.json({ ok: true, message: 'Webhook already processed, skipping duplicate' });
+    // Guard: skip duplicate webhook
+    if (session.songsAdded > 0 && session.playbackStartedAt) {
+      return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
     }
 
     if (tracks.length > 0) {
-      // Deduplicate by URI
-      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
-      const existingUris = new Set(session.tracks.map(t => normalizeUri(t.uri)));
-
-      const newTracks = tracks
-        .map((track, i) => normalizeTrack(track, i + 1))
-        .filter(t => !existingUris.has(normalizeUri(t.uri)));
-
-      if (newTracks.length > 0) {
-        session.tracks.push(...newTracks);
-        session.songsAdded += newTracks.length;
-      }
-
+      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
+      session.songsAdded = tracks.length;
       session.active = true;
       await session.save();
 
       try {
-        await startPaidSession(session.sessionId, session.tracks, estimatedTotalMs);
+        await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
         session.playbackStartedAt = new Date();
-        session.processed = true;   // ✅ mark as processed
         await session.save();
       } catch (err) {
         console.error('startPaidSession error', err);
