@@ -918,43 +918,51 @@ app.post("/api/yoco/create-checkout", async (req, res) => {
 app.get('/api/checkout-tracks', async (req, res) => {
   try {
     const id = req.query.checkoutId;
-    if (!id) {
-      return res.status(400).json({ error: 'checkoutId required' });
-    }
+    if (!id) return res.status(400).json({ error: 'checkoutId required' });
 
-    const entry = await Checkout.findOne({ checkoutId: id });
-    if (!entry) {
-      return res.status(404).json({ error: 'checkout not found or expired' });
-    }
+    const entry = await Checkout.findOne({ checkoutId: id }).lean();
+    if (!entry) return res.status(404).json({ error: 'checkout not found or expired' });
 
-    // Normalize tracks
-    const normalizedTracks = (entry.tracks || []).map((track, i) =>
-      normalizeTrack(track, i + 1)
-    );
+    const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
 
-    // If a PaidSession exists, enrich with authoritative statuses
-    const session = await PaidSession.findOne({ checkoutId: id });
-    let tracksWithStatus = normalizedTracks;
+    let tracksWithStatus = (entry.tracks || []).map((track, i) => ({
+      uri: normalizeUri(track.uri),
+      title: track.title,
+      artist: track.artist,
+      albumArt: track.albumArt,
+      duration_ms: track.duration_ms || 0,
+      order: i + 1,
+      status: 'Added'
+    }));
 
+    const session = await PaidSession.findOne({ checkoutId: id }).lean();
     if (session) {
-      const current = session.tracks.find(t => !t.played);
+      const currentUri = normalizeUri(session.currentUri);
       tracksWithStatus = session.tracks.map(t => {
+        const trackUri = normalizeUri(t.uri);
         let status = 'Added';
         if (t.played) status = 'Played';
-        else if (current && t.uri === current.uri) status = 'Playing';
-
+        else if (currentUri && trackUri === currentUri) status = session.isPlaying ? 'Playing' : 'Paused';
         return {
-          uri: t.uri,
+          uri: trackUri,
           title: t.title,
           artist: t.artist,
           albumArt: t.albumArt,
-          duration_ms: t.duration_ms || 0,
+          duration_ms: t.durationMs || 0,
           status
         };
       });
     }
 
-    return res.json({
+    // ✅ Deduplicate by URI before returning
+    const seen = new Set();
+    tracksWithStatus = tracksWithStatus.filter(t => {
+      if (seen.has(t.uri)) return false;
+      seen.add(t.uri);
+      return true;
+    });
+
+    res.json({
       success: true,
       checkoutId: id,
       mode: session ? 'PAID' : 'DEFAULT',
@@ -963,7 +971,7 @@ app.get('/api/checkout-tracks', async (req, res) => {
     });
   } catch (err) {
     console.error('/api/checkout-tracks error', err);
-    return res.status(500).json({ error: 'server error', details: err.message });
+    res.status(500).json({ error: 'server error', details: err.message });
   }
 });
 
