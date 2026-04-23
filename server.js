@@ -942,19 +942,19 @@ app.post('/webhook/payment-success', async (req, res) => {
     const effectiveCheckoutId = checkoutId;
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    // ✅ Atomic lookup/update by checkoutId + userId
+    // Find session by checkoutId + userId
     let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId, userId });
     if (!session) {
       return res.status(404).json({ error: 'No session found for checkoutId' });
     }
 
-    // ✅ Guard: skip duplicate webhook if already processed
+    // ✅ Guard: skip if already processed
     if (session.processed === true) {
-      return res.json({ ok: true, message: 'Webhook already processed for this checkoutId' });
+      return res.json({ ok: true, message: 'Webhook already processed, skipping duplicate' });
     }
 
     if (tracks.length > 0) {
-      // Deduplicate tracks by URI before saving
+      // Deduplicate by URI
       const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
       const existingUris = new Set(session.tracks.map(t => normalizeUri(t.uri)));
 
@@ -973,7 +973,7 @@ app.post('/webhook/payment-success', async (req, res) => {
       try {
         await startPaidSession(session.sessionId, session.tracks, estimatedTotalMs);
         session.playbackStartedAt = new Date();
-        session.processed = true; // ✅ mark webhook as processed
+        session.processed = true;   // ✅ mark as processed
         await session.save();
       } catch (err) {
         console.error('startPaidSession error', err);
