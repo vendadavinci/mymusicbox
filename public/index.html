@@ -1054,11 +1054,18 @@ async function renderQueue() {
     if (!checkoutQueueList) return;
 
     const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('checkoutId');
-    if (!sessionId) return;
+    const checkoutId = params.get('checkoutId');   // ✅ get checkoutId from URL
+    const sessionId = sessionStorage.getItem('sessionId'); // ✅ persist sessionId separately
 
-    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
+    if (!checkoutId && !sessionId) return;
+
+    // ✅ Pass both IDs to backend
+    const res = await fetch(`/api/progress?sessionId=${sessionId || ''}&checkoutId=${checkoutId || ''}`);
     const data = await res.json();
+
+    // 👀 Debug: check what backend is returning
+    console.log('Progress API response:', data);
+
     if (!data.success) return;
 
     const tracks = data.tracks || [];
@@ -1129,8 +1136,9 @@ async function renderQueue() {
 
     checkoutQueueList.appendChild(frag);
 
+    // ✅ Use backend values for progress
     if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `Paid queue: ${tracks.length}`;
+      checkoutQueueCount.textContent = `${data.playedCount}/${data.totalTracks}`;
     }
     if (checkoutQueueDuration) {
       checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
@@ -1148,6 +1156,7 @@ async function renderQueue() {
     console.error('renderQueue error', err);
   }
 }
+
 
 
 // Helper: fetch with timeout and one retry
