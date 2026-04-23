@@ -229,9 +229,10 @@ app.post('/api/play', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing tracks array' });
     }
 
-    const effectiveCheckoutId = checkoutId || (typeof sessionId === 'string' && sessionId.split('-')[1]) || null;
+    // ✅ Always use full checkoutId consistently
+    const effectiveCheckoutId = checkoutId || sessionId || crypto.randomUUID();
 
-    // 1) Idempotency by checkoutId: only short-circuit for replace mode
+    // 1) Idempotency by checkoutId
     if (effectiveCheckoutId && !append) {
       const existing = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
       if (existing) {
@@ -244,19 +245,22 @@ app.post('/api/play', async (req, res) => {
       }
     }
 
-    // 2) If sessionId provided, try to find session by sessionId
+    // 2) Try to find by sessionId or checkoutId
     let session = null;
     if (sessionId) {
       session = await PaidSession.findOne({ sessionId });
     }
+    if (!session && effectiveCheckoutId) {
+      session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
+    }
 
     // 3) If no session found, create new
     if (!session) {
-      const newSessionId = sessionId || `${new Date().toISOString().slice(0,10)}-${effectiveCheckoutId || crypto.randomUUID()}-${Date.now().toString().slice(-6)}`;
+      const newSessionId = sessionId || `${effectiveCheckoutId}-${Date.now()}`;
       session = new PaidSession({
         sessionId: newSessionId,
         userId: userId || null,
-        checkoutId: effectiveCheckoutId || null,
+        checkoutId: effectiveCheckoutId,   // ✅ full UUID only
         packagePrice: 0,
         maxSongs: 0,
         songsAdded: 0,
@@ -286,6 +290,7 @@ app.post('/api/play', async (req, res) => {
         await session.save();
       }
 
+      // Queue tracks on Spotify
       for (const track of toAdd) {
         try {
           const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
@@ -340,17 +345,13 @@ app.post('/api/play', async (req, res) => {
         return res.status(playR.status).json({ success: false, error: 'play failed', details: text });
       }
 
-// Mark playback started
-session.playbackStartedAt = new Date();
-
-// ✅ Persist playback state
-if (normalized.length > 0) {
-  session.currentUri = normalized[0].uri;   // first track now playing
-  session.isPlaying = true;                 // playback is active
-}
-
-await session.save();
-
+      // Mark playback started
+      session.playbackStartedAt = new Date();
+      if (normalized.length > 0) {
+        session.currentUri = normalized[0].uri;
+        session.isPlaying = true;
+      }
+      await session.save();
 
     } catch (e) {
       session.active = false;
@@ -552,26 +553,17 @@ app.post('/api/reserve-tracks', async (req, res) => {
 app.post('/webhook/payment-success', async (req, res) => {
   try {
     const { sessionId, checkoutId, tracks = [], userId } = req.body;
-    if (!sessionId) {
-      return res.status(400).json({ error: 'Missing sessionId' });
+    if (!checkoutId) {
+      return res.status(400).json({ error: 'Missing checkoutId' });
     }
 
-    const effectiveCheckoutId = checkoutId || sessionId; // always full, never fragment
+    const effectiveCheckoutId = checkoutId; // always full UUID
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    let session = await PaidSession.findOne({ sessionId });
+    // ✅ Attach to existing session by checkoutId
+    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
     if (!session) {
-      session = new PaidSession({
-        sessionId,
-        checkoutId: effectiveCheckoutId,   // ✅ use full value
-        userId: userId || null,
-        packagePrice: 0,
-        maxSongs: 0,
-        songsAdded: 0,
-        active: false,
-        startedAt: new Date(),
-        tracks: []
-      });
+      return res.status(404).json({ error: 'No session found for checkoutId' });
     }
 
     // Guard: skip duplicate webhook
@@ -586,7 +578,7 @@ app.post('/webhook/payment-success', async (req, res) => {
       await session.save();
 
       try {
-        await startPaidSession(sessionId, tracks, estimatedTotalMs);
+        await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
         session.playbackStartedAt = new Date();
         await session.save();
       } catch (err) {
@@ -601,7 +593,6 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
-
 
 
 // Check if there is an active paid session
