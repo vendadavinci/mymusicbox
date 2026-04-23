@@ -935,9 +935,9 @@ app.post('/api/queue', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    const { uri, sessionId, userId, title, artist, duration_ms, albumArt } = req.body || {};
-    if (!uri || !sessionId) {
-      return res.status(400).json({ error: 'Missing track URI or sessionId' });
+    const { uri, checkoutId, userId, title, artist, duration_ms, albumArt, device_id } = req.body || {};
+    if (!uri || !checkoutId) {
+      return res.status(400).json({ error: 'Missing track URI or checkoutId' });
     }
 
     // Ensure shuffle is off
@@ -947,56 +947,36 @@ app.post('/api/queue', async (req, res) => {
     });
 
     // Queue track in Spotify
-    const r = await fetch(
-      `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${tokens.access_token}` }
-      }
-    );
+    const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+    const r = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
 
     if (!r.ok) {
       const text = await r.text();
       console.error('/api/queue failed', r.status, text);
-
       if (r.status === 404 && text.includes('NO_ACTIVE_DEVICE')) {
-        return res.status(404).json({
-          error: 'No active Spotify device found. Please open the Spotify app and start playback once.',
-          details: text
-        });
+        return res.status(404).json({ error: 'No active Spotify device found. Please open the Spotify app and start playback once.', details: text });
       }
-
-      return res.status(r.status).json({
-        error: 'Spotify queue request failed',
-        details: text
-      });
+      return res.status(r.status).json({ error: 'Spotify queue request failed', details: text });
     }
 
-    // Find or create session
-    let session = await PaidSession.findOne({ sessionId });
+    // Attach to existing PaidSession by checkoutId
+    let session = await PaidSession.findOne({ checkoutId });
     if (!session) {
-      session = new PaidSession({
-        sessionId,
-        userId,
-        active: true,
-        tracks: [],
-        songsAdded: 0,
-        startedAt: new Date()
-      });
+      return res.status(404).json({ error: 'No active session for checkoutId' });
     }
 
-    // Use normalizeTrack helper
     const orderIndex = session.tracks.length + 1;
     session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
     session.songsAdded += 1;
     await session.save();
 
-    res.json({ ok: true, sessionId, added: uri });
+    res.json({ ok: true, checkoutId, added: uri });
   } catch (err) {
     console.error('/api/queue error', err);
     res.status(500).json({ error: 'Queue request failed', details: err.message });
   }
 });
+
 
 
 // Poller: update played tracks every 5 seconds
