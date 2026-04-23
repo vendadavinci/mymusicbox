@@ -16,16 +16,10 @@ router.get('/progress', async (req, res) => {
       return res.json({ success: false, message: 'Session not found' });
     }
 
-    const isPlaying = session.isPlaying;
-
-    // ✅ Normalize URIs so DB IDs and Spotify URIs match
-    const normalizeUri = u => {
-      if (!u) return null;
-      return u.startsWith('spotify:track:') ? u : `spotify:track:${u}`;
-    };
-
+    const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
     const currentUriNorm = normalizeUri(session.currentUri);
 
+    // Build track statuses
     const tracksWithStatus = session.tracks.map(t => {
       const trackUri = normalizeUri(t.uri);
       let status = 'Added';
@@ -33,7 +27,7 @@ router.get('/progress', async (req, res) => {
       if (t.played) {
         status = 'Played';
       } else if (currentUriNorm && trackUri === currentUriNorm) {
-        status = isPlaying ? 'Playing' : 'Paused';
+        status = session.isPlaying ? 'Playing' : 'Paused';
       }
 
       return {
@@ -57,7 +51,7 @@ router.get('/progress', async (req, res) => {
     const responsePayload = {
       success: true,
       sessionId: session.sessionId,
-      checkoutId: session.checkoutId,   // ✅ include checkoutId
+      checkoutId: session.checkoutId,
       userId: session.userId,
       title: playingTrack?.title || null,
       artist: playingTrack?.artist || null,
@@ -79,10 +73,10 @@ router.get('/progress', async (req, res) => {
       console.log(`[CLEANUP] Deleted finished session: ${session.checkoutId}`);
     }
 
-    res.json(responsePayload);
+    return res.json(responsePayload);
   } catch (err) {
     console.error('Error in /api/progress:', err);
-    res.json({ success: false, message: 'Internal server error' });
+    return res.json({ success: false, message: 'Internal server error' });
   }
 });
 

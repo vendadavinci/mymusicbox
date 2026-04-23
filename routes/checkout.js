@@ -1,8 +1,12 @@
+// routes/checkout-tracks.js
 import express from 'express';
 import { Checkout } from '../models/checkout.js';
 import { PaidSession } from '../models/paid_queue.js';
 
 const router = express.Router();
+
+// Helper: normalize Spotify URIs
+const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
 
 router.get('/checkout-tracks', async (req, res) => {
   try {
@@ -11,27 +15,27 @@ router.get('/checkout-tracks', async (req, res) => {
       return res.status(400).json({ error: 'checkoutId and userId required' });
     }
 
-    const entry = await Checkout.findOne({ checkoutId, userId });
+    // Use lean() since we don’t modify checkout docs
+    const entry = await Checkout.findOne({ checkoutId, userId }).lean();
     if (!entry) {
       return res.status(404).json({ error: 'checkout not found or expired' });
     }
 
-    const normalizedTracks = (entry.tracks || []).map((track, i) => ({
-      uri: track.uri,
+    // Base normalized tracks from checkout
+    let tracksWithStatus = (entry.tracks || []).map((track, i) => ({
+      uri: normalizeUri(track.uri),
       title: track.title,
       artist: track.artist,
       albumArt: track.albumArt,
       duration_ms: track.duration_ms || 0,
-      order: i + 1
+      order: i + 1,
+      status: 'Added'
     }));
 
-    const session = await PaidSession.findOne({ checkoutId: checkoutId, userId });
-    let tracksWithStatus = normalizedTracks;
-
+    // If a session exists, override with live statuses
+    const session = await PaidSession.findOne({ checkoutId, userId });
     if (session) {
-      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
       const currentUriNorm = normalizeUri(session.currentUri);
-
       tracksWithStatus = session.tracks.map(t => {
         const trackUri = normalizeUri(t.uri);
         let status = 'Added';
@@ -51,11 +55,14 @@ router.get('/checkout-tracks', async (req, res) => {
       });
     }
 
+    const playedCount = tracksWithStatus.filter(t => t.status === 'Played').length;
+
     res.json({
       success: true,
       checkoutId,
       mode: session ? 'PAID' : 'DEFAULT',
       totalTracks: tracksWithStatus.length,
+      playedCount,
       tracks: tracksWithStatus
     });
   } catch (err) {
@@ -65,6 +72,3 @@ router.get('/checkout-tracks', async (req, res) => {
 });
 
 export default router;
-
-
-

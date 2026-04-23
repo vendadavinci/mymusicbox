@@ -434,7 +434,7 @@ app.get('/api/status', async (req, res) => {
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
         sessionId: activeSession?.sessionId || null,
-        checkoutId: activeSession?.checkoutId || null,   // ✅ include checkoutId
+        checkoutId: activeSession?.checkoutId || null,
         playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0,
         totalTracks: activeSession?.tracks?.length || 0,
         tracks: activeSession?.tracks?.filter(t => t.addedAt >= activeSession.startedAt) || [],
@@ -467,23 +467,21 @@ app.get('/api/status', async (req, res) => {
       }
 
       // Update playback state + track statuses
-      if (currentUri) {
-        activeSession.currentUri = currentUri;
-        activeSession.isPlaying = data.is_playing;
+      activeSession.currentUri = currentUri || null;
+      activeSession.isPlaying = data.is_playing || false;
 
-        activeSession.tracks.forEach(t => {
-          const trackUri = normalizeUri(t.uri);
-          if (t.played) {
-            t.status = 'Played';
-          } else if (trackUri === currentUri) {
-            t.status = data.is_playing ? 'Playing' : 'Paused';
-          } else {
-            t.status = 'Added';
-          }
-        });
+      activeSession.tracks.forEach(t => {
+        const trackUri = normalizeUri(t.uri);
+        if (t.played) {
+          t.status = 'Played';
+        } else if (currentUri && trackUri === currentUri) {
+          t.status = data.is_playing ? 'Playing' : 'Paused';
+        } else {
+          t.status = 'Added';
+        }
+      });
 
-        await activeSession.save();
-      }
+      await activeSession.save();
 
       // ✅ Only include tracks from this session
       tracks = activeSession.tracks
@@ -504,7 +502,7 @@ app.get('/api/status', async (req, res) => {
       success: true,
       mode: activeSession ? 'PAID' : 'DEFAULT',
       sessionId: activeSession?.sessionId || null,
-      checkoutId: activeSession?.checkoutId || null,   // ✅ include checkoutId
+      checkoutId: activeSession?.checkoutId || null,
       playedCount,
       totalTracks: tracks.length,
       tracks,
@@ -533,7 +531,6 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
-
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {

@@ -1,3 +1,5 @@
+// models/cleanup.js
+
 import cron from 'node-cron';
 import mongoose from 'mongoose';
 import { PaidSession } from './models/paid_queue.js';
@@ -7,15 +9,23 @@ cron.schedule('* * * * *', async () => {
   try {
     console.log('[CLEANUP] Checking for finished sessions...');
 
-    // Find sessions that are still marked active
-    const sessions = await PaidSession.find({ active: true });
+    // ✅ Look at all sessions, not just active ones
+    const sessions = await PaidSession.find({});
 
     for (const session of sessions) {
       const allPlayed = session.tracks.length > 0 &&
         session.tracks.every(t => t.status === 'Played');
 
+      // ✅ Delete if all tracks are played and playback has stopped
       if (allPlayed && !session.isPlaying) {
         console.log(`[CLEANUP] Deleting session: ${session.checkoutId} (${session.sessionId})`);
+        await PaidSession.deleteOne({ _id: session._id });
+      }
+
+      // ✅ Optional safeguard: delete sessions older than 2 hours
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      if (session.startedAt < twoHoursAgo) {
+        console.log(`[CLEANUP] Expired session removed: ${session.checkoutId} (${session.sessionId})`);
         await PaidSession.deleteOne({ _id: session._id });
       }
     }
@@ -23,3 +33,4 @@ cron.schedule('* * * * *', async () => {
     console.error('[CLEANUP] Error during cleanup:', err);
   }
 });
+

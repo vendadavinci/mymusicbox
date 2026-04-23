@@ -10,14 +10,14 @@ const PaidTrackSchema = new mongoose.Schema({
   addedAt: { type: Date, default: Date.now },
   played: { type: Boolean, default: false },
   orderIndex: { type: Number },
-  // ✅ Optional: mirror status field for consistency
+  
+  // ✅ Explicit status field for consistency
   status: { 
     type: String, 
     enum: ['Added', 'Playing', 'Played', 'Paused'], 
     default: 'Added' 
   }
 }, { _id: false });
-
 
 const CheckoutSchema = new mongoose.Schema({
   checkoutId: { type: String, unique: true, index: true },
@@ -27,18 +27,21 @@ const CheckoutSchema = new mongoose.Schema({
   successUrl: { type: String },
   cancelUrl: { type: String },
   createdAt: { type: Date, default: Date.now },
-  expiresAt: { type: Date }, // NEW: expiry marker for TTL
+
+  // ✅ Expiry marker for TTL cleanup
+  expiresAt: { type: Date },
+
   tracks: [PaidTrackSchema],
 
-  // Durable link back to the session
+  // ✅ Durable link back to the session
   sessionRef: { type: mongoose.Schema.Types.ObjectId, ref: 'PaidSession' },
 
-  // Markers for idempotency and playback
-  processedAt: { type: Date },          // when this checkout was consumed into a session
-  playbackStartedAt: { type: Date }     // when playback was triggered for this checkout
+  // ✅ Markers for idempotency and playback
+  processedAt: { type: Date },          
+  playbackStartedAt: { type: Date }     
 });
 
-// TTL index: automatically remove expired checkouts
+// ✅ TTL index: automatically remove expired checkouts
 CheckoutSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 export const Checkout = mongoose.model('Checkout', CheckoutSchema);

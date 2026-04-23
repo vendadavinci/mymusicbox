@@ -28,7 +28,7 @@ const PaidSessionSchema = new mongoose.Schema({
   songsAdded: { type: Number, default: 0 },
   active: { type: Boolean, default: true },
   startedAt: { type: Date, default: Date.now },
-  endedAt: { type: Date },
+  endedAt: { type: Date },   // ✅ used for TTL cleanup
   tracks: [PaidTrackSchema],
   processedAt: { type: Date }, 
   playbackStartedAt: { type: Date }, 
@@ -36,5 +36,8 @@ const PaidSessionSchema = new mongoose.Schema({
   // ✅ Persist playback state at session level
   isPlaying: { type: Boolean, default: false }
 });
+
+// ✅ TTL index: auto-delete sessions once endedAt is set
+PaidSessionSchema.index({ endedAt: 1 }, { expireAfterSeconds: 0 });
 
 export const PaidSession = mongoose.model('PaidSession', PaidSessionSchema);
