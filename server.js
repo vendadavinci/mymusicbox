@@ -939,29 +939,41 @@ app.post('/webhook/payment-success', async (req, res) => {
       return res.status(400).json({ error: 'Missing checkoutId' });
     }
 
-    const effectiveCheckoutId = checkoutId; // always full UUID
+    const effectiveCheckoutId = checkoutId;
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    // ✅ Attach to existing session by checkoutId
-    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
+    // ✅ Atomic lookup/update by checkoutId + userId
+    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId, userId });
     if (!session) {
       return res.status(404).json({ error: 'No session found for checkoutId' });
     }
 
-    // Guard: skip duplicate webhook
-    if (session.songsAdded > 0 && session.playbackStartedAt) {
-      return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
+    // ✅ Guard: skip duplicate webhook if already processed
+    if (session.processed === true) {
+      return res.json({ ok: true, message: 'Webhook already processed for this checkoutId' });
     }
 
     if (tracks.length > 0) {
-      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
-      session.songsAdded = tracks.length;
+      // Deduplicate tracks by URI before saving
+      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+      const existingUris = new Set(session.tracks.map(t => normalizeUri(t.uri)));
+
+      const newTracks = tracks
+        .map((track, i) => normalizeTrack(track, i + 1))
+        .filter(t => !existingUris.has(normalizeUri(t.uri)));
+
+      if (newTracks.length > 0) {
+        session.tracks.push(...newTracks);
+        session.songsAdded += newTracks.length;
+      }
+
       session.active = true;
       await session.save();
 
       try {
-        await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
+        await startPaidSession(session.sessionId, session.tracks, estimatedTotalMs);
         session.playbackStartedAt = new Date();
+        session.processed = true; // ✅ mark webhook as processed
         await session.save();
       } catch (err) {
         console.error('startPaidSession error', err);
