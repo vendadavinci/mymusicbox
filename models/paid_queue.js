@@ -1,0 +1,36 @@
+// models/paid_queue.js
+import mongoose from 'mongoose';
+
+const PaidTrackSchema = new mongoose.Schema({
+  uri: { type: String, required: true },
+  title: { type: String, required: true },
+  artist: { type: String, required: true },
+  durationMs: { type: Number, alias: 'duration_ms', required: true },
+  albumArt: { type: String, required: true },
+  addedAt: { type: Date, default: Date.now },
+  played: { type: Boolean, default: false },
+  orderIndex: { type: Number },
+  // ✅ Explicit status field
+
+}, { _id: false });
+
+const PaidSessionSchema = new mongoose.Schema({
+  sessionId: { type: String, unique: true, index: true },
+  userId: { type: String },
+  checkoutId: { type: String, unique: true, index: true }, 
+  checkoutRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Checkout' },
+  packagePrice: { type: Number },
+  maxSongs: { type: Number },
+  songsAdded: { type: Number, default: 0 },
+  active: { type: Boolean, default: true },
+  startedAt: { type: Date, default: Date.now },
+  endedAt: { type: Date },
+  tracks: [PaidTrackSchema],
+  processedAt: { type: Date }, 
+  playbackStartedAt: { type: Date }, 
+  currentUri: { type: String },
+  // ✅ Persist playback state at session level
+  isPlaying: { type: Boolean, default: false }
+});
+
+export const PaidSession = mongoose.model('PaidSession', PaidSessionSchema);
