@@ -434,7 +434,6 @@ app.get('/api/status', async (req, res) => {
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
         sessionId: activeSession?.sessionId || null,
-        checkoutId: activeSession?.checkoutId || null,   // ✅ include checkoutId
         playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0,
         totalTracks: activeSession?.tracks?.length || 0,
         tracks: activeSession?.tracks?.filter(t => t.addedAt >= activeSession.startedAt) || [],
@@ -504,7 +503,6 @@ app.get('/api/status', async (req, res) => {
       success: true,
       mode: activeSession ? 'PAID' : 'DEFAULT',
       sessionId: activeSession?.sessionId || null,
-      checkoutId: activeSession?.checkoutId || null,   // ✅ include checkoutId
       playedCount,
       totalTracks: tracks.length,
       tracks,
@@ -520,6 +518,7 @@ app.get('/api/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }
 });
+
 
 // Reserve tracks
 app.post('/api/reserve-tracks', async (req, res) => {

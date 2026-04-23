@@ -6,20 +6,19 @@ const router = express.Router();
 
 router.get('/progress', async (req, res) => {
   try {
-    const { checkoutId } = req.query;
-    if (!checkoutId) {
-      return res.json({ success: false, message: 'Missing checkoutId' });
+    const { sessionId } = req.query;
+    if (!sessionId) {
+      return res.json({ success: false, message: 'Missing sessionId' });
     }
 
-    // ✅ Lookup by checkoutId
-    const session = await PaidSession.findOne({ checkoutId });
+    const session = await PaidSession.findOne({ sessionId });
     if (!session) {
       return res.json({ success: false, message: 'Session not found' });
     }
 
     const isPlaying = session.isPlaying;
 
-    // Normalize URIs
+    // ✅ Normalize URIs so DB IDs and Spotify URIs match
     const normalizeUri = u => {
       if (!u) return null;
       return u.startsWith('spotify:track:') ? u : `spotify:track:${u}`;
@@ -55,11 +54,9 @@ router.get('/progress', async (req, res) => {
 
     const playingTrack = tracksWithStatus.find(t => t.status === 'Playing');
 
-    const responsePayload = {
+    res.json({
       success: true,
       sessionId: session.sessionId,
-      checkoutId: session.checkoutId,
-      userId: session.userId,
       title: playingTrack?.title || null,
       artist: playingTrack?.artist || null,
       albumArt: playingTrack?.albumArt || null,
@@ -67,18 +64,7 @@ router.get('/progress', async (req, res) => {
       playedCount: tracksWithStatus.filter(t => t.status === 'Played').length,
       totalTracks: tracksWithStatus.length,
       tracks: tracksWithStatus
-    };
-
-    // ✅ Delete only when all tracks are played and nothing is currently playing
-    const allPlayed = tracksWithStatus.length > 0 &&
-      tracksWithStatus.every(t => t.status === 'Played');
-
-    if (allPlayed && !playingTrack) {
-      await PaidSession.deleteOne({ checkoutId: session.checkoutId });
-      console.log(`[PROGRESS] Deleted finished session: ${session.checkoutId}`);
-    }
-
-    res.json(responsePayload);
+    });
   } catch (err) {
     console.error('Error in /api/progress:', err);
     res.json({ success: false, message: 'Internal server error' });
