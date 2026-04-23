@@ -586,63 +586,6 @@ app.post('/api/reserve-tracks', async (req, res) => {
 });
 
 
-app.post('/webhook/payment-success', async (req, res) => {
-  try {
-    const { sessionId, checkoutId, tracks = [], userId } = req.body;
-    if (!checkoutId) {
-      return res.status(400).json({ error: 'Missing checkoutId' });
-    }
-
-    const effectiveCheckoutId = checkoutId; // always full UUID
-    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
-
-    // ✅ Attach to existing session by checkoutId
-    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
-    if (!session) {
-      return res.status(404).json({ error: 'No session found for checkoutId' });
-    }
-
-    // Guard: skip duplicate webhook
-    if (session.songsAdded > 0 && session.playbackStartedAt) {
-      return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
-    }
-
-    if (tracks.length > 0) {
-      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
-      session.songsAdded = tracks.length;
-      session.active = true;
-      await session.save();
-
-      try {
-        await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
-        session.playbackStartedAt = new Date();
-        await session.save();
-      } catch (err) {
-        console.error('startPaidSession error', err);
-        return res.status(500).json({ error: 'playback failed', details: err.message });
-      }
-    }
-
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('/webhook/payment-success error', err);
-    res.status(500).json({ error: 'webhook handling failed', details: err.message });
-  }
-});
-
-
-// Check if there is an active paid session
-// Return the active paid session object (or null)
-async function isPaidSessionActive() {
-  try {
-    const activeSession = await PaidSession.findOne({ active: true });
-    return activeSession || null;
-  } catch (err) {
-    console.error('isPaidSessionActive error:', err);
-    return null;
-  }
-}
-
 
 // Search
 app.post('/api/search', async (req, res) => {
@@ -988,6 +931,62 @@ app.get('/api/checkout-tracks', async (req, res) => {
     res.status(500).json({ error: 'server error', details: err.message });
   }
 });
+
+app.post('/webhook/payment-success', async (req, res) => {
+  try {
+    const { sessionId, checkoutId, tracks = [], userId } = req.body;
+    if (!checkoutId) {
+      return res.status(400).json({ error: 'Missing checkoutId' });
+    }
+
+    const effectiveCheckoutId = checkoutId; // always full UUID
+    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
+
+    // ✅ Attach to existing session by checkoutId
+    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
+    if (!session) {
+      return res.status(404).json({ error: 'No session found for checkoutId' });
+    }
+
+    // Guard: skip duplicate webhook
+    if (session.songsAdded > 0 && session.playbackStartedAt) {
+      return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
+    }
+
+    if (tracks.length > 0) {
+      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
+      session.songsAdded = tracks.length;
+      session.active = true;
+      await session.save();
+
+      try {
+        await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
+        session.playbackStartedAt = new Date();
+        await session.save();
+      } catch (err) {
+        console.error('startPaidSession error', err);
+        return res.status(500).json({ error: 'playback failed', details: err.message });
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('/webhook/payment-success error', err);
+    res.status(500).json({ error: 'webhook handling failed', details: err.message });
+  }
+});
+
+async function isPaidSessionActive() {
+  try {
+    const activeSession = await PaidSession.findOne({ active: true });
+    return activeSession || null;
+  } catch (err) {
+    console.error('isPaidSessionActive error:', err);
+    return null;
+  }
+}
+
+
 
 app.post('/api/queue', async (req, res) => {
   try {
