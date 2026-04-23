@@ -2753,7 +2753,7 @@ async function refreshStatus() {
 
     
 <script>
-let lastPlaying = null; // remember the last track that was playing
+let lastPlaying = null;
 
 (async function loadPaidTracks() {
   try {
@@ -2767,7 +2767,7 @@ let lastPlaying = null; // remember the last track that was playing
         if (r.ok) {
           const json = await r.json();
           tracks = json.tracks || [];
-          sessionStorage.setItem('sessionId', checkoutId);
+          sessionStorage.setItem('checkoutId', checkoutId); // ✅ store correctly
         }
       }
     }
@@ -2782,21 +2782,24 @@ let lastPlaying = null; // remember the last track that was playing
         addedAt: Date.now()
       })));
 
-      // ✅ Use the unified backend-driven renderer
       renderQueue();
 
+      // ✅ send checkoutId to webhook
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sessionStorage.getItem('sessionId'), tracks })
+        body: JSON.stringify({ checkoutId: sessionStorage.getItem('checkoutId'), tracks })
       });
 
       statusText.textContent = 'Starting paid playback...';
-      await startPaidQueuePlayback(sessionStorage.getItem('sessionId'));
+
+      // ✅ pass checkoutId to playback
+      await startPaidQueuePlayback(sessionStorage.getItem('checkoutId'));
+
       pollStatusOnce();
       setInterval(() => {
         pollStatusOnce();
-        renderQueue(); // ✅ refresh queue from backend
+        renderQueue();
       }, 8000);
     }
   } catch (err) {
