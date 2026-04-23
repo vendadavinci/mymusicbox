@@ -6,12 +6,13 @@ const router = express.Router();
 
 router.get('/progress', async (req, res) => {
   try {
-    const { sessionId } = req.query;
-    if (!sessionId) {
-      return res.json({ success: false, message: 'Missing sessionId' });
+    const { checkoutId } = req.query;
+    if (!checkoutId) {
+      return res.json({ success: false, message: 'Missing checkoutId' });
     }
 
-    const session = await PaidSession.findOne({ sessionId });
+    // ✅ Find by checkoutId (same as webhook)
+    const session = await PaidSession.findOne({ checkoutId });
     if (!session) {
       return res.json({ success: false, message: 'Session not found' });
     }
@@ -19,7 +20,6 @@ router.get('/progress', async (req, res) => {
     const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
     const currentUriNorm = normalizeUri(session.currentUri);
 
-    // Build track statuses
     const tracksWithStatus = session.tracks.map(t => {
       const trackUri = normalizeUri(t.uri);
       let status = 'Added';
@@ -40,12 +40,6 @@ router.get('/progress', async (req, res) => {
       };
     });
 
-    console.log('Progress route statuses:', tracksWithStatus.map(t => ({
-      uri: t.uri,
-      title: t.title,
-      status: t.status
-    })));
-
     const playingTrack = tracksWithStatus.find(t => t.status === 'Playing');
 
     const responsePayload = {
@@ -62,16 +56,16 @@ router.get('/progress', async (req, res) => {
       tracks: tracksWithStatus
     };
 
-    // ✅ Cleanup logic: delete when all tracks are played and nothing is playing
-const allPlayed = tracksWithStatus.length > 0 &&
-  tracksWithStatus.every(t => t.status === 'Played');
+    // ✅ Cleanup logic: delete by _id
+    const allPlayed = tracksWithStatus.length > 0 &&
+      tracksWithStatus.every(t => t.status === 'Played');
 
-if (allPlayed && !session.isPlaying) {
-  session.active = false;
-  session.endedAt = new Date();
-  await PaidSession.deleteOne({ _id: session._id });  // <-- delete by _id
-  console.log(`[CLEANUP] Deleted finished session: ${session._id}`);
-}
+    if (allPlayed && !session.isPlaying) {
+      session.active = false;
+      session.endedAt = new Date();
+      await PaidSession.deleteOne({ _id: session._id });
+      console.log(`[CLEANUP] Deleted finished session: ${session._id}`);
+    }
 
     return res.json(responsePayload);
   } catch (err) {

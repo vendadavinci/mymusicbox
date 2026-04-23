@@ -1054,10 +1054,11 @@ async function renderQueue() {
     if (!checkoutQueueList) return;
 
     const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('checkoutId'); 
-    if (!sessionId) return;
+    const checkoutId = params.get('checkoutId');   // ✅ use checkoutId consistently
+    if (!checkoutId) return;
 
-    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
+    // ✅ query backend with checkoutId
+    const res = await fetch(`/api/progress?checkoutId=${checkoutId}`);
     const data = await res.json();
     if (!data.success) return;
 
