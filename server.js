@@ -434,6 +434,7 @@ app.get('/api/status', async (req, res) => {
         success: true,
         mode: activeSession ? 'PAID' : 'DEFAULT',
         sessionId: activeSession?.sessionId || null,
+        checkoutId: activeSession?.checkoutId || null,   // ✅ include checkoutId
         playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0,
         totalTracks: activeSession?.tracks?.length || 0,
         tracks: activeSession?.tracks?.filter(t => t.addedAt >= activeSession.startedAt) || [],
@@ -499,10 +500,11 @@ app.get('/api/status', async (req, res) => {
 
     const playedCount = tracks.filter(t => t.status === 'Played').length;
 
-    return res.json({
+    const responsePayload = {
       success: true,
       mode: activeSession ? 'PAID' : 'DEFAULT',
       sessionId: activeSession?.sessionId || null,
+      checkoutId: activeSession?.checkoutId || null,   // ✅ include checkoutId
       playedCount,
       totalTracks: tracks.length,
       tracks,
@@ -513,7 +515,20 @@ app.get('/api/status', async (req, res) => {
       isPlaying: data.is_playing || false,
       progressMs: data.progress_ms || 0,
       durationMs: data.item?.duration_ms || 0
-    });
+    };
+
+    // ✅ Cleanup logic: delete when all tracks are played and nothing is playing
+    if (activeSession) {
+      const allPlayed = tracks.length > 0 && tracks.every(t => t.status === 'Played');
+      if (allPlayed && !activeSession.isPlaying) {
+        activeSession.active = false;
+        activeSession.endedAt = new Date();
+        await PaidSession.deleteOne({ checkoutId: activeSession.checkoutId });
+        console.log(`[CLEANUP] Deleted finished session: ${activeSession.checkoutId}`);
+      }
+    }
+
+    return res.json(responsePayload);
   } catch (err) {
     res.status(500).json({ success: false, error: 'status failed', details: err.message });
   }

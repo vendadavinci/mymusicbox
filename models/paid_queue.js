@@ -11,7 +11,11 @@ const PaidTrackSchema = new mongoose.Schema({
   played: { type: Boolean, default: false },
   orderIndex: { type: Number },
   // ✅ Explicit status field
-
+  status: { 
+    type: String, 
+    enum: ['Added', 'Playing', 'Played', 'Paused'], 
+    default: 'Added' 
+  }
 }, { _id: false });
 
 const PaidSessionSchema = new mongoose.Schema({

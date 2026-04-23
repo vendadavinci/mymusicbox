@@ -54,9 +54,11 @@ router.get('/progress', async (req, res) => {
 
     const playingTrack = tracksWithStatus.find(t => t.status === 'Playing');
 
-    res.json({
+    const responsePayload = {
       success: true,
       sessionId: session.sessionId,
+      checkoutId: session.checkoutId,   // ✅ include checkoutId
+      userId: session.userId,
       title: playingTrack?.title || null,
       artist: playingTrack?.artist || null,
       albumArt: playingTrack?.albumArt || null,
@@ -64,7 +66,20 @@ router.get('/progress', async (req, res) => {
       playedCount: tracksWithStatus.filter(t => t.status === 'Played').length,
       totalTracks: tracksWithStatus.length,
       tracks: tracksWithStatus
-    });
+    };
+
+    // ✅ Cleanup logic: delete when all tracks are played and nothing is playing
+    const allPlayed = tracksWithStatus.length > 0 &&
+      tracksWithStatus.every(t => t.status === 'Played');
+
+    if (allPlayed && !session.isPlaying) {
+      session.active = false;
+      session.endedAt = new Date();
+      await PaidSession.deleteOne({ checkoutId: session.checkoutId });
+      console.log(`[CLEANUP] Deleted finished session: ${session.checkoutId}`);
+    }
+
+    res.json(responsePayload);
   } catch (err) {
     console.error('Error in /api/progress:', err);
     res.json({ success: false, message: 'Internal server error' });
