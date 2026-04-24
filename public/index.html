@@ -1617,24 +1617,7 @@ async function pollStatus() {
 
     if (!data.success || data.status !== 'successful') return;
 
-    // ✅ Just render backend state
-    paidQueue = (data.tracks || []).map(t => ({
-      uri: t.uri,
-      title: t.title,
-      artist: t.artist,
-      duration_ms: t.duration_ms,
-      albumArt: t.albumArt,
-      addedAt: Date.now(),
-      played: t.status === 'Played',
-      status: t.status
-    }));
 
-    if (typeof persistPaidQueue === 'function') persistPaidQueue();
-    if (typeof renderQueue === 'function') renderQueue();
-
-    if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
-    if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
-    if (typeof initPage === 'function') initPage();
 
   } catch (err) {
     console.error('pollStatus error:', err);
