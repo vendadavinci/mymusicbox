@@ -136,22 +136,6 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null, user
     }
     await session.save();
 
-    // Queue only new tracks in Spotify
-    await refreshAccessTokenIfNeeded();
-    for (const track of tracks) {
-      const alreadyQueued = session.tracks.some(t => t.uri === track.uri && t.played);
-      if (!alreadyQueued) {
-        const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}`;
-        const qRes = await fetch(queueUrl, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${tokens.access_token}` }
-        });
-        if (!qRes.ok) {
-          console.warn('Spotify queue failed', track.uri, await qRes.text());
-        }
-      }
-    }
-
     return { added: true };
   }
 
