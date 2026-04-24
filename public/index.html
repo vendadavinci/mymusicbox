@@ -1673,56 +1673,6 @@ function setNowPlaying(title, artist, albumArt) {
   nowArt.style.backgroundImage = albumArt ? `url(${albumArt})` : '';
 }
 
-async function pollStatusAdaptive() {
-  const sessionId = sessionStorage.getItem('sessionId');
-  if (!sessionId) return;
-
-  try {
-    const res = await fetch(`/api/status?userId=${window.currentUserId}`);
-
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data.success) return;
-
-    // Update "Now Playing"
-    setNowPlaying(data.title, data.artist, data.albumArt);
-    nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
-    statusText.textContent = data.mode === 'PAID'
-      ? 'Playing paid queue'
-      : (data.isPlaying ? 'Playing' : 'Paused');
-
-    // Show next track info
-    if (data.tracks && data.tracks.length > 0) {
-      const nextTrack = data.tracks.find(t => t.status === 'Added');
-      if (nextTrack) {
-        nextTitleEl.textContent = `${nextTrack.title} — ${nextTrack.artist}`;
-      }
-      queueCount.textContent = `Paid queue: ${data.totalTracks}`;
-      queueDurationText.textContent = `Estimated duration: ${
-        Math.round(data.tracks.reduce((s, i) => s + (i.duration_ms || 0), 0) / 60000)
-      } min`;
-    }
-
-    // Refresh queue display
-    renderQueue();
-
-    // Adaptive interval
-    const desiredInterval = data.isPlaying ? 1000 : 8000;
-    if (desiredInterval !== currentInterval) {
-      currentInterval = desiredInterval;
-      if (pollHandle) clearInterval(pollHandle);
-      pollHandle = setInterval(pollStatusAdaptive, currentInterval);
-    }
-  } catch (err) {
-    console.error('pollStatusAdaptive error', err);
-  }
-}
-
-// Run immediately once
-pollStatusAdaptive();
-
-// Start with default interval
-pollHandle = setInterval(pollStatusAdaptive, currentInterval);
 
 
 /* ====== Payment success handler ====== */
