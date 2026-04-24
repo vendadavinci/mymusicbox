@@ -947,44 +947,39 @@ app.get('/api/checkout-tracks', async (req, res) => {
 
 app.post('/webhook/payment-success', async (req, res) => {
   try {
-    const { checkoutId, tracks = [] } = req.body;
-    if (!checkoutId) return res.status(400).json({ error: 'Missing checkoutId' });
+    const { sessionId, checkoutId, tracks = [], userId } = req.body;
+    if (!checkoutId) {
+      return res.status(400).json({ error: 'Missing checkoutId' });
+    }
 
-    const session = await PaidSession.findOne({ checkoutId });
-    if (!session) return res.status(404).json({ error: 'No session found for checkoutId' });
+    const effectiveCheckoutId = checkoutId;
+    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    // ✅ Skip if already processed
-    if (session.processed) {
-      return res.json({ ok: true, message: 'Session already processed' });
+    // ✅ Attach to existing session by checkoutId
+    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
+    if (!session) {
+      return res.status(404).json({ error: 'No session found for checkoutId' });
+    }
+
+    // Guard: skip duplicate webhook
+    if (session.songsAdded > 0 && session.playbackStartedAt) {
+      return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
     }
 
     if (tracks.length > 0) {
-      const existingUris = new Set(session.tracks.map(t => t.uri));
-      const newTracks = [];
-      let nextIndex = session.tracks.length + 1;
+      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
+      session.songsAdded = tracks.length;
+      session.active = true;
+      await session.save();
 
-      for (const t of tracks) {
-        if (!t || !t.uri) continue;
-        if (existingUris.has(t.uri)) continue;
-        newTracks.push(normalizeTrack(t, nextIndex++));
-        existingUris.add(t.uri);
-      }
-
-      if (newTracks.length > 0) {
-        session.tracks = session.tracks.concat(newTracks);
-        session.songsAdded = (session.songsAdded || 0) + newTracks.length;
-        session.active = true;
+      try {
+        await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
+        session.playbackStartedAt = new Date();
+        session.processed = true;
         await session.save();
-
-        try {
-          await startPaidSession(session.sessionId, newTracks, newTracks.reduce((s, t) => s + (t.duration_ms || 210000), 0));
-          session.playbackStartedAt = new Date();
-          session.processed = true;   // ✅ mark as processed
-          await session.save();
-        } catch (err) {
-          console.error('startPaidSession error', err);
-          return res.status(500).json({ error: 'playback failed', details: err.message });
-        }
+      } catch (err) {
+        console.error('startPaidSession error', err);
+        return res.status(500).json({ error: 'playback failed', details: err.message });
       }
     }
 
@@ -994,7 +989,6 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
-
 
 async function isPaidSessionActive() {
   try {
