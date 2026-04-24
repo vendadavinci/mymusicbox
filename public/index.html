@@ -1606,6 +1606,70 @@ statusPollHandle = setInterval(pollStatus, 6000);
 pollStatus();
 
 
+async function pollStatus() {
+  try {
+    const checkoutId = sessionStorage.getItem('checkoutId');
+    if (!checkoutId) return;
+
+    const res = await fetch(`/api/yoco/session-status?id=${encodeURIComponent(checkoutId)}`);
+    if (!res.ok) {
+      console.warn('session-status returned non-ok', res.status);
+      return;
+    }
+    const data = await res.json();
+
+    if (data.status !== 'successful') return;
+
+    const pending = typeof getPendingSubmission === 'function' ? getPendingSubmission() : null;
+    let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length
+      ? pending.tracks.slice()
+      : JSON.parse(sessionStorage.getItem('tracks') || '[]');
+
+    if (Array.isArray(data.enaddedUris) && data.enaddedUris.length) {
+      const enaddedSet = new Set(data.enaddedUris);
+      tracksToEnqueue = tracksToEnqueue.filter(t => !enaddedSet.has(t.uri));
+    }
+
+    const localSet = new Set((paidQueue || []).map(t => t.uri));
+    tracksToEnqueue = tracksToEnqueue.filter(t => !localSet.has(t.uri));
+
+    if (tracksToEnqueue.length === 0) {
+      if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
+      if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
+      if (typeof initPage === 'function') initPage();
+      return;
+    }
+
+    for (const t of tracksToEnqueue) {
+      paidQueue.push({
+        uri: t.uri,
+        title: t.title || t.name || '',
+        artist: t.artist || (t.artists && t.artists.join(', ')) || '',
+        duration_ms: t.duration_ms || 0,
+        albumArt: t.albumArt || t.album_art || '',
+        addedAt: Date.now(),
+        played: !!t.played,
+        status: 'Added',
+        orderIndex: t.orderIndex || (paidQueue.length + 1)
+      });
+      sessionStorage.setItem(`added_${checkoutId}_${t.uri}`, 'true');
+    }
+
+    if (typeof persistPaidQueue === 'function') persistPaidQueue();
+    if (typeof renderQueue === 'function') renderQueue();
+
+    if (!paidSessionActive && typeof startPaidQueuePlayback === 'function') {
+      startPaidQueuePlayback();
+    }
+
+    if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
+    if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
+    if (typeof initPage === 'function') initPage();
+
+  } catch (err) {
+    console.error('pollStatus error:', err);
+  }
+}
 
 // Adaptive Spotify playback polling
 let pollHandle = null;
