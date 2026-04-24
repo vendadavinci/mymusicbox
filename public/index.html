@@ -2534,6 +2534,62 @@ async function refreshStatus() {
 }
 
 </script>   
+<script>
+let lastPlaying = null;
+
+async function loadPaidTracks() {
+  try {
+    let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+
+    if ((!tracks || tracks.length === 0) && location.search) {
+      const params = new URLSearchParams(location.search);
+      const checkoutId = params.get('checkoutId');
+      if (checkoutId) {
+        const r = await fetch(`/api/checkout-tracks?checkoutId=${encodeURIComponent(checkoutId)}`);
+        if (r.ok) {
+          const json = await r.json();
+          tracks = json.tracks || [];
+          sessionStorage.setItem('checkoutId', checkoutId);
+        }
+      }
+    }
+
+    if (tracks && tracks.length > 0) {
+      paidQueue.push(...tracks.map(t => ({
+        uri: t.uri,
+        title: t.title || '',
+        artist: t.artist || '',
+        duration_ms: t.duration_ms || 0,
+        albumArt: t.albumArt || '',
+        addedAt: Date.now()
+      })));
+
+      renderQueue();
+
+      const statusText = document.getElementById('statusText');
+      if (statusText) statusText.textContent = 'Starting paid playback...';
+
+      await startPaidQueuePlayback(sessionStorage.getItem('checkoutId'));
+
+      pollStatusOnce();
+      setInterval(() => {
+        pollStatusOnce();
+        renderQueue();
+      }, 8000);
+    }
+  } catch (err) {
+    console.error('Error loading paid tracks:', err);
+  }
+}
+
+// ✅ Call it when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  renderQueueAndHistory();
+  loadPaidTracks();
+  setInterval(renderQueueAndHistory, 10000);
+});
+</script>
+
 
 <script>
 // Read-only UI refresh. Never enqueue or post anything here.
