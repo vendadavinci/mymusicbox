@@ -953,22 +953,19 @@ async function isPaidSessionActive() {
 
 app.post('/webhook/payment-success', async (req, res) => {
   try {
-    const { sessionId, checkoutId, tracks = [], userId, device_id } = req.body;
+    const { checkoutId, tracks = [], device_id } = req.body;
     if (!checkoutId) {
       return res.status(400).json({ error: 'Missing checkoutId' });
     }
 
-    const effectiveCheckoutId = checkoutId;
-    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
-
-    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
+    let session = await PaidSession.findOne({ checkoutId });
     if (!session) {
       return res.status(404).json({ error: 'No session found for checkoutId' });
     }
 
-    // ✅ Guard: skip duplicate webhook
+    // Skip if already processed
     if (session.songsAdded > 0 && session.playbackStartedAt) {
-      return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
+      return res.json({ ok: true, message: 'Session already processed' });
     }
 
     if (tracks.length > 0) {
@@ -986,25 +983,37 @@ app.post('/webhook/payment-success', async (req, res) => {
 
       if (newTracks.length > 0) {
         session.tracks = session.tracks.concat(newTracks);
-        session.songsAdded = (session.songsAdded || 0) + newTracks.length;
+        session.songsAdded += newTracks.length;
         session.active = true;
         await session.save();
 
         try {
-          // ✅ Queue each track on Spotify
-          for (const track of newTracks) {
-            const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
-            const qRes = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
-            if (!qRes.ok) {
-              const txt = await qRes.text().catch(() => '<no body>');
-              console.warn('Spotify queue failed', track.uri, qRes.status, txt);
-            }
+          // ✅ Start playback immediately with the new tracks
+          const playUrl = `https://api.spotify.com/v1/me/player/play${device_id ? `?device_id=${encodeURIComponent(device_id)}` : ''}`;
+          const playRes = await fetch(playUrl, {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uris: newTracks.map(t => t.uri) })
+          });
+
+          if (!playRes.ok) {
+            const txt = await playRes.text().catch(() => '<no body>');
+            console.error('Spotify play failed', playRes.status, txt);
+            return res.status(playRes.status).json({ error: 'Spotify play failed', details: txt });
+          }
+
+          // ✅ Queue remaining tracks (if more than one)
+          for (let i = 1; i < newTracks.length; i++) {
+            const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(newTracks[i].uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+            await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
           }
 
           session.playbackStartedAt = new Date();
+          session.currentUri = newTracks[0].uri;
+          session.isPlaying = true;
           await session.save();
         } catch (err) {
-          console.error('Spotify queue error', err);
+          console.error('Spotify playback error', err);
           return res.status(500).json({ error: 'playback failed', details: err.message });
         }
       }
