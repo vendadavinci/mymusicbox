@@ -155,6 +155,11 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null, user
     return { added: true };
   }
 
+  // Replace mode: first start
+  session.active = true;
+  session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
+  session.songsAdded = tracks.length;
+  await session.save();
 
   try {
     await refreshAccessTokenIfNeeded();
