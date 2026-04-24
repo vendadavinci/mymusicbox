@@ -912,7 +912,7 @@ app.get('/api/checkout-tracks', async (req, res) => {
 
 app.post('/webhook/payment-success', async (req, res) => {
   try {
-    const { sessionId, checkoutId, tracks = [], userId } = req.body;
+    const { sessionId, tracks = [], userId } = req.body;
     if (!checkoutId) {
       return res.status(400).json({ error: 'Missing checkoutId' });
     }
