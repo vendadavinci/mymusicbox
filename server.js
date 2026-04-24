@@ -126,14 +126,6 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null, user
   let session = await PaidSession.findOne({ sessionId, userId });
   if (!session) throw new Error('Session not found');
 
-  if (session.active) {
-    // Append mode with deduplication
-    for (const track of tracks) {
-      if (!session.tracks.some(t => t.uri === track.uri)) {
-        session.tracks.push(normalizeTrack(track, session.tracks.length + 1));
-        session.songsAdded++;
-      }
-    }
     await session.save();
 
     // Queue only new tracks in Spotify
@@ -253,7 +245,7 @@ app.post('/api/play', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    const { tracks = [], device_id, sessionId, checkoutId, userId, append } = req.body || {};
+    const { tracks = [], device_id, sessionId, checkoutId, userId, } = req.body || {};
     if (!Array.isArray(tracks) || tracks.length === 0) {
       return res.status(400).json({ success: false, error: 'Missing tracks array' });
     }
@@ -261,18 +253,6 @@ app.post('/api/play', async (req, res) => {
     // ✅ Always use full checkoutId consistently
     const effectiveCheckoutId = checkoutId || sessionId || crypto.randomUUID();
 
-    // 1) Idempotency by checkoutId
-    if (effectiveCheckoutId && !append) {
-      const existing = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
-      if (existing) {
-        return res.json({
-          success: true,
-          mode: existing.active ? 'already-active' : 'existing-session',
-          sessionId: existing.sessionId,
-          message: 'Checkout already processed; attach to existing session'
-        });
-      }
-    }
 
     // 2) Try to find by sessionId or checkoutId
     let session = null;
@@ -299,42 +279,7 @@ app.post('/api/play', async (req, res) => {
       });
     }
 
-    // 4) Append mode
-    if (append) {
-      const existingUris = new Set(session.tracks.map(t => t.uri));
-      const toAdd = [];
-      let nextIndex = session.tracks.length + 1;
 
-      for (const t of tracks) {
-        if (!t || !t.uri) continue;
-        if (existingUris.has(t.uri)) continue;
-        const nt = normalizeTrack(t, nextIndex++);
-        toAdd.push(nt);
-        existingUris.add(nt.uri);
-      }
-
-      if (toAdd.length > 0) {
-        session.tracks = session.tracks.concat(toAdd);
-        session.songsAdded = (session.songsAdded || 0) + toAdd.length;
-        await session.save();
-      }
-
-      // Queue tracks on Spotify
-      for (const track of toAdd) {
-        try {
-          const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
-          const qRes = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
-          if (!qRes.ok) {
-            const txt = await qRes.text().catch(() => '<no body>');
-            console.warn('Spotify queue failed', track.uri, qRes.status, txt);
-          }
-        } catch (e) {
-          console.warn('Spotify queue error', track.uri, e);
-        }
-      }
-
-      return res.json({ success: true, mode: 'append', sessionId: session.sessionId, added: toAdd.length });
-    }
 
     // 5) Replace mode
     if (session.active) {
