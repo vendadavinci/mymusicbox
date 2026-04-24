@@ -999,13 +999,7 @@ app.post('/api/queue', async (req, res) => {
     const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
     const normalizedUri = normalizeUri(uri);
 
-    // ✅ Deduplicate: only add if not already present
-    if (!session.tracks.some(t => normalizeUri(t.uri) === normalizedUri)) {
-      const orderIndex = session.tracks.length + 1;
-      session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
-      session.songsAdded += 1;
-      await session.save();
-    }
+
 
     res.json({ ok: true, checkoutId, added: normalizedUri });
   } catch (err) {
