@@ -454,17 +454,15 @@ async function markTrackPlayed(sessionId, uri, userId = null) {
 
 
 app.get('/api/status', async (req, res) => {
+  const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+
   try {
     await refreshAccessTokenIfNeeded();
 
     const { checkoutId } = req.query;
-    let activeSession;
-
-    if (checkoutId) {
-      activeSession = await PaidSession.findOne({ checkoutId, active: true });
-    } else {
-      activeSession = await PaidSession.findOne({ active: true });
-    }
+    let activeSession = checkoutId
+      ? await PaidSession.findOne({ checkoutId, active: true })
+      : await PaidSession.findOne({ active: true });
 
     const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
@@ -485,7 +483,8 @@ app.get('/api/status', async (req, res) => {
         playedCount: activeSession ? (activeSession.tracks || []).filter(t => t.status === 'Played').length : 0,
         totalTracks: activeSession?.tracks?.length || 0,
         tracks: activeSession?.tracks?.filter(t => t.addedAt >= activeSession.startedAt) || [],
-        isPlaying: false
+        isPlaying: false,
+        enaddedUris: activeSession ? activeSession.tracks.map(t => normalizeUri(t.uri)) : []
       });
     }
 
@@ -498,7 +497,6 @@ app.get('/api/status', async (req, res) => {
     let tracks = activeSession?.tracks || [];
 
     if (activeSession) {
-      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
       const currentUri = normalizeUri(data.item?.uri);
       const progressMs = data.progress_ms || 0;
       const durationMs = data.item?.duration_ms || 0;
@@ -559,10 +557,11 @@ app.get('/api/status', async (req, res) => {
       uri: data.item?.uri || null,
       isPlaying: data.is_playing || false,
       progressMs: data.progress_ms || 0,
-      durationMs: data.item?.duration_ms || 0
+      durationMs: data.item?.duration_ms || 0,
+      enaddedUris: activeSession ? activeSession.tracks.map(t => normalizeUri(t.uri)) : []
     };
 
-    // Cleanup logic: delete when all tracks are played and nothing is playing
+    // Cleanup logic
     if (activeSession) {
       const allPlayed = tracks.length > 0 && tracks.every(t => t.status === 'Played');
       if (allPlayed && !activeSession.isPlaying) {
@@ -941,6 +940,17 @@ app.get('/api/checkout-tracks', async (req, res) => {
   }
 });
 
+
+async function isPaidSessionActive() {
+  try {
+    const activeSession = await PaidSession.findOne({ active: true });
+    return activeSession || null;
+  } catch (err) {
+    console.error('isPaidSessionActive error:', err);
+    return null;
+  }
+}
+
 app.post('/webhook/payment-success', async (req, res) => {
   try {
     const { sessionId, checkoutId, tracks = [], userId } = req.body;
@@ -984,18 +994,6 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
-
-async function isPaidSessionActive() {
-  try {
-    const activeSession = await PaidSession.findOne({ active: true });
-    return activeSession || null;
-  } catch (err) {
-    console.error('isPaidSessionActive error:', err);
-    return null;
-  }
-}
-
-
 
 app.post('/api/queue', async (req, res) => {
   try {
