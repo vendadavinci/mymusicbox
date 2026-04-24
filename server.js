@@ -953,7 +953,7 @@ async function isPaidSessionActive() {
 
 app.post('/webhook/payment-success', async (req, res) => {
   try {
-    const { sessionId, checkoutId, tracks = [], userId } = req.body;
+    const { sessionId, checkoutId, tracks = [], userId, device_id } = req.body;
     if (!checkoutId) {
       return res.status(400).json({ error: 'Missing checkoutId' });
     }
@@ -961,13 +961,12 @@ app.post('/webhook/payment-success', async (req, res) => {
     const effectiveCheckoutId = checkoutId;
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    // ✅ Attach to existing session by checkoutId
     let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
     if (!session) {
       return res.status(404).json({ error: 'No session found for checkoutId' });
     }
 
-    // ✅ Guard: skip duplicate webhook if already processed
+    // ✅ Guard: skip duplicate webhook
     if (session.songsAdded > 0 && session.playbackStartedAt) {
       return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
     }
@@ -976,7 +975,6 @@ app.post('/webhook/payment-success', async (req, res) => {
       const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
       const existingUris = new Set(session.tracks.map(t => normalizeUri(t.uri)));
 
-      // ✅ Only add tracks that are not already present
       const newTracks = [];
       let nextIndex = session.tracks.length + 1;
       for (const t of tracks) {
@@ -993,11 +991,20 @@ app.post('/webhook/payment-success', async (req, res) => {
         await session.save();
 
         try {
-          await startPaidSession(session.sessionId, newTracks, estimatedTotalMs);
+          // ✅ Queue each track on Spotify
+          for (const track of newTracks) {
+            const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+            const qRes = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
+            if (!qRes.ok) {
+              const txt = await qRes.text().catch(() => '<no body>');
+              console.warn('Spotify queue failed', track.uri, qRes.status, txt);
+            }
+          }
+
           session.playbackStartedAt = new Date();
           await session.save();
         } catch (err) {
-          console.error('startPaidSession error', err);
+          console.error('Spotify queue error', err);
           return res.status(500).json({ error: 'playback failed', details: err.message });
         }
       }
@@ -1009,6 +1016,7 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
+
 
 app.post('/api/queue', async (req, res) => {
   try {
