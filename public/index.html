@@ -2575,24 +2575,7 @@ async function refreshStatus() {
 
 </script>
 
-<script>
-  const tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
-  fetch('/webhook/payment-success', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tracks })
-  }).then(() => {
-    // Instead of alert, update a status element or do nothing
-    const statusText = document.getElementById('statusText');
-    if (statusText) {
-      statusText.textContent = 'Tracks queued and ready to play.';
-    }
-    // Or simply leave this block empty if you want no message at all
-  }).catch(err => {
-    console.error('Webhook call failed:', err);
-  });
-</script>
 
 <script>
 (async function handlePostPayment() {
