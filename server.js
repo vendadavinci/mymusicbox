@@ -253,7 +253,7 @@ app.post('/api/play', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    const { tracks = [], device_id, sessionId, checkoutId, userId, append } = req.body || {};
+    const { tracks = [], device_id, sessionId, checkoutId, userId} = req.body || {};
     if (!Array.isArray(tracks) || tracks.length === 0) {
       return res.status(400).json({ success: false, error: 'Missing tracks array' });
     }
