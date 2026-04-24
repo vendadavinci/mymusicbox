@@ -2564,7 +2564,7 @@ async function loadPaidTracks() {
         addedAt: Date.now()
       })));
 
-      renderQueue();
+    
 
       await fetch('/webhook/payment-success', {
         method: 'POST',
@@ -2575,12 +2575,12 @@ async function loadPaidTracks() {
       const statusText = document.getElementById('statusText');
       if (statusText) statusText.textContent = 'Starting paid playback...';
 
-      await startPaidQueuePlayback(sessionStorage.getItem('checkoutId'));
+    
 
       pollStatusOnce();
       setInterval(() => {
         pollStatusOnce();
-        renderQueue();
+     
       }, 8000);
     }
   } catch (err) {
