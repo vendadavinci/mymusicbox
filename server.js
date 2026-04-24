@@ -123,15 +123,19 @@ let playedQueue = [];
 
 async function startPaidSession(sessionId, tracks, estimatedTotalMs = null, userId = null) {
   // Scope lookup by sessionId + userId
-  let session = await PaidSession.findOne({ sessionId, userId });
+  const session = await PaidSession.findOne({ sessionId, userId });
   if (!session) throw new Error('Session not found');
 
+  // --- APPEND MODE ---
   if (session.active) {
-    // Append mode with deduplication
+    // Append only truly new tracks
     for (const track of tracks) {
       if (!session.tracks.some(t => t.uri === track.uri)) {
         session.tracks.push(normalizeTrack(track, session.tracks.length + 1));
         session.songsAdded++;
+        console.log('[APPEND] Added new track:', track.uri);
+      } else {
+        console.log('[APPEND] Skipped duplicate track:', track.uri);
       }
     }
     await session.save();
@@ -139,7 +143,7 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null, user
     // Queue only new tracks in Spotify
     await refreshAccessTokenIfNeeded();
     for (const track of tracks) {
-      const alreadyQueued = session.tracks.some(t => t.uri === track.uri && t.played);
+      const alreadyQueued = session.tracks.some(t => t.uri === track.uri);
       if (!alreadyQueued) {
         const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}`;
         const qRes = await fetch(queueUrl, {
@@ -147,47 +151,49 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null, user
           headers: { Authorization: `Bearer ${tokens.access_token}` }
         });
         if (!qRes.ok) {
-          console.warn('Spotify queue failed', track.uri, await qRes.text());
+          console.warn('[SPOTIFY] Queue failed', track.uri, await qRes.text());
+        } else {
+          console.log('[SPOTIFY] Queued track:', track.uri);
         }
+      } else {
+        console.log('[SPOTIFY] Skipped already queued track:', track.uri);
       }
     }
 
     return { added: true };
   }
 
-  // Replace mode: first start
+  // --- REPLACE MODE (first start) ---
   session.active = true;
   session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
   session.songsAdded = tracks.length;
   await session.save();
 
   try {
-// Queue only truly new tracks in Spotify
-await refreshAccessTokenIfNeeded();
-for (const track of tracks) {
-  const alreadyQueued = session.tracks.some(t => t.uri === track.uri);
-  if (!alreadyQueued) {
-    const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}`;
-    const qRes = await fetch(queueUrl, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    await refreshAccessTokenIfNeeded();
+    const r = await fetch('https://api.spotify.com/v1/me/player/play', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ uris: tracks.map(t => t.uri) })
     });
-    if (!qRes.ok) {
-      console.warn('Spotify queue failed', track.uri, await qRes.text());
+    if (r.status !== 204) {
+      console.warn('[SPOTIFY] play returned', r.status, await r.text());
     } else {
-      console.log('Queued track once:', track.uri);
+      console.log('[SPOTIFY] Started playback with tracks:', tracks.map(t => t.uri));
     }
-  } else {
-    console.log('Skipped duplicate track:', track.uri);
+  } catch (err) {
+    console.error('[SPOTIFY] startPaidSession play error', err);
   }
-}
 
   if (!estimatedTotalMs) {
     const perTrackMs = 3.5 * 60 * 1000;
     estimatedTotalMs = tracks.length * perTrackMs;
   }
 
-  // Cleanup scoped to this session only
+  // --- CLEANUP ---
   setTimeout(async () => {
     const freshSession = await PaidSession.findOne({ sessionId, userId });
     if (!freshSession) return;
@@ -210,13 +216,13 @@ for (const track of tracks) {
           },
           body: JSON.stringify(body)
         });
+        console.log('[CLEANUP] Resumed default playlist');
       } catch (err) {
-        console.warn('Error resuming default playlist after paid session', err);
+        console.warn('[CLEANUP] Error resuming default playlist', err);
       }
     }
   }, estimatedTotalMs + 2000);
 }
-
 
 // Helper to get or create a session
 function getSession(sessionId) {
