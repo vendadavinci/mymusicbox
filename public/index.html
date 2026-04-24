@@ -1583,33 +1583,6 @@ if (!checkoutId) {
   }
 }
 
-// ✅ New route for frontend polling
-app.get('/api/yoco/session-status', async (req, res) => {
-  try {
-    const { id } = req.query;
-    if (!id) {
-      return res.status(400).json({ success: false, error: 'Missing checkoutId' });
-    }
-
-    // Find the PaidSession by checkoutId
-    const session = await PaidSession.findOne({ checkoutId: id }).lean();
-    if (!session) {
-      return res.status(404).json({ success: false, error: 'No session found for checkoutId' });
-    }
-
-    // Build response payload
-    const responsePayload = {
-      success: true,
-      status: session.processed ? 'successful' : 'pending',
-      enaddedUris: (session.tracks || []).map(t => t.uri)
-    };
-
-    return res.json(responsePayload);
-  } catch (err) {
-    console.error('/api/yoco/session-status error', err);
-    return res.status(500).json({ success: false, error: 'session-status failed', details: err.message });
-  }
-});
 
 
 
