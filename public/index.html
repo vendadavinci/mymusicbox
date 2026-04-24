@@ -2566,7 +2566,7 @@ async function loadPaidTracks() {
 
       renderQueue();
 
-      await fetch('/api/status', {
+      await fetch('/api/play', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ checkoutId: sessionStorage.getItem('checkoutId'), tracks })
