@@ -1611,15 +1611,14 @@ async function pollStatus() {
     const checkoutId = sessionStorage.getItem('checkoutId');
     if (!checkoutId) return;
 
-    // ✅ Call the unified /api/status route
-    const res = await fetch(`/api/status?checkoutId=${encodeURIComponent(checkoutId)}`);
+    const res = await fetch(`/api/yoco/session-status?id=${encodeURIComponent(checkoutId)}`);
     if (!res.ok) {
-      console.warn('status returned non-ok', res.status);
+      console.warn('session-status returned non-ok', res.status);
       return;
     }
-
     const data = await res.json();
-    if (!data.success || data.status !== 'successful') return;
+
+    if (data.status !== 'successful') return;
 
     const pending = typeof getPendingSubmission === 'function' ? getPendingSubmission() : null;
     let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length
@@ -2456,7 +2455,7 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
       sessionId: sessionId || sessionStorage.getItem('sessionId'),
       userId: sessionStorage.getItem('userId') || null,
       append,
-      tracks 
+      tracks // full track objects
     };
 
     const res = await fetch('/api/play', {
@@ -2489,7 +2488,8 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
     async function backendResume(){
       try{ await fetch('/api/resume', { method:'POST' }); }catch(e){ console.warn('backendResume', e); }
     }
-
+// frontend: poll status and update UI; when paidSessionActive show next paid track if available
+// frontend: poll status and update UI; when paidSessionActive show next paid track if available
 async function pollStatusOnce(){
   try{
     const res = await fetch(`/api/status?userId=${window.currentUserId}`);
