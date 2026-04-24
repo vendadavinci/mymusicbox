@@ -261,18 +261,7 @@ app.post('/api/play', async (req, res) => {
     // ✅ Always use full checkoutId consistently
     const effectiveCheckoutId = checkoutId || sessionId || crypto.randomUUID();
 
-    // 1) Idempotency by checkoutId
-    if (effectiveCheckoutId && !append) {
-      const existing = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
-      if (existing) {
-        return res.json({
-          success: true,
-          mode: existing.active ? 'already-active' : 'existing-session',
-          sessionId: existing.sessionId,
-          message: 'Checkout already processed; attach to existing session'
-        });
-      }
-    }
+
 
     // 2) Try to find by sessionId or checkoutId
     let session = null;
