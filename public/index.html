@@ -2351,46 +2351,6 @@ window.onPaymentSuccess = onPaymentSuccess;
 /* ====== End of fixed script ====== */
 
 
-// Merge server session tracks into local paidQueue and playedQueue
-function mergeServerQueueIntoLocal(serverTracks = []) {
-  // Normalize serverTracks to minimal shape
-  const normalizedServer = (serverTracks || []).map((t, i) => ({
-    uri: t.uri,
-    title: t.title || t.name || '',
-    artist: t.artist || (t.artists && t.artists.join(', ')) || '',
-    duration_ms: t.durationMs || t.duration_ms || 0,
-    albumArt: t.albumArt || t.album_art || '',
-    played: !!t.played,
-    orderIndex: t.orderIndex || i + 1
-  }));
-
-  // Reset queues
-  paidQueue = [];
-  playedQueue = [];
-
-  // Split into active vs played
-  for (const s of normalizedServer) {
-    if (s.played) {
-      playedQueue.push(s);
-    } else {
-      paidQueue.push(s);
-    }
-  }
-
-  // Sort both queues by orderIndex
-  paidQueue.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
-  playedQueue.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
-
-  // Persist both queues
-  try {
-    sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
-    sessionStorage.setItem('playedQueue', JSON.stringify(playedQueue));
-  } catch (e) { /* ignore */ }
-
-  // Render both sections
-  renderQueue && renderQueue();
-  renderPlayedHistory && renderPlayedHistory();
-}
 
 // Render played history section
 function renderPlayedHistory() {
@@ -2669,7 +2629,6 @@ refreshStatus();
 
 document.addEventListener('DOMContentLoaded', () => {
   renderQueueAndHistory();
-  loadPaidTracks();
   setInterval(renderQueueAndHistory, 10000); 
 });
 

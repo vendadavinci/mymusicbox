@@ -253,7 +253,7 @@ app.post('/api/play', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    const { tracks = [], device_id, sessionId, checkoutId, userId, append } = req.body || {};
+    const { tracks = [], device_id, sessionId, checkoutId, userId} = req.body || {};
     if (!Array.isArray(tracks) || tracks.length === 0) {
       return res.status(400).json({ success: false, error: 'Missing tracks array' });
     }
@@ -319,19 +319,7 @@ app.post('/api/play', async (req, res) => {
         await session.save();
       }
 
-      // Queue tracks on Spotify
-      for (const track of toAdd) {
-        try {
-          const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
-          const qRes = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
-          if (!qRes.ok) {
-            const txt = await qRes.text().catch(() => '<no body>');
-            console.warn('Spotify queue failed', track.uri, qRes.status, txt);
-          }
-        } catch (e) {
-          console.warn('Spotify queue error', track.uri, e);
-        }
-      }
+
 
       return res.json({ success: true, sessionId: session.sessionId, added: toAdd.length });
     }
@@ -925,7 +913,15 @@ app.get('/api/checkout-tracks', async (req, res) => {
 app.post('/webhook/payment-success', async (req, res) => {
   try {
     const { sessionId, checkoutId, tracks = [], userId } = req.body;
+
+    console.log('[WEBHOOK] Triggered payment-success');
+    console.log('  checkoutId:', checkoutId);
+    console.log('  sessionId:', sessionId);
+    console.log('  userId:', userId);
+    console.log('  tracks:', tracks.map(t => t.uri));
+
     if (!checkoutId) {
+      console.warn('[WEBHOOK] Missing checkoutId in request body');
       return res.status(400).json({ error: 'Missing checkoutId' });
     }
 
@@ -935,28 +931,36 @@ app.post('/webhook/payment-success', async (req, res) => {
     // ✅ Attach to existing session by checkoutId
     let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
     if (!session) {
+      console.warn('[WEBHOOK] No session found for checkoutId:', effectiveCheckoutId);
       return res.status(404).json({ error: 'No session found for checkoutId' });
     }
 
     // Guard: skip duplicate webhook
     if (session.songsAdded > 0 && session.playbackStartedAt) {
+      console.log('[WEBHOOK] Duplicate webhook detected, skipping. songsAdded:', session.songsAdded, 'playbackStartedAt:', session.playbackStartedAt);
       return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
     }
 
     if (tracks.length > 0) {
+      console.log('[WEBHOOK] Updating session with tracks:', tracks.map(t => t.uri));
       session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
       session.songsAdded = tracks.length;
       session.active = true;
       await session.save();
+      console.log('[WEBHOOK] Session saved. songsAdded:', session.songsAdded);
 
       try {
+        console.log('[WEBHOOK] Calling startPaidSession for sessionId:', session.sessionId);
         await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
         session.playbackStartedAt = new Date();
         await session.save();
+        console.log('[WEBHOOK] startPaidSession completed. playbackStartedAt set:', session.playbackStartedAt);
       } catch (err) {
-        console.error('startPaidSession error', err);
+        console.error('[WEBHOOK] startPaidSession error', err);
         return res.status(500).json({ error: 'playback failed', details: err.message });
       }
+    } else {
+      console.log('[WEBHOOK] No tracks provided in webhook payload');
     }
 
     res.json({ ok: true });
@@ -1011,13 +1015,7 @@ app.post('/api/queue', async (req, res) => {
     const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
     const normalizedUri = normalizeUri(uri);
 
-    // ✅ Deduplicate: only add if not already present
-    if (!session.tracks.some(t => normalizeUri(t.uri) === normalizedUri)) {
-      const orderIndex = session.tracks.length + 1;
-      session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
-      session.songsAdded += 1;
-      await session.save();
-    }
+
 
     res.json({ ok: true, checkoutId, added: normalizedUri });
   } catch (err) {
