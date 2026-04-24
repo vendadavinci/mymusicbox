@@ -1606,23 +1606,6 @@ statusPollHandle = setInterval(pollStatus, 6000);
 pollStatus();
 
 
-async function pollStatus() {
-  try {
-    const checkoutId = sessionStorage.getItem('checkoutId');
-    if (!checkoutId) return;
-
-    const res = await fetch(`/api/status?checkoutId=${encodeURIComponent(checkoutId)}`);
-    if (!res.ok) return;
-    const data = await res.json();
-
-    if (!data.success || data.status !== 'successful') return;
-
-
-
-  } catch (err) {
-    console.error('pollStatus error:', err);
-  }
-}
 
 // Adaptive Spotify playback polling
 let pollHandle = null;
