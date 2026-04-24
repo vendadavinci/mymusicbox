@@ -2712,7 +2712,7 @@ async function refreshStatus() {
 <script>
 let lastPlaying = null;
 
-(async function loadPaidTracks() {
+async function loadPaidTracks() {
   try {
     let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
@@ -2747,7 +2747,6 @@ let lastPlaying = null;
         body: JSON.stringify({ checkoutId: sessionStorage.getItem('checkoutId'), tracks })
       });
 
-      // ✅ only update if element exists
       const statusText = document.getElementById('statusText');
       if (statusText) statusText.textContent = 'Starting paid playback...';
 
@@ -2762,9 +2761,16 @@ let lastPlaying = null;
   } catch (err) {
     console.error('Error loading paid tracks:', err);
   }
-})();
+}
 
+// ✅ Call it when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  renderQueueAndHistory();
+  loadPaidTracks();
+  setInterval(renderQueueAndHistory, 10000);
+});
 </script>
+
 
 <script>
 // Read-only UI refresh. Never enqueue or post anything here.
