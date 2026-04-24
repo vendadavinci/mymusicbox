@@ -2200,6 +2200,100 @@ function startAddFlow(){
   }
 
 
+
+  // --- Public API: addToPaidQueue ---
+  window.addToPaidQueue = async function addToPaidQueue(track, sessionId) {
+    try {
+      if (!paymentComplete || !currentPackage) {
+        alert('You must pay for a package before adding songs.');
+        return;
+      }
+
+      if (songsAddedThisSession >= currentPackage.maxSongs) {
+        alert(`You have reached the limit of ${currentPackage.maxSongs} songs for this package.`);
+        return;
+      }
+
+      if (!track || !track.uri) {
+        console.warn('Invalid track passed to addToPaidQueue', track);
+        return;
+      }
+
+      const normalized = {
+        uri: track.uri,
+        title: track.title || track.name || '',
+        artist: track.artist || (track.artists && track.artists.join(', ')) || '',
+        duration_ms: track.duration_ms || track.durationMs || 0,
+        albumArt: track.albumArt || (track.album?.images?.[0]?.url) || '',
+        addedAt: Date.now()
+      };
+
+      // local dedupe against paidQueue and appendBatch
+      if (paidQueue.some(t => t.uri === normalized.uri) || appendBatch.some(t => t.uri === normalized.uri) || isClientMarkedAdded(sessionId || sessionStorage.getItem('sessionId'), normalized.uri)) {
+        console.info('Track already queued or pending, skipping:', normalized.uri);
+        statusText && (statusText.textContent = 'Track already in paid queue');
+        return;
+      }
+
+      // push to local paidQueue and persist
+      paidQueue.push(normalized);
+      persistPaidQueue(paidQueue);
+
+      songsAddedThisSession++;
+      renderQueue && renderQueue();
+
+      // ensure sessionId exists
+let sid = sessionId || sessionStorage.getItem('sessionId');
+let checkoutId = sessionStorage.getItem('checkoutId');
+
+if (!checkoutId) {
+  throw new Error('Missing checkoutId from server. Cannot continue paid playback.');
+}
+
+if (!sid) {
+  const today = new Date().toISOString().slice(0, 10);
+  sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
+  sessionStorage.setItem('sessionId', sid);
+  sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
+}
+
+
+      // If paid session not active, try to start it (idempotent)
+      if (!paidSessionActive) {
+        const startMarkerKey = `paidStarted_${sid}`;
+        if (!sessionStorage.getItem(startMarkerKey)) {
+          sessionStorage.setItem(startMarkerKey, 'true');
+          statusText && (statusText.textContent = 'Starting paid playback...');
+          try {
+            await startPaidQueuePlayback(sid, false);
+            paidSessionActive = true;
+            statusText && (statusText.textContent = 'Paid playback started');
+          } catch (err) {
+            console.error('startPaidQueuePlayback failed', err);
+            statusText && (statusText.textContent = 'Failed to start paid playback — will retry');
+            sessionStorage.removeItem(startMarkerKey);
+            // still allow adding to appendBatch so it will be queued when player comes online
+          }
+        } else {
+          statusText && (statusText.textContent = 'Paid playback starting (in progress)');
+        }
+        // still add to appendBatch so it will be queued once active
+      }
+
+      // add to appendBatch and schedule flush
+      appendBatch.push(normalized);
+      if (!appendTimer) {
+        appendTimer = setTimeout(() => flushAppendBatch(sid), APPEND_BATCH_MS);
+      }
+
+      statusText && (statusText.textContent = 'Track added to paid queue');
+    } catch (err) {
+      console.error('addToPaidQueue error', err);
+      alert('Something went wrong adding the track. Please try again.');
+    }
+  };
+})();
+
 /* ====== Optional: expose some functions for payment page to call ====== */
 window.applyPackageFromQuery = applyPackageFromQuery;
 window.onPaymentSuccess = onPaymentSuccess;
