@@ -253,7 +253,7 @@ app.post('/api/play', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
-    const { tracks = [], device_id, sessionId, checkoutId, userId} = req.body || {};
+    const { tracks = [], device_id, sessionId, checkoutId, userId, append } = req.body || {};
     if (!Array.isArray(tracks) || tracks.length === 0) {
       return res.status(400).json({ success: false, error: 'Missing tracks array' });
     }
@@ -319,7 +319,19 @@ app.post('/api/play', async (req, res) => {
         await session.save();
       }
 
-
+      // Queue tracks on Spotify
+      for (const track of toAdd) {
+        try {
+          const queueUrl = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}${device_id ? `&device_id=${encodeURIComponent(device_id)}` : ''}`;
+          const qRes = await fetch(queueUrl, { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` } });
+          if (!qRes.ok) {
+            const txt = await qRes.text().catch(() => '<no body>');
+            console.warn('Spotify queue failed', track.uri, qRes.status, txt);
+          }
+        } catch (e) {
+          console.warn('Spotify queue error', track.uri, e);
+        }
+      }
 
       return res.json({ success: true, sessionId: session.sessionId, added: toAdd.length });
     }
@@ -999,7 +1011,13 @@ app.post('/api/queue', async (req, res) => {
     const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
     const normalizedUri = normalizeUri(uri);
 
-
+    // ✅ Deduplicate: only add if not already present
+    if (!session.tracks.some(t => normalizeUri(t.uri) === normalizedUri)) {
+      const orderIndex = session.tracks.length + 1;
+      session.tracks.push(normalizeTrack({ uri, title, artist, duration_ms, albumArt }, orderIndex));
+      session.songsAdded += 1;
+      await session.save();
+    }
 
     res.json({ ok: true, checkoutId, added: normalizedUri });
   } catch (err) {
