@@ -1605,20 +1605,21 @@ function persistPaidQueue() {
 statusPollHandle = setInterval(pollStatus, 6000);
 pollStatus();
 
-// Keep this for Yoco checkout/session lifecycle
+
 async function pollStatus() {
   try {
     const checkoutId = sessionStorage.getItem('checkoutId');
     if (!checkoutId) return;
 
-    const res = await fetch(`/api/yoco/session-status?id=${encodeURIComponent(checkoutId)}`);
+    // ✅ Call the unified /api/status route
+    const res = await fetch(`/api/status?checkoutId=${encodeURIComponent(checkoutId)}`);
     if (!res.ok) {
-      console.warn('session-status returned non-ok', res.status);
+      console.warn('status returned non-ok', res.status);
       return;
     }
-    const data = await res.json();
 
-    if (data.status !== 'successful') return;
+    const data = await res.json();
+    if (!data.success || data.status !== 'successful') return;
 
     const pending = typeof getPendingSubmission === 'function' ? getPendingSubmission() : null;
     let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length

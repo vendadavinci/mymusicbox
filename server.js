@@ -457,6 +457,15 @@ app.get('/api/status', async (req, res) => {
   try {
     await refreshAccessTokenIfNeeded();
 
+    const { checkoutId } = req.query;
+    let activeSession;
+
+    if (checkoutId) {
+      activeSession = await PaidSession.findOne({ checkoutId, active: true });
+    } else {
+      activeSession = await PaidSession.findOne({ active: true });
+    }
+
     const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
@@ -467,9 +476,9 @@ app.get('/api/status', async (req, res) => {
     }
 
     if (r.status === 204) {
-      const activeSession = await PaidSession.findOne({ active: true }).lean();
       return res.json({
         success: true,
+        status: activeSession?.processed ? 'successful' : 'pending',
         mode: activeSession ? 'PAID' : 'DEFAULT',
         sessionId: activeSession?.sessionId || null,
         checkoutId: activeSession?.checkoutId || null,
@@ -486,7 +495,6 @@ app.get('/api/status', async (req, res) => {
     }
 
     const data = await r.json();
-    const activeSession = await PaidSession.findOne({ active: true });
     let tracks = activeSession?.tracks || [];
 
     if (activeSession) {
@@ -529,7 +537,7 @@ app.get('/api/status', async (req, res) => {
           title: t.title || 'Unknown',
           artist: t.artist || '',
           albumArt: t.albumArt,
-          duration_ms: t.durationMs || 0,
+          duration_ms: t.duration_ms || 0,
           status: t.status
         }));
     }
@@ -538,6 +546,7 @@ app.get('/api/status', async (req, res) => {
 
     const responsePayload = {
       success: true,
+      status: activeSession?.processed ? 'successful' : 'pending',
       mode: activeSession ? 'PAID' : 'DEFAULT',
       sessionId: activeSession?.sessionId || null,
       checkoutId: activeSession?.checkoutId || null,
@@ -553,17 +562,16 @@ app.get('/api/status', async (req, res) => {
       durationMs: data.item?.duration_ms || 0
     };
 
-// Cleanup logic: delete when all tracks are played and nothing is playing
-if (activeSession) {
-  const allPlayed = tracks.length > 0 && tracks.every(t => t.status === 'Played');
-  if (allPlayed && !activeSession.isPlaying) {
-    activeSession.active = false;
-    activeSession.endedAt = new Date();
-    await PaidSession.deleteOne({ _id: activeSession._id });  // <-- delete by _id
-    console.log(`[CLEANUP] Deleted finished session: ${activeSession._id}`);
-  }
-}
-
+    // Cleanup logic: delete when all tracks are played and nothing is playing
+    if (activeSession) {
+      const allPlayed = tracks.length > 0 && tracks.every(t => t.status === 'Played');
+      if (allPlayed && !activeSession.isPlaying) {
+        activeSession.active = false;
+        activeSession.endedAt = new Date();
+        await PaidSession.deleteOne({ _id: activeSession._id });
+        console.log(`[CLEANUP] Deleted finished session: ${activeSession._id}`);
+      }
+    }
 
     return res.json(responsePayload);
   } catch (err) {
