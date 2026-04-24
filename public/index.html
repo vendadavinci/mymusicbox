@@ -2539,22 +2539,32 @@ let lastPlaying = null;
 
 async function loadPaidTracks() {
   try {
+    console.log('[FRONTEND] loadPaidTracks triggered');
+
     let tracks = JSON.parse(sessionStorage.getItem('tracks') || '[]');
+    console.log('[FRONTEND] Initial tracks from sessionStorage:', tracks.map(t => t.uri));
 
     if ((!tracks || tracks.length === 0) && location.search) {
       const params = new URLSearchParams(location.search);
       const checkoutId = params.get('checkoutId');
+      console.log('[FRONTEND] No tracks in sessionStorage. checkoutId from URL:', checkoutId);
+
       if (checkoutId) {
         const r = await fetch(`/api/checkout-tracks?checkoutId=${encodeURIComponent(checkoutId)}`);
         if (r.ok) {
           const json = await r.json();
           tracks = json.tracks || [];
           sessionStorage.setItem('checkoutId', checkoutId);
+          console.log('[FRONTEND] Tracks fetched from /api/checkout-tracks:', tracks.map(t => t.uri));
+        } else {
+          console.warn('[FRONTEND] Failed to fetch /api/checkout-tracks. Status:', r.status);
         }
       }
     }
 
     if (tracks && tracks.length > 0) {
+      console.log('[FRONTEND] Final track list to queue:', tracks.map(t => t.uri));
+
       paidQueue.push(...tracks.map(t => ({
         uri: t.uri,
         title: t.title || '',
@@ -2564,8 +2574,10 @@ async function loadPaidTracks() {
         addedAt: Date.now()
       })));
 
+      console.log('[FRONTEND] Paid queue updated. Queue length:', paidQueue.length);
       renderQueue();
 
+      console.log('[FRONTEND] Calling /webhook/payment-success with checkoutId:', sessionStorage.getItem('checkoutId'));
       await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2573,15 +2585,22 @@ async function loadPaidTracks() {
       });
 
       const statusText = document.getElementById('statusText');
-      if (statusText) statusText.textContent = 'Starting paid playback...';
+      if (statusText) {
+        statusText.textContent = 'Starting paid playback...';
+        console.log('[FRONTEND] Updated statusText to "Starting paid playback..."');
+      }
 
+      console.log('[FRONTEND] Calling startPaidQueuePlayback with checkoutId:', sessionStorage.getItem('checkoutId'));
       await startPaidQueuePlayback(sessionStorage.getItem('checkoutId'));
 
+      console.log('[FRONTEND] Starting pollStatusOnce and renderQueue interval');
       pollStatusOnce();
       setInterval(() => {
         pollStatusOnce();
         renderQueue();
       }, 8000);
+    } else {
+      console.log('[FRONTEND] No tracks found to load.');
     }
   } catch (err) {
     console.error('Error loading paid tracks:', err);
