@@ -1056,108 +1056,6 @@ function escapeHtml(s){
 
 
 
-/* ====== Queue rendering & controls ====== */
-async function renderQueue() {
-  try {
-    if (!checkoutQueueList) return;
-
-    const params = new URLSearchParams(window.location.search);
-    const checkoutId = params.get('checkoutId');   // ✅ use checkoutId consistently
-    if (!checkoutId) return;
-
-    // ✅ query backend with checkoutId
-    const res = await fetch(`/api/progress?checkoutId=${checkoutId}`);
-    const data = await res.json();
-    if (!data.success) return;
-
-    const tracks = data.tracks || [];
-    checkoutQueueList.innerHTML = '';
-    const frag = document.createDocumentFragment();
-
-    let totalMs = 0;
-
-    tracks.forEach((item, index) => {
-      totalMs += item.duration_ms || 0;
-
-      const wrapper = document.createElement('div');
-      wrapper.className = 'queue-item';
-      wrapper.style.display = 'flex';
-      wrapper.style.justifyContent = 'space-between';
-      wrapper.style.alignItems = 'center';
-      wrapper.style.gap = '12px';
-      wrapper.dataset.index = String(index);
-
-      // Left column: title + artist
-      const left = document.createElement('div');
-      left.style.minWidth = '0';
-      left.style.flex = '1';
-
-      const titleDiv = document.createElement('div');
-      titleDiv.style.fontWeight = '700';
-      titleDiv.style.whiteSpace = 'nowrap';
-      titleDiv.style.overflow = 'hidden';
-      titleDiv.style.textOverflow = 'ellipsis';
-      titleDiv.textContent = item.title || '';
-
-      const metaDiv = document.createElement('div');
-      metaDiv.className = 'meta';
-      metaDiv.style.fontSize = '0.9em';
-      metaDiv.style.color = '#666';
-      metaDiv.textContent = item.artist || '';
-
-      left.appendChild(titleDiv);
-      left.appendChild(metaDiv);
-
-      // Right column: duration + backend status
-      const right = document.createElement('div');
-      right.style.display = 'flex';
-      right.style.flexDirection = 'column';
-      right.style.gap = '6px';
-      right.style.alignItems = 'flex-end';
-      right.style.minWidth = '90px';
-
-      const durationDiv = document.createElement('div');
-      durationDiv.className = 'small';
-      durationDiv.style.fontSize = '0.85em';
-      durationDiv.style.color = '#333';
-      durationDiv.textContent = formatMs(item.duration_ms || 0);
-
-      const statusDiv = document.createElement('div');
-      statusDiv.style.fontSize = '0.75em';
-      statusDiv.className = `status ${item.status.toLowerCase()}`;
-      statusDiv.textContent = item.status;
-
-      right.appendChild(durationDiv);
-      right.appendChild(statusDiv);
-
-      wrapper.appendChild(left);
-      wrapper.appendChild(right);
-
-      frag.appendChild(wrapper);
-    });
-
-    checkoutQueueList.appendChild(frag);
-
-    if (checkoutQueueCount) {
-      checkoutQueueCount.textContent = `Paid queue: ${tracks.length}`;
-    }
-    if (checkoutQueueDuration) {
-      checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
-    }
-    if (checkoutNextTitle) {
-      const nextTrack = tracks.find(t => t.status === 'Added');
-      checkoutNextTitle.textContent = nextTrack
-        ? `${nextTrack.title} — ${nextTrack.artist}`
-        : 'No paid tracks queued';
-    }
-
-    if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
-
-  } catch (err) {
-    console.error('renderQueue error', err);
-  }
-}
-
 
 // Helper: fetch with timeout and one retry
 async function fetchWithTimeout(url, opts = {}, timeout = 10000, retry = true) {
@@ -2252,70 +2150,96 @@ function startAddFlow(){
   }
 
   // --- Public API: addToPaidQueue ---
-window.addToPaidQueue = async function addToPaidQueue(track, sessionId) {
-  try {
-    if (!paymentComplete || !currentPackage) {
-      alert('You must pay for a package before adding songs.');
-      return;
+  window.addToPaidQueue = async function addToPaidQueue(track, sessionId) {
+    try {
+      if (!paymentComplete || !currentPackage) {
+        alert('You must pay for a package before adding songs.');
+        return;
+      }
+
+      if (songsAddedThisSession >= currentPackage.maxSongs) {
+        alert(`You have reached the limit of ${currentPackage.maxSongs} songs for this package.`);
+        return;
+      }
+
+      if (!track || !track.uri) {
+        console.warn('Invalid track passed to addToPaidQueue', track);
+        return;
+      }
+
+      const normalized = {
+        uri: track.uri,
+        title: track.title || track.name || '',
+        artist: track.artist || (track.artists && track.artists.join(', ')) || '',
+        duration_ms: track.duration_ms || track.durationMs || 0,
+        albumArt: track.albumArt || (track.album?.images?.[0]?.url) || '',
+        addedAt: Date.now()
+      };
+
+      // local dedupe against paidQueue and appendBatch
+      if (paidQueue.some(t => t.uri === normalized.uri) || appendBatch.some(t => t.uri === normalized.uri) || isClientMarkedAdded(sessionId || sessionStorage.getItem('sessionId'), normalized.uri)) {
+        console.info('Track already queued or pending, skipping:', normalized.uri);
+        statusText && (statusText.textContent = 'Track already in paid queue');
+        return;
+      }
+
+      // push to local paidQueue and persist
+      paidQueue.push(normalized);
+      persistPaidQueue(paidQueue);
+
+      songsAddedThisSession++;
+      renderQueue && renderQueue();
+
+      // ensure sessionId exists
+let sid = sessionId || sessionStorage.getItem('sessionId');
+let checkoutId = sessionStorage.getItem('checkoutId');
+
+if (!checkoutId) {
+  throw new Error('Missing checkoutId from server. Cannot continue paid playback.');
+}
+
+if (!sid) {
+  const today = new Date().toISOString().slice(0, 10);
+  sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
+  sessionStorage.setItem('sessionId', sid);
+  sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
+}
+
+
+      // If paid session not active, try to start it (idempotent)
+      if (!paidSessionActive) {
+        const startMarkerKey = `paidStarted_${sid}`;
+        if (!sessionStorage.getItem(startMarkerKey)) {
+          sessionStorage.setItem(startMarkerKey, 'true');
+          statusText && (statusText.textContent = 'Starting paid playback...');
+          try {
+            await startPaidQueuePlayback(sid, false);
+            paidSessionActive = true;
+            statusText && (statusText.textContent = 'Paid playback started');
+          } catch (err) {
+            console.error('startPaidQueuePlayback failed', err);
+            statusText && (statusText.textContent = 'Failed to start paid playback — will retry');
+            sessionStorage.removeItem(startMarkerKey);
+            // still allow adding to appendBatch so it will be queued when player comes online
+          }
+        } else {
+          statusText && (statusText.textContent = 'Paid playback starting (in progress)');
+        }
+        // still add to appendBatch so it will be queued once active
+      }
+
+      // add to appendBatch and schedule flush
+      appendBatch.push(normalized);
+      if (!appendTimer) {
+        appendTimer = setTimeout(() => flushAppendBatch(sid), APPEND_BATCH_MS);
+      }
+
+      statusText && (statusText.textContent = 'Track added to paid queue');
+    } catch (err) {
+      console.error('addToPaidQueue error', err);
+      alert('Something went wrong adding the track. Please try again.');
     }
-
-    if (songsAddedThisSession >= currentPackage.maxSongs) {
-      alert(`You have reached the limit of ${currentPackage.maxSongs} songs for this package.`);
-      return;
-    }
-
-    if (!track || !track.uri) {
-      console.warn('Invalid track passed to addToPaidQueue', track);
-      return;
-    }
-
-    const normalized = {
-      uri: track.uri,
-      title: track.title || track.name || '',
-      artist: track.artist || (track.artists && track.artists.join(', ')) || '',
-      duration_ms: track.duration_ms || track.durationMs || 0,
-      albumArt: track.albumArt || (track.album?.images?.[0]?.url) || '',
-      addedAt: Date.now()
-    };
-
-    // ✅ Local dedupe only
-    if (paidQueue.some(t => t.uri === normalized.uri) ||
-        isClientMarkedAdded(sessionId || sessionStorage.getItem('sessionId'), normalized.uri)) {
-      console.info('Track already queued locally, skipping:', normalized.uri);
-      statusText && (statusText.textContent = 'Track already in paid queue');
-      return;
-    }
-
-    // ✅ Push to local queue and update UI
-    paidQueue.push(normalized);
-    persistPaidQueue(paidQueue);
-
-    songsAddedThisSession++;
-    renderQueue && renderQueue();
-
-    // ✅ Ensure sessionId exists for local state
-    let sid = sessionId || sessionStorage.getItem('sessionId');
-    let checkoutId = sessionStorage.getItem('checkoutId');
-
-    if (!checkoutId) {
-      throw new Error('Missing checkoutId from server. Cannot continue paid playback.');
-    }
-
-    if (!sid) {
-      const today = new Date().toISOString().slice(0, 10);
-      sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
-      sessionStorage.setItem('sessionId', sid);
-      sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
-    }
-
-    // ✅ Do not call startPaidQueuePlayback or appendBatch/flushAppendBatch
-    statusText && (statusText.textContent = 'Track added locally (server will queue)');
-  } catch (err) {
-    console.error('addToPaidQueue error', err);
-    alert('Something went wrong adding the track locally. Please try again.');
-  }
-};
-
+  };
 })();
 
 /* ====== Optional: expose some functions for payment page to call ====== */
@@ -2325,46 +2249,6 @@ window.onPaymentSuccess = onPaymentSuccess;
 /* ====== End of fixed script ====== */
 
 
-// Merge server session tracks into local paidQueue and playedQueue
-function mergeServerQueueIntoLocal(serverTracks = []) {
-  // Normalize serverTracks to minimal shape
-  const normalizedServer = (serverTracks || []).map((t, i) => ({
-    uri: t.uri,
-    title: t.title || t.name || '',
-    artist: t.artist || (t.artists && t.artists.join(', ')) || '',
-    duration_ms: t.durationMs || t.duration_ms || 0,
-    albumArt: t.albumArt || t.album_art || '',
-    played: !!t.played,
-    orderIndex: t.orderIndex || i + 1
-  }));
-
-  // Reset queues
-  paidQueue = [];
-  playedQueue = [];
-
-  // Split into active vs played
-  for (const s of normalizedServer) {
-    if (s.played) {
-      playedQueue.push(s);
-    } else {
-      paidQueue.push(s);
-    }
-  }
-
-  // Sort both queues by orderIndex
-  paidQueue.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
-  playedQueue.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
-
-  // Persist both queues
-  try {
-    sessionStorage.setItem('paidQueue', JSON.stringify(paidQueue));
-    sessionStorage.setItem('playedQueue', JSON.stringify(playedQueue));
-  } catch (e) { /* ignore */ }
-
-  // Render both sections
-  renderQueue && renderQueue();
-  renderPlayedHistory && renderPlayedHistory();
-}
 
 // Render played history section
 function renderPlayedHistory() {
