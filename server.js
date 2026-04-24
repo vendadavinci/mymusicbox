@@ -947,16 +947,12 @@ app.get('/api/checkout-tracks', async (req, res) => {
 
 app.post('/webhook/payment-success', async (req, res) => {
   try {
-    const { sessionId, checkoutId, tracks = [], userId } = req.body;
+    const { checkoutId, tracks = [], userId } = req.body;
     if (!checkoutId) {
       return res.status(400).json({ error: 'Missing checkoutId' });
     }
 
-    const effectiveCheckoutId = checkoutId;
-    const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
-
-    // ✅ Attach to existing session by checkoutId
-    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
+    const session = await PaidSession.findOne({ checkoutId });
     if (!session) {
       return res.status(404).json({ error: 'No session found for checkoutId' });
     }
@@ -972,14 +968,15 @@ app.post('/webhook/payment-success', async (req, res) => {
       session.active = true;
       await session.save();
 
-      try {
-        await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
-        session.playbackStartedAt = new Date();
-        await session.save();
-      } catch (err) {
-        console.error('startPaidSession error', err);
-        return res.status(500).json({ error: 'playback failed', details: err.message });
-      }
+      // 🚫 Temporarily disable Spotify submission
+      // try {
+      //   await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
+      //   session.playbackStartedAt = new Date();
+      //   await session.save();
+      // } catch (err) {
+      //   console.error('startPaidSession error', err);
+      //   return res.status(500).json({ error: 'playback failed', details: err.message });
+      // }
     }
 
     res.json({ ok: true });
@@ -988,6 +985,7 @@ app.post('/webhook/payment-success', async (req, res) => {
     res.status(500).json({ error: 'webhook handling failed', details: err.message });
   }
 });
+
 
 async function isPaidSessionActive() {
   try {
