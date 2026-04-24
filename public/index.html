@@ -1735,6 +1735,95 @@ pollHandle = setInterval(pollStatusAdaptive, currentInterval);
 
 /* ====== Payment success handler ====== */
 async function onPaymentSuccess() {
+  const fetchWithTimeout = async (url, opts = {}, timeout = 10000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    try {
+      const res = await fetch(url, { ...opts, signal: controller.signal });
+      clearTimeout(id);
+      return res;
+    } catch (err) {
+      clearTimeout(id);
+      throw err;
+    }
+  };
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  const postPlayWithBackoff = async (payload, attempts = 3) => {
+    let delay = 800;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        if (i > 1) {
+          const submitButton = document.querySelector('#payment-complete-button');
+          if (submitButton) submitButton.textContent = `Retrying (${i}/${attempts})...`;
+        }
+        const res = await fetchWithTimeout('/api/play', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }, 15000);
+        return res;
+      } catch (err) {
+        console.warn(`postPlay attempt ${i} failed`, err);
+        if (i === attempts) throw err;
+        await sleep(delay);
+        delay *= 2;
+      }
+    }
+  };
+
+  const queueTrackWithRetries = async (track, sessionId, maxAttempts = 4) => {
+    let attempt = 0;
+    let delay = 600;
+    const payload = {
+      uri: track.uri,
+      sessionId,
+      userId: window.currentUserId || null,
+      title: track.title,
+      artist: track.artist,
+      duration_ms: track.duration_ms,
+      albumArt: track.albumArt
+    };
+
+    while (attempt < maxAttempts) {
+      attempt++;
+      try {
+        const res = await fetchWithTimeout('/api/queue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }, 10000);
+
+        let body = null;
+        try { body = await res.json().catch(() => null); } catch (e) { body = null; }
+
+        if (!res.ok && body?.code === 'NO_ACTIVE_DEVICE') {
+          return { ok: false, code: 'NO_ACTIVE_DEVICE', details: body };
+        }
+
+        if (!res.ok) {
+          const txt = body || await res.text().catch(() => '<no body>');
+          console.warn('queueTrack failed', res.status, txt);
+          if (res.status >= 500 || res.status === 0) {
+            if (attempt < maxAttempts) await sleep(delay);
+            delay *= 2;
+            continue;
+          }
+          return { ok: false, code: 'FAILED', details: txt };
+        }
+
+        return { ok: true, body };
+      } catch (err) {
+        console.warn(`queueTrack attempt ${attempt} error`, err);
+        if (attempt >= maxAttempts) throw err;
+        await sleep(delay);
+        delay *= 2;
+      }
+    }
+    return { ok: false, code: 'FAILED', details: 'Max attempts reached' };
+  };
+
   try {
     const tracksJson = sessionStorage.getItem('tracks');
     if (!tracksJson) return;
@@ -1749,31 +1838,155 @@ async function onPaymentSuccess() {
     const sessionId = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
     const submissionMarkerKey = `paidSubmitted_${checkoutId}`;
 
-    // ✅ If already marked, skip
     if (sessionStorage.getItem(submissionMarkerKey)) {
       sessionStorage.setItem('sessionId', sessionStorage.getItem(`sessionId_${checkoutId}`) || sessionId);
       return;
     }
 
-    // ✅ Mark as submitted (backend webhook will handle actual queuing)
-    sessionStorage.setItem(submissionMarkerKey, 'true');
-    sessionStorage.setItem(`sessionId_${checkoutId}`, sessionId);
-    sessionStorage.setItem('sessionId', sessionId);
-    sessionStorage.removeItem('tracks');
+    let activeSessionId = null;
+    try {
+      const statusRes = await fetchWithTimeout('/api/status', { method: 'GET' }, 8000);
+      if (statusRes && statusRes.ok) {
+        const statusData = await statusRes.json().catch(() => null);
+        if (statusData?.mode === 'PAID' && statusData?.sessionId) {
+          activeSessionId = statusData.sessionId;
+        }
+      }
+    } catch (err) {
+      console.warn('Could not fetch /api/status before /api/play; proceeding to submit payment result.', err);
+    }
+
+    const payload = {
+      sessionId: activeSessionId || sessionId,
+      userId: window.currentUserId || null,
+      tracks,
+      append: !!activeSessionId
+    };
 
     const submitButton = document.querySelector('#payment-complete-button');
     if (submitButton) {
       submitButton.disabled = true;
       submitButton.dataset.prevText = submitButton.textContent;
-      submitButton.textContent = 'Payment processed';
+      submitButton.textContent = 'Adding tracks...';
+    }
+    const statusText = document.querySelector('#paid-status-text');
+
+    const playRes = await postPlayWithBackoff(payload, 3);
+    if (!playRes) throw new Error('No response from /api/play');
+
+    let playBody = null;
+    try { playBody = await playRes.json().catch(() => null); } catch (e) { playBody = null; }
+
+    if (!playRes.ok && playBody?.code === 'NO_ACTIVE_DEVICE') {
+      alert('Venue player is offline. Please start the venue Spotify player and retry. Tracks were not queued.');
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      }
+      return;
     }
 
-    const statusText = document.querySelector('#paid-status-text');
-    if (statusText) statusText.textContent = 'Tracks will be queued by server...';
+    if (!playRes.ok) {
+      const details = playBody || await playRes.text().catch(() => '<no body>');
+      alert('Could not add tracks to the paid queue. Please try again or contact support.');
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      }
+      return;
+    }
 
+    const addedUris = Array.isArray(playBody?.addedUris) ? playBody.addedUris : [];
+    const failedTracks = Array.isArray(playBody?.failedTracks) ? playBody.failedTracks : [];
+
+    if (addedUris.length >= tracks.length && failedTracks.length === 0) {
+      sessionStorage.setItem(submissionMarkerKey, 'true');
+      sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
+      sessionStorage.setItem('sessionId', payload.sessionId);
+      sessionStorage.removeItem('tracks');
+      if (!activeSessionId) {
+        if (typeof startPaidQueuePlayback === 'function') {
+          try { startPaidQueuePlayback(payload.sessionId); } catch (e) { console.warn('startPaidQueuePlayback failed', e); }
+        }
+        if (statusText) statusText.textContent = 'Starting paid playback...';
+      } else {
+        if (statusText) statusText.textContent = 'Tracks appended to existing paid queue';
+      }
+      if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      return;
+    }
+
+    const stillToQueue = tracks.filter(t => !addedUris.includes(t.uri));
+    if (stillToQueue.length === 0) {
+      sessionStorage.setItem(submissionMarkerKey, 'true');
+      sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
+      sessionStorage.setItem('sessionId', payload.sessionId);
+      sessionStorage.removeItem('tracks');
+      if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      return;
+    }
+
+    const perTrackResults = [];
+    for (const t of stillToQueue) {
+      const alreadyAddedMarker = sessionStorage.getItem(`added_${payload.sessionId}_${t.uri}`);
+      if (alreadyAddedMarker) {
+        perTrackResults.push({ uri: t.uri, ok: true, note: 'client-marked-added' });
+        continue;
+      }
+
+      const result = await queueTrackWithRetries(t, payload.sessionId, 4).catch(err => ({ ok: false, code: 'EXCEPTION', details: err?.message || String(err) }));
+      if (result.ok) {
+        sessionStorage.setItem(`added_${payload.sessionId}_${t.uri}`, 'true');
+      }
+      perTrackResults.push({ uri: t.uri, ...result });
+      await sleep(120);
+    }
+
+    const failedAfterRetries = perTrackResults.filter(r => !r.ok && r.code !== 'NO_ACTIVE_DEVICE');
+    const noDeviceHits = perTrackResults.filter(r => r.code === 'NO_ACTIVE_DEVICE');
+
+    if (noDeviceHits.length > 0) {
+      alert('Venue player is currently offline. Some tracks were not queued. Please start the venue Spotify player and retry the failed submissions from the admin UI.');
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      }
+      return;
+    }
+
+    if (failedAfterRetries.length > 0) {
+      sessionStorage.setItem(submissionMarkerKey, 'true');
+      sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
+      sessionStorage.setItem('sessionId', payload.sessionId);
+      sessionStorage.removeItem('tracks');
+      alert(`Some tracks could not be queued immediately (${failedAfterRetries.length}). They will be retried in the background. If the issue persists, contact support.`);
+      if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
+      return;
+    }
+
+    sessionStorage.setItem(submissionMarkerKey, 'true');
+    sessionStorage.setItem(`sessionId_${checkoutId}`, payload.sessionId);
+    sessionStorage.setItem('sessionId', payload.sessionId);
+    sessionStorage.removeItem('tracks');
+
+    if (!activeSessionId) {
+      if (typeof startPaidQueuePlayback === 'function') {
+        try { startPaidQueuePlayback(payload.sessionId); } catch (e) { console.warn('startPaidQueuePlayback failed', e); }
+      }
+      if (statusText) statusText.textContent = 'Starting paid playback...';
+    } else {
+      if (statusText) statusText.textContent = 'Tracks appended to existing paid queue';
+    }
+
+    if (submitButton) submitButton.textContent = submitButton.dataset.prevText || 'Done';
   } catch (e) {
     console.error('onPaymentSuccess error', e);
-    alert('Something went wrong marking your payment. Please try again or contact support.');
+    const msg = (e && e.message) ? e.message : 'Something went wrong adding your tracks after payment.';
+    if (msg.toLowerCase().includes('no active') || msg.toLowerCase().includes('device')) {
+      alert('Venue player appears offline. Please start the venue Spotify player and retry.');
+    } else {
+      alert('Something went wrong adding your tracks after payment. Please try again or contact support.');
+    }
     const submitButton = document.querySelector('#payment-complete-button');
     if (submitButton) {
       submitButton.disabled = false;
@@ -1794,6 +2007,15 @@ function applyPackageFromQuery({ autoMarkPaid = false } = {}){
   return currentPackage;
 }
 
+/* Called when user clicks "Add Songs" (keeps behavior for legacy) */
+function startAddFlow(){
+  if (!paymentComplete){
+    alert('Please select a package and complete payment before adding songs.');
+    return;
+  }
+  const searchRow = document.getElementById('searchRow');
+  if (searchRow) searchRow.style.display = 'flex';
+}
 
 
 (function () {
@@ -1977,150 +2199,6 @@ function applyPackageFromQuery({ autoMarkPaid = false } = {}){
     appendTimer = setTimeout(() => flushAppendBatch(sessionId), delayMs || 3000);
   }
 
-  // retry a single track via /api/queue with exponential backoff
-  async function retryQueueTrack(track, sessionId) {
-    let attempt = 0;
-    let delay = 600;
-    const payload = {
-      uri: track.uri,
-      sessionId,
-      userId: window.currentUserId || null,
-      title: track.title,
-      artist: track.artist,
-      duration_ms: track.duration_ms,
-      albumArt: track.albumArt
-    };
-
-    while (attempt < PER_TRACK_RETRY_ATTEMPTS) {
-      attempt++;
-      try {
-        const res = await fetchWithTimeout('/api/queue', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        }, 10000);
-
-        let body = null;
-        try { body = await res.json().catch(() => null); } catch (e) { body = null; }
-
-        if (!res.ok && body?.code === 'NO_ACTIVE_DEVICE') {
-          return { ok: false, code: 'NO_ACTIVE_DEVICE', details: body };
-        }
-
-        if (!res.ok) {
-          const details = body || await res.text().catch(() => '<no body>');
-          console.warn('retryQueueTrack failed', res.status, details);
-          if (res.status >= 500 && attempt < PER_TRACK_RETRY_ATTEMPTS) {
-            await sleep(delay);
-            delay *= 2;
-            continue;
-          }
-          return { ok: false, code: 'FAILED', details };
-        }
-
-        return { ok: true, body };
-      } catch (err) {
-        console.warn(`retryQueueTrack attempt ${attempt} error`, err);
-        if (attempt >= PER_TRACK_RETRY_ATTEMPTS) return { ok: false, code: 'EXCEPTION', details: err.message || String(err) };
-        await sleep(delay);
-        delay *= 2;
-      }
-    }
-    return { ok: false, code: 'FAILED', details: 'max attempts reached' };
-  }
-
-  // --- Public API: addToPaidQueue ---
-  window.addToPaidQueue = async function addToPaidQueue(track, sessionId) {
-    try {
-      if (!paymentComplete || !currentPackage) {
-        alert('You must pay for a package before adding songs.');
-        return;
-      }
-
-      if (songsAddedThisSession >= currentPackage.maxSongs) {
-        alert(`You have reached the limit of ${currentPackage.maxSongs} songs for this package.`);
-        return;
-      }
-
-      if (!track || !track.uri) {
-        console.warn('Invalid track passed to addToPaidQueue', track);
-        return;
-      }
-
-      const normalized = {
-        uri: track.uri,
-        title: track.title || track.name || '',
-        artist: track.artist || (track.artists && track.artists.join(', ')) || '',
-        duration_ms: track.duration_ms || track.durationMs || 0,
-        albumArt: track.albumArt || (track.album?.images?.[0]?.url) || '',
-        addedAt: Date.now()
-      };
-
-      // local dedupe against paidQueue and appendBatch
-      if (paidQueue.some(t => t.uri === normalized.uri) || appendBatch.some(t => t.uri === normalized.uri) || isClientMarkedAdded(sessionId || sessionStorage.getItem('sessionId'), normalized.uri)) {
-        console.info('Track already queued or pending, skipping:', normalized.uri);
-        statusText && (statusText.textContent = 'Track already in paid queue');
-        return;
-      }
-
-      // push to local paidQueue and persist
-      paidQueue.push(normalized);
-      persistPaidQueue(paidQueue);
-
-      songsAddedThisSession++;
-      renderQueue && renderQueue();
-
-      // ensure sessionId exists
-let sid = sessionId || sessionStorage.getItem('sessionId');
-let checkoutId = sessionStorage.getItem('checkoutId');
-
-if (!checkoutId) {
-  throw new Error('Missing checkoutId from server. Cannot continue paid playback.');
-}
-
-if (!sid) {
-  const today = new Date().toISOString().slice(0, 10);
-  sid = `${today}-${checkoutId}-${Date.now().toString().slice(-6)}`;
-  sessionStorage.setItem('sessionId', sid);
-  sessionStorage.setItem(`sessionId_${checkoutId}`, sid);
-}
-
-
-      // If paid session not active, try to start it (idempotent)
-      if (!paidSessionActive) {
-        const startMarkerKey = `paidStarted_${sid}`;
-        if (!sessionStorage.getItem(startMarkerKey)) {
-          sessionStorage.setItem(startMarkerKey, 'true');
-          statusText && (statusText.textContent = 'Starting paid playback...');
-          try {
-            await startPaidQueuePlayback(sid, false);
-            paidSessionActive = true;
-            statusText && (statusText.textContent = 'Paid playback started');
-          } catch (err) {
-            console.error('startPaidQueuePlayback failed', err);
-            statusText && (statusText.textContent = 'Failed to start paid playback — will retry');
-            sessionStorage.removeItem(startMarkerKey);
-            // still allow adding to appendBatch so it will be queued when player comes online
-          }
-        } else {
-          statusText && (statusText.textContent = 'Paid playback starting (in progress)');
-        }
-        // still add to appendBatch so it will be queued once active
-      }
-
-      // add to appendBatch and schedule flush
-      appendBatch.push(normalized);
-      if (!appendTimer) {
-        appendTimer = setTimeout(() => flushAppendBatch(sid), APPEND_BATCH_MS);
-      }
-
-      statusText && (statusText.textContent = 'Track added to paid queue');
-    } catch (err) {
-      console.error('addToPaidQueue error', err);
-      alert('Something went wrong adding the track. Please try again.');
-    }
-  };
-})();
 
 /* ====== Optional: expose some functions for payment page to call ====== */
 window.applyPackageFromQuery = applyPackageFromQuery;
