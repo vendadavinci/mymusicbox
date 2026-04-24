@@ -912,8 +912,16 @@ app.get('/api/checkout-tracks', async (req, res) => {
 
 app.post('/webhook/payment-success', async (req, res) => {
   try {
-    const {  checkoutId, tracks = [], userId } = req.body;
+    const { sessionId, checkoutId, tracks = [], userId } = req.body;
+
+    console.log('[WEBHOOK] Triggered payment-success');
+    console.log('  checkoutId:', checkoutId);
+    console.log('  sessionId:', sessionId);
+    console.log('  userId:', userId);
+    console.log('  tracks:', tracks.map(t => t.uri));
+
     if (!checkoutId) {
+      console.warn('[WEBHOOK] Missing checkoutId in request body');
       return res.status(400).json({ error: 'Missing checkoutId' });
     }
 
@@ -923,28 +931,36 @@ app.post('/webhook/payment-success', async (req, res) => {
     // ✅ Attach to existing session by checkoutId
     let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
     if (!session) {
+      console.warn('[WEBHOOK] No session found for checkoutId:', effectiveCheckoutId);
       return res.status(404).json({ error: 'No session found for checkoutId' });
     }
 
     // Guard: skip duplicate webhook
     if (session.songsAdded > 0 && session.playbackStartedAt) {
+      console.log('[WEBHOOK] Duplicate webhook detected, skipping. songsAdded:', session.songsAdded, 'playbackStartedAt:', session.playbackStartedAt);
       return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
     }
 
     if (tracks.length > 0) {
+      console.log('[WEBHOOK] Updating session with tracks:', tracks.map(t => t.uri));
       session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
       session.songsAdded = tracks.length;
       session.active = true;
       await session.save();
+      console.log('[WEBHOOK] Session saved. songsAdded:', session.songsAdded);
 
       try {
+        console.log('[WEBHOOK] Calling startPaidSession for sessionId:', session.sessionId);
         await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
         session.playbackStartedAt = new Date();
         await session.save();
+        console.log('[WEBHOOK] startPaidSession completed. playbackStartedAt set:', session.playbackStartedAt);
       } catch (err) {
-        console.error('startPaidSession error', err);
+        console.error('[WEBHOOK] startPaidSession error', err);
         return res.status(500).json({ error: 'playback failed', details: err.message });
       }
+    } else {
+      console.log('[WEBHOOK] No tracks provided in webhook payload');
     }
 
     res.json({ ok: true });
