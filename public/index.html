@@ -2585,16 +2585,19 @@ async function loadPaidTracks() {
 
       renderQueue();
 
-      await fetch('/webhook/payment-success', {
+      // ✅ Queue tracks via /api/play (append mode)
+      await fetch('/api/play', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ checkoutId: sessionStorage.getItem('checkoutId'), tracks })
+        body: JSON.stringify({
+          checkoutId: sessionStorage.getItem('checkoutId'),
+          tracks,
+          append: true
+        })
       });
 
       const statusText = document.getElementById('statusText');
-      if (statusText) statusText.textContent = 'Starting paid playback...';
-
-      await startPaidQueuePlayback(sessionStorage.getItem('checkoutId'));
+      if (statusText) statusText.textContent = 'Tracks queued...';
 
       pollStatusOnce();
       setInterval(() => {
