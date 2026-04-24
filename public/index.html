@@ -1622,47 +1622,18 @@ async function pollStatus() {
     const data = await res.json();
     if (!data.success || data.status !== 'successful') return;
 
-    const pending = typeof getPendingSubmission === 'function' ? getPendingSubmission() : null;
-    let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length
-      ? pending.tracks.slice()
-      : JSON.parse(sessionStorage.getItem('tracks') || '[]');
-
-    // ✅ Deduplicate against backend-confirmed enqueued URIs
-    if (Array.isArray(data.enaddedUris) && data.enaddedUris.length) {
-      const enaddedSet = new Set(data.enaddedUris.map(normalizeUri));
-      tracksToEnqueue = tracksToEnqueue.filter(t => !enaddedSet.has(normalizeUri(t.uri)));
-    }
-    
-    // ✅ Deduplicate against local queue
-    const localSet = new Set((paidQueue || []).map(t => normalizeUri(t.uri)));
-    tracksToEnqueue = tracksToEnqueue.filter(t => !localSet.has(normalizeUri(t.uri)));
-
-    // ✅ Deduplicate against sessionStorage flags
-    tracksToEnqueue = tracksToEnqueue.filter(t => {
-      return !sessionStorage.getItem(`added_${checkoutId}_${normalizeUri(t.uri)}`);
-    });
-
-    if (tracksToEnqueue.length === 0) {
-      if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
-      if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
-      if (typeof initPage === 'function') initPage();
-      return;
-    }
-
-    for (const t of tracksToEnqueue) {
-      paidQueue.push({
-        uri: normalizeUri(t.uri),
-        title: t.title || t.name || '',
-        artist: t.artist || (t.artists && t.artists.join(', ')) || '',
-        duration_ms: t.duration_ms || 0,
-        albumArt: t.albumArt || t.album_art || '',
-        addedAt: Date.now(),
-        played: !!t.played,
-        status: 'Added',
-        orderIndex: t.orderIndex || (paidQueue.length + 1)
-      });
-      sessionStorage.setItem(`added_${checkoutId}_${normalizeUri(t.uri)}`, 'true'); // ✅ mark as added
-    }
+    // ✅ Replace local queue with backend tracks
+    paidQueue = (data.tracks || []).map(t => ({
+      uri: normalizeUri(t.uri),
+      title: t.title || 'Unknown',
+      artist: t.artist || '',
+      duration_ms: t.duration_ms || 0,
+      albumArt: t.albumArt || '',
+      addedAt: Date.now(),
+      played: t.status === 'Played',
+      status: t.status,
+      orderIndex: t.orderIndex || (paidQueue.length + 1)
+    }));
 
     if (typeof persistPaidQueue === 'function') persistPaidQueue();
     if (typeof renderQueue === 'function') renderQueue();
@@ -1679,7 +1650,6 @@ async function pollStatus() {
     console.error('pollStatus error:', err);
   }
 }
-
 
 // Adaptive Spotify playback polling
 let pollHandle = null;

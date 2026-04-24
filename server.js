@@ -967,24 +967,39 @@ app.post('/webhook/payment-success', async (req, res) => {
       return res.status(404).json({ error: 'No session found for checkoutId' });
     }
 
-    // Guard: skip duplicate webhook
+    // ✅ Guard: skip duplicate webhook if already processed
     if (session.songsAdded > 0 && session.playbackStartedAt) {
       return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
     }
 
     if (tracks.length > 0) {
-      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
-      session.songsAdded = tracks.length;
-      session.active = true;
-      await session.save();
+      const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
+      const existingUris = new Set(session.tracks.map(t => normalizeUri(t.uri)));
 
-      try {
-        await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
-        session.playbackStartedAt = new Date();
+      // ✅ Only add tracks that are not already present
+      const newTracks = [];
+      let nextIndex = session.tracks.length + 1;
+      for (const t of tracks) {
+        const uri = normalizeUri(t.uri);
+        if (!uri || existingUris.has(uri)) continue;
+        newTracks.push(normalizeTrack(t, nextIndex++));
+        existingUris.add(uri);
+      }
+
+      if (newTracks.length > 0) {
+        session.tracks = session.tracks.concat(newTracks);
+        session.songsAdded = (session.songsAdded || 0) + newTracks.length;
+        session.active = true;
         await session.save();
-      } catch (err) {
-        console.error('startPaidSession error', err);
-        return res.status(500).json({ error: 'playback failed', details: err.message });
+
+        try {
+          await startPaidSession(session.sessionId, newTracks, estimatedTotalMs);
+          session.playbackStartedAt = new Date();
+          await session.save();
+        } catch (err) {
+          console.error('startPaidSession error', err);
+          return res.status(500).json({ error: 'playback failed', details: err.message });
+        }
       }
     }
 
