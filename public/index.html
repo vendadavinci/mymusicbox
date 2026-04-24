@@ -372,7 +372,7 @@ body::before {
 
     <!-- Playing Next strip (aligned with Checkout Queue) -->
     <div class="playing-next" id="playingNext" style="margin-top:12px;display:flex;flex-direction:column;gap:6px;">
-      <!-- JS historically referenced both checkoutQueueCount/checkoutNextTitle and queueCount/nextTitleEl.
+
            Include both IDs so either variant works. -->
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
         <div class="small" id="checkoutQueueCount">Paid queue: 0</div>
@@ -494,8 +494,6 @@ const queueCount          = document.getElementById('queueCount')
                           || document.getElementById('checkoutQueueCount');
 const queueDurationText   = document.getElementById('queueDurationText') 
                           || document.getElementById('checkoutQueueDuration');
-const nextTitleEl         = document.getElementById('nextTitleEl') 
-                          || document.getElementById('checkoutNextTitle');
 
 const searchResultsEl     = document.getElementById('searchResults');
 const formPanel           = document.getElementById('formPanel');
@@ -1014,7 +1012,6 @@ window.addEventListener('load', () => {
   const paidQueueEl      = document.getElementById('checkoutQueueList');
   const queueCount       = document.getElementById('checkoutQueueCount');
   const queueDurationText= document.getElementById('checkoutQueueDuration');
-  const nextTitleEl      = document.getElementById('checkoutNextTitle');
   const nowTitle         = document.getElementById('nowTitle');
   const statusText       = document.getElementById('statusText');
 
@@ -1022,7 +1019,6 @@ window.addEventListener('load', () => {
   if (!paidQueueEl)       missing.push('checkoutQueueList');
   if (!queueCount)        missing.push('checkoutQueueCount');
   if (!queueDurationText) missing.push('checkoutQueueDuration');
-  if (!nextTitleEl)       missing.push('checkoutNextTitle');
   if (!nowTitle)          missing.push('nowTitle');
 
   if (missing.length) {
@@ -2447,18 +2443,6 @@ async function pollStatusOnce(){
     // Mode and status
     nowMode.textContent = `Mode: ${data.mode || 'DEFAULT'}`;
     statusText.textContent = data.mode === 'PAID' ? 'Playing paid queue' : (data.is_playing ? 'Playing' : 'Paused');
-
-    // If we are in a paid session and the local paidQueue still has items,
-    // show the next paid track in the UI (authoritative source is Spotify, but this helps UX)
-    if (paidSessionActive && paidQueue.length > 0) {
-      nextTitleEl.textContent = `${paidQueue[0].title} — ${paidQueue[0].artist}`;
-      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
-      queueDurationText.textContent = `Estimated duration: ${Math.round(paidQueue.reduce((s,i)=>s+(i.duration_ms||210000),0)/60000)} min`;
-    } else {
-      // If no local paid queue, fall back to server-provided next info if available
-      if (data.next_title) nextTitleEl.textContent = data.next_title;
-      queueCount.textContent = `Paid queue: ${paidQueue.length}`;
-    }
   }catch(e){ console.warn('pollStatusOnce', e); }
 }
 
