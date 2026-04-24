@@ -947,36 +947,45 @@ app.get('/api/checkout-tracks', async (req, res) => {
 
 app.post('/webhook/payment-success', async (req, res) => {
   try {
-    const { checkoutId, tracks = [], userId } = req.body;
-    if (!checkoutId) {
-      return res.status(400).json({ error: 'Missing checkoutId' });
-    }
+    const { checkoutId, tracks = [] } = req.body;
+    if (!checkoutId) return res.status(400).json({ error: 'Missing checkoutId' });
 
     const session = await PaidSession.findOne({ checkoutId });
-    if (!session) {
-      return res.status(404).json({ error: 'No session found for checkoutId' });
-    }
+    if (!session) return res.status(404).json({ error: 'No session found for checkoutId' });
 
-    // Guard: skip duplicate webhook
-    if (session.songsAdded > 0 && session.playbackStartedAt) {
-      return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
+    // ✅ Skip if already processed
+    if (session.processed) {
+      return res.json({ ok: true, message: 'Session already processed' });
     }
 
     if (tracks.length > 0) {
-      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
-      session.songsAdded = tracks.length;
-      session.active = true;
-      await session.save();
+      const existingUris = new Set(session.tracks.map(t => t.uri));
+      const newTracks = [];
+      let nextIndex = session.tracks.length + 1;
 
-      // 🚫 Temporarily disable Spotify submission
-      // try {
-      //   await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
-      //   session.playbackStartedAt = new Date();
-      //   await session.save();
-      // } catch (err) {
-      //   console.error('startPaidSession error', err);
-      //   return res.status(500).json({ error: 'playback failed', details: err.message });
-      // }
+      for (const t of tracks) {
+        if (!t || !t.uri) continue;
+        if (existingUris.has(t.uri)) continue;
+        newTracks.push(normalizeTrack(t, nextIndex++));
+        existingUris.add(t.uri);
+      }
+
+      if (newTracks.length > 0) {
+        session.tracks = session.tracks.concat(newTracks);
+        session.songsAdded = (session.songsAdded || 0) + newTracks.length;
+        session.active = true;
+        await session.save();
+
+        try {
+          await startPaidSession(session.sessionId, newTracks, newTracks.reduce((s, t) => s + (t.duration_ms || 210000), 0));
+          session.playbackStartedAt = new Date();
+          session.processed = true;   // ✅ mark as processed
+          await session.save();
+        } catch (err) {
+          console.error('startPaidSession error', err);
+          return res.status(500).json({ error: 'playback failed', details: err.message });
+        }
+      }
     }
 
     res.json({ ok: true });

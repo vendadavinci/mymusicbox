@@ -10,7 +10,6 @@ const PaidTrackSchema = new mongoose.Schema({
   addedAt: { type: Date, default: Date.now },
   played: { type: Boolean, default: false },
   orderIndex: { type: Number },
-  // ✅ Explicit status field
   status: { 
     type: String, 
     enum: ['Added', 'Playing', 'Played', 'Paused'], 
@@ -33,11 +32,10 @@ const PaidSessionSchema = new mongoose.Schema({
   processedAt: { type: Date }, 
   playbackStartedAt: { type: Date }, 
   currentUri: { type: String },
-  // ✅ Persist playback state at session level
-  isPlaying: { type: Boolean, default: false }
+  isPlaying: { type: Boolean, default: false },
+  processed: { type: Boolean, default: false }
 });
 
-// ✅ TTL index: auto-delete sessions once endedAt is set
 PaidSessionSchema.index({ endedAt: 1 }, { expireAfterSeconds: 0 });
 
 export const PaidSession = mongoose.model('PaidSession', PaidSessionSchema);
