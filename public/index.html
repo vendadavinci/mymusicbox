@@ -2566,6 +2566,12 @@ async function loadPaidTracks() {
 
       renderQueue();
 
+      await fetch('/webhook/payment-success', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkoutId: sessionStorage.getItem('checkoutId'), tracks })
+      });
+
       const statusText = document.getElementById('statusText');
       if (statusText) statusText.textContent = 'Starting paid playback...';
 
