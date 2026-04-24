@@ -1611,6 +1611,7 @@ async function pollStatus() {
     const checkoutId = sessionStorage.getItem('checkoutId');
     if (!checkoutId) return;
 
+    // ✅ Call the unified /api/status route
     const res = await fetch(`/api/status?checkoutId=${encodeURIComponent(checkoutId)}`);
     if (!res.ok) {
       console.warn('status returned non-ok', res.status);
@@ -1625,21 +1626,13 @@ async function pollStatus() {
       ? pending.tracks.slice()
       : JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
-    // ✅ Deduplicate against backend-confirmed enqueued URIs
     if (Array.isArray(data.enaddedUris) && data.enaddedUris.length) {
       const enaddedSet = new Set(data.enaddedUris);
       tracksToEnqueue = tracksToEnqueue.filter(t => !enaddedSet.has(t.uri));
     }
-    
-    // ✅ Deduplicate against local queue
+
     const localSet = new Set((paidQueue || []).map(t => t.uri));
     tracksToEnqueue = tracksToEnqueue.filter(t => !localSet.has(t.uri));
-
-    // ✅ Deduplicate against sessionStorage flags
-    tracksToEnqueue = tracksToEnqueue.filter(t => {
-      return !sessionStorage.getItem(`added_${checkoutId}_${t.uri}`);
-    });
-
 
     if (tracksToEnqueue.length === 0) {
       if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
@@ -1660,7 +1653,7 @@ async function pollStatus() {
         status: 'Added',
         orderIndex: t.orderIndex || (paidQueue.length + 1)
       });
-      sessionStorage.setItem(`added_${checkoutId}_${t.uri}`, 'true'); // ✅ mark as added
+      sessionStorage.setItem(`added_${checkoutId}_${t.uri}`, 'true');
     }
 
     if (typeof persistPaidQueue === 'function') persistPaidQueue();
@@ -1678,7 +1671,6 @@ async function pollStatus() {
     console.error('pollStatus error:', err);
   }
 }
-
 
 // Adaptive Spotify playback polling
 let pollHandle = null;
