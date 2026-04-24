@@ -1606,8 +1606,6 @@ statusPollHandle = setInterval(pollStatus, 6000);
 pollStatus();
 
 
-const normalizeUri = u => (!u ? null : u.startsWith('spotify:track:') ? u : `spotify:track:${u}`);
-
 async function pollStatus() {
   try {
     const checkoutId = sessionStorage.getItem('checkoutId');
@@ -1622,18 +1620,48 @@ async function pollStatus() {
     const data = await res.json();
     if (!data.success || data.status !== 'successful') return;
 
-    // ✅ Replace local queue with backend tracks
-    paidQueue = (data.tracks || []).map(t => ({
-      uri: normalizeUri(t.uri),
-      title: t.title || 'Unknown',
-      artist: t.artist || '',
-      duration_ms: t.duration_ms || 0,
-      albumArt: t.albumArt || '',
-      addedAt: Date.now(),
-      played: t.status === 'Played',
-      status: t.status,
-      orderIndex: t.orderIndex || (paidQueue.length + 1)
-    }));
+    const pending = typeof getPendingSubmission === 'function' ? getPendingSubmission() : null;
+    let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length
+      ? pending.tracks.slice()
+      : JSON.parse(sessionStorage.getItem('tracks') || '[]');
+
+    // ✅ Deduplicate against backend-confirmed enqueued URIs
+    if (Array.isArray(data.enaddedUris) && data.enaddedUris.length) {
+      const enaddedSet = new Set(data.enaddedUris);
+      tracksToEnqueue = tracksToEnqueue.filter(t => !enaddedSet.has(t.uri));
+    }
+    
+    // ✅ Deduplicate against local queue
+    const localSet = new Set((paidQueue || []).map(t => t.uri));
+    tracksToEnqueue = tracksToEnqueue.filter(t => !localSet.has(t.uri));
+
+    // ✅ Deduplicate against sessionStorage flags
+    tracksToEnqueue = tracksToEnqueue.filter(t => {
+      return !sessionStorage.getItem(`added_${checkoutId}_${t.uri}`);
+    });
+
+
+    if (tracksToEnqueue.length === 0) {
+      if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
+      if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
+      if (typeof initPage === 'function') initPage();
+      return;
+    }
+
+    for (const t of tracksToEnqueue) {
+      paidQueue.push({
+        uri: t.uri,
+        title: t.title || t.name || '',
+        artist: t.artist || (t.artists && t.artists.join(', ')) || '',
+        duration_ms: t.duration_ms || 0,
+        albumArt: t.albumArt || t.album_art || '',
+        addedAt: Date.now(),
+        played: !!t.played,
+        status: 'Added',
+        orderIndex: t.orderIndex || (paidQueue.length + 1)
+      });
+      sessionStorage.setItem(`added_${checkoutId}_${t.uri}`, 'true'); // ✅ mark as added
+    }
 
     if (typeof persistPaidQueue === 'function') persistPaidQueue();
     if (typeof renderQueue === 'function') renderQueue();
@@ -1650,6 +1678,7 @@ async function pollStatus() {
     console.error('pollStatus error:', err);
   }
 }
+
 
 // Adaptive Spotify playback polling
 let pollHandle = null;
@@ -2585,19 +2614,16 @@ async function loadPaidTracks() {
 
       renderQueue();
 
-      // ✅ Queue tracks via /api/play (append mode)
-      await fetch('/api/play', {
+      await fetch('/webhook/payment-success', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          checkoutId: sessionStorage.getItem('checkoutId'),
-          tracks,
-          append: true
-        })
+        body: JSON.stringify({ checkoutId: sessionStorage.getItem('checkoutId'), tracks })
       });
 
       const statusText = document.getElementById('statusText');
-      if (statusText) statusText.textContent = 'Tracks queued...';
+      if (statusText) statusText.textContent = 'Starting paid playback...';
+
+      await startPaidQueuePlayback(sessionStorage.getItem('checkoutId'));
 
       pollStatusOnce();
       setInterval(() => {
