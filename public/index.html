@@ -1794,15 +1794,6 @@ function applyPackageFromQuery({ autoMarkPaid = false } = {}){
   return currentPackage;
 }
 
-/* Called when user clicks "Add Songs" (keeps behavior for legacy) */
-function startAddFlow(){
-  if (!paymentComplete){
-    alert('Please select a package and complete payment before adding songs.');
-    return;
-  }
-  const searchRow = document.getElementById('searchRow');
-  if (searchRow) searchRow.style.display = 'flex';
-}
 
 
 (function () {
