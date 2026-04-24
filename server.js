@@ -214,15 +214,6 @@ async function startPaidSession(sessionId, tracks, estimatedTotalMs = null, user
 }
 
 
-// Helper to get or create a session
-function getSession(sessionId) {
-  if (!paidSessions.has(sessionId)) {
-    paidSessions.set(sessionId, { tracks: [], active: false });
-  }
-  return paidSessions.get(sessionId);
-}
-
-
 // Helper: normalize incoming track shape
 function normalizeTrack(track, orderIndex, currentUri, isPlaying) {
   let status = 'Added';
@@ -396,29 +387,6 @@ app.post('/api/play', async (req, res) => {
     console.error('/api/play error', err);
     return res.status(500).json({ success: false, error: 'play failed', details: err.message });
   }
-});
-
-
-// Pause/Resume/Skip protection
-app.post('/api/pause', async (req, res) => {
-  if (await isPaidSessionActive()) {
-    return res.status(403).json({ success: false, error: 'Cannot pause during paid session' });
-  }
-  res.json({ success: true });
-});
-
-app.post('/api/resume', async (req, res) => {
-  if (await isPaidSessionActive()) {
-    return res.status(403).json({ success: false, error: 'Cannot resume during paid session' });
-  }
-  res.json({ success: true });
-});
-
-app.post('/api/skip', async (req, res) => {
-  if (await isPaidSessionActive()) {
-    return res.status(403).json({ success: false, error: 'Cannot skip during paid session' });
-  }
-  res.json({ success: true });
 });
 
 // Mark a track as played in the given session
@@ -952,17 +920,15 @@ app.post('/webhook/payment-success', async (req, res) => {
       return res.status(400).json({ error: 'Missing checkoutId' });
     }
 
-
     const effectiveCheckoutId = checkoutId;
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    const session = await PaidSession.findOne({ checkoutId });
-    if (!session) return res.status(404).json({ error: 'No session found for checkoutId' });
-
-    // ✅ Skip if already processed
-    if (session.processed) {
-      return res.json({ ok: true, message: 'Session already processed' });
+    // ✅ Attach to existing session by checkoutId
+    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
+    if (!session) {
+      return res.status(404).json({ error: 'No session found for checkoutId' });
     }
+
     // Guard: skip duplicate webhook
     if (session.songsAdded > 0 && session.playbackStartedAt) {
       return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
@@ -977,7 +943,6 @@ app.post('/webhook/payment-success', async (req, res) => {
       try {
         await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
         session.playbackStartedAt = new Date();
-        session.processed = true;
         await session.save();
       } catch (err) {
         console.error('startPaidSession error', err);
