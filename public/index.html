@@ -2597,6 +2597,186 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 
 
+<script>
+// Read-only UI refresh. Never enqueue or post anything here.
+async function refreshStatus() {
+  try {
+    const res = await fetch(`/api/status?userId=${window.currentUserId}`);
+
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (data && data.success) {
+      const titleEl = document.getElementById('song-title');
+      const artistEl = document.getElementById('song-artist');
+      const artEl = document.getElementById('album-art');
+      const modeEl = document.getElementById('session-mode');
+      const progressEl = document.getElementById('progress');
+
+      if (titleEl) titleEl.textContent = data.title || '';
+      if (artistEl) artistEl.textContent = data.artist || '';
+      if (artEl) artEl.src = data.albumArt || '';
+      if (modeEl) modeEl.textContent = data.mode || '';
+      if (progressEl) progressEl.textContent = `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
+    }
+  } catch (err) {
+    console.warn('refreshStatus error', err);
+  }
+}
+
+setInterval(refreshStatus, 80000);
+refreshStatus();
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderQueueAndHistory();
+  loadPaidTracks();
+  setInterval(renderQueueAndHistory, 10000); 
+});
+
+async function renderQueueAndHistory() {
+  try {
+    if (!checkoutQueueList) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('checkoutId'); // reuse checkoutId as sessionId
+    if (!sessionId) return;
+
+    const res = await fetch(`/api/progress?sessionId=${sessionId}`);
+    const data = await res.json();
+    if (!data.success) return;
+
+    const tracks = data.tracks || [];
+    checkoutQueueList.innerHTML = '';
+    const frag = document.createDocumentFragment();
+
+    let totalMs = 0;
+    const playedQueue = [];
+    const paidQueue = [];
+
+    tracks.forEach((item, index) => {
+      totalMs += item.duration_ms || 0;
+
+      // Split into played vs active
+      if (item.status === 'Played') {
+        playedQueue.push(item);
+      } else {
+        paidQueue.push(item);
+      }
+
+      // Build queue UI
+      const wrapper = document.createElement('div');
+      wrapper.className = 'queue-item';
+      wrapper.style.display = 'flex';
+      wrapper.style.justifyContent = 'space-between';
+      wrapper.style.alignItems = 'center';
+      wrapper.style.gap = '12px';
+      wrapper.dataset.index = String(index);
+
+      const left = document.createElement('div');
+      left.style.minWidth = '0';
+      left.style.flex = '1';
+
+      const titleDiv = document.createElement('div');
+      titleDiv.style.fontWeight = '700';
+      titleDiv.style.whiteSpace = 'nowrap';
+      titleDiv.style.overflow = 'hidden';
+      titleDiv.style.textOverflow = 'ellipsis';
+      titleDiv.textContent = item.title || '';
+
+      const metaDiv = document.createElement('div');
+      metaDiv.className = 'meta';
+      metaDiv.style.fontSize = '0.9em';
+      metaDiv.style.color = '#666';
+      metaDiv.textContent = item.artist || '';
+
+      left.appendChild(titleDiv);
+      left.appendChild(metaDiv);
+
+      const right = document.createElement('div');
+      right.style.display = 'flex';
+      right.style.flexDirection = 'column';
+      right.style.gap = '6px';
+      right.style.alignItems = 'flex-end';
+      right.style.minWidth = '90px';
+
+      const durationDiv = document.createElement('div');
+      durationDiv.className = 'small';
+      durationDiv.style.fontSize = '0.85em';
+      durationDiv.style.color = '#333';
+      durationDiv.textContent = formatMs(item.duration_ms || 0);
+
+      const statusDiv = document.createElement('div');
+      statusDiv.style.fontSize = '0.75em';
+      statusDiv.className = `status ${item.status.toLowerCase()}`;
+      statusDiv.textContent = item.status;
+
+      right.appendChild(durationDiv);
+      right.appendChild(statusDiv);
+
+      wrapper.appendChild(left);
+      wrapper.appendChild(right);
+
+      frag.appendChild(wrapper);
+    });
+
+    checkoutQueueList.appendChild(frag);
+
+    if (checkoutQueueCount) {
+      checkoutQueueCount.textContent = `Paid queue: ${paidQueue.length}`;
+    }
+    if (checkoutQueueDuration) {
+      checkoutQueueDuration.textContent = `Estimated duration: ${Math.round(totalMs / 60000)} min`;
+    }
+    if (checkoutNextTitle) {
+      const nextTrack = paidQueue.find(t => t.status === 'Added');
+      checkoutNextTitle.textContent = nextTrack
+        ? `${nextTrack.title} — ${nextTrack.artist}`
+        : 'No paid tracks queued';
+    }
+
+    // ✅ Render played history from the same response
+    const playedQueueList = document.getElementById('playedQueueList');
+    if (playedQueueList) {
+      playedQueueList.innerHTML = '';
+
+      // Add summary line
+      const summary = document.createElement('div');
+      summary.className = 'small';
+      summary.style.marginBottom = '8px';
+      summary.textContent = `Played ${playedQueue.length} of ${tracks.length}`;
+      playedQueueList.appendChild(summary);
+
+      const fragHistory = document.createDocumentFragment();
+      playedQueue.forEach(t => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'played-item';
+        wrapper.style.display = 'flex';
+        wrapper.style.justifyContent = 'space-between';
+        wrapper.style.alignItems = 'center';
+        wrapper.style.gap = '12px';
+
+        const left = document.createElement('div');
+        left.textContent = `${t.title} — ${t.artist}`;
+
+        const right = document.createElement('div');
+        right.className = 'small';
+        right.textContent = formatMs(t.duration_ms || 0);
+
+        wrapper.appendChild(left);
+        wrapper.appendChild(right);
+        fragHistory.appendChild(wrapper);
+      });
+
+      playedQueueList.appendChild(fragHistory);
+    }
+
+    if (typeof updateStartPlayButton === 'function') updateStartPlayButton();
+
+  } catch (err) {
+    console.error('renderQueueAndHistory error', err);
+  }
+}
+</script>
 
 </body>
 </html>
