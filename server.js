@@ -952,15 +952,17 @@ app.post('/webhook/payment-success', async (req, res) => {
       return res.status(400).json({ error: 'Missing checkoutId' });
     }
 
+
     const effectiveCheckoutId = checkoutId;
     const estimatedTotalMs = tracks.reduce((s, t) => s + (t.duration_ms || 210000), 0);
 
-    // ✅ Attach to existing session by checkoutId
-    let session = await PaidSession.findOne({ checkoutId: effectiveCheckoutId });
-    if (!session) {
-      return res.status(404).json({ error: 'No session found for checkoutId' });
-    }
+    const session = await PaidSession.findOne({ checkoutId });
+    if (!session) return res.status(404).json({ error: 'No session found for checkoutId' });
 
+    // ✅ Skip if already processed
+    if (session.processed) {
+      return res.json({ ok: true, message: 'Session already processed' });
+    }
     // Guard: skip duplicate webhook
     if (session.songsAdded > 0 && session.playbackStartedAt) {
       return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
