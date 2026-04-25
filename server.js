@@ -980,21 +980,27 @@ app.post('/api/request-cash-payment', async (req, res) => {
     // Generate 6-digit code
     const code = Math.floor(100000 + Math.random() * 900000).toString();
 
+    // Generate a unique sessionId using Date.now()
+    const sessionId = `${checkoutId}-${Date.now()}`;
+
     // Save pending request
     const session = await PaidSession.findOneAndUpdate(
       { checkoutId },
       {
+        sessionId, // required unique field
         checkoutId,
         tracks: tracks.map((t, i) => normalizeTrack(t, i + 1)),
         songsAdded: tracks.length,
         active: false,
         cashCode: code,
-        approved: false
+        approved: false,
+        isPlaying: false,
+        processed: false
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
     );
 
-    console.log('[CASH] Pending cash payment created:', checkoutId, 'code:', code);
+    console.log('[CASH] Pending cash payment created:', checkoutId, 'sessionId:', sessionId, 'code:', code);
     res.json({ ok: true, code });
   } catch (err) {
     console.error('/api/request-cash-payment error', err);
@@ -1016,7 +1022,8 @@ app.post('/api/approve-cash', async (req, res) => {
   session.active = true;
   await session.save();
 
-  // Start playback
+  console.log('[CASH] Approving cash payment, sessionId:', session.sessionId);
+
   await startPaidSession(session.sessionId, session.tracks);
   session.playbackStartedAt = new Date();
   await session.save();

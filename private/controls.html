@@ -85,11 +85,16 @@ async function loadPendingRequests() {
   json.forEach(req => {
     const div = document.createElement('div');
     div.className = 'pending-item';
-    div.innerHTML = `
-      <div><strong>Code:</strong> ${req.cashCode} | <strong>Package:</strong> ${req.songsAdded} songs</div>
-      <button onclick="approveCash('${req.checkoutId}')">Approve</button>
-      <button onclick="deleteCash('${req.checkoutId}')">Delete</button>
-    `;
+div.innerHTML = `
+  <div>
+    <strong>Code:</strong> ${req.cashCode} | 
+    <strong>Package:</strong> ${req.songsAdded} songs | 
+    <strong>Session:</strong> ${req.sessionId}
+  </div>
+  <button onclick="approveCash('${req.checkoutId}')">Approve</button>
+  <button onclick="deleteCash('${req.checkoutId}')">Delete</button>
+`;
+
     container.appendChild(div);
   });
 }
