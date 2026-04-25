@@ -965,6 +965,52 @@ app.get('/api/checkout-tracks', async (req, res) => {
   }
 });
 
+app.post('/api/confirm-payment', async (req, res) => {
+  try {
+    const { checkoutId, tracks = [], userId } = req.body;
+    console.log('[CONFIRM] Payment confirmation received for checkoutId:', checkoutId);
+
+    if (!checkoutId) {
+      return res.status(400).json({ error: 'Missing checkoutId' });
+    }
+
+    let session = await PaidSession.findOne({ checkoutId });
+    if (!session) {
+      return res.status(404).json({ error: 'No session found for checkoutId' });
+    }
+
+    // Guard: skip if already processed
+    if (session.processed || session.playbackStartedAt) {
+      console.log('[CONFIRM] Session already processed, skipping duplicate confirm.');
+      return res.json({ ok: true, message: 'Already processed' });
+    }
+
+    if (tracks.length > 0) {
+      session.tracks = tracks.map((track, i) => normalizeTrack(track, i + 1));
+      session.songsAdded = tracks.length;
+      session.active = true;
+      await session.save();
+
+      try {
+        await startPaidSession(session.sessionId, tracks);
+        session.playbackStartedAt = new Date();
+        session.processed = true;
+        await session.save();
+        console.log('[CONFIRM] Playback started for sessionId:', session.sessionId);
+      } catch (err) {
+        console.error('[CONFIRM] startPaidSession error', err);
+        return res.status(500).json({ error: 'Playback failed', details: err.message });
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('/api/confirm-payment error', err);
+    res.status(500).json({ error: 'Confirm payment failed', details: err.message });
+  }
+});
+
+
 app.post('/webhook/payment-success', async (req, res) => {
   try {
     const { sessionId, checkoutId, tracks = [], userId } = req.body;
