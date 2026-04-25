@@ -435,12 +435,14 @@ body::before {
           </div>
 
           <!-- payment controls -->
-          <div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
-            <button class="btn" id="payBtn" onclick="startPayment()" disabled>Pay</button>
-            <button class="btn ghost" onclick="cancelSelection()">Cancel</button>
-            <div style="flex:1"></div>
-            <div class="note" id="priceNote"></div>
-          </div>
+<div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
+  <button class="btn" id="payBtn" onclick="startPayment()" disabled>Pay Online</button>
+  <button class="btn" id="cashBtn" onclick="requestCashPayment()" disabled>Pay with Cash/Card</button>
+  <button class="btn ghost" onclick="cancelSelection()">Cancel</button>
+  <div style="flex:1"></div>
+  <div class="note" id="priceNote"></div>
+</div>
+
 
           <div class="note" style="margin-top:12px;"></div>
         </div>
@@ -882,6 +884,50 @@ function escapeForInline(obj){
       }
     })();
 
+async function requestCashPayment() {
+  const checkoutId = sessionStorage.getItem('checkoutId') || makeId();
+  const tracks = slots.filter(s => s.selected).map(s => s.selected);
+
+  try {
+    const res = await fetch('/api/request-cash-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ checkoutId, tracks })
+    });
+    const json = await res.json();
+    if (json.code) {
+      alert(`Give this code to the manager: ${json.code}`);
+    } else {
+      alert('Failed to request cash payment');
+    }
+  } catch (err) {
+    console.error('Cash payment request error', err);
+    alert('Error requesting cash payment');
+  }
+}
+
+
+async function requestCashPayment() {
+  const checkoutId = sessionStorage.getItem('checkoutId') || makeId();
+  const tracks = slots.filter(s => s.selected).map(s => s.selected);
+
+  try {
+    const res = await fetch('/api/request-cash-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ checkoutId, tracks })
+    });
+    const json = await res.json();
+    if (json.code) {
+      alert(`Give this code to the manager: ${json.code}`);
+    } else {
+      alert('Failed to request cash payment');
+    }
+  } catch (err) {
+    console.error('Cash payment request error', err);
+    alert('Error requesting cash payment');
+  }
+}
 
 
 async function startPayment() {
@@ -2579,12 +2625,12 @@ async function loadPaidTracks() {
       console.log('[FRONTEND] Paid queue updated. Queue length:', paidQueue.length);
       renderQueue();
 
-console.log('[FRONTEND] Calling /api/confirm-payment with checkoutId:', sessionStorage.getItem('checkoutId'));
-await fetch('/api/confirm-payment', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ checkoutId: sessionStorage.getItem('checkoutId'), tracks })
-});
+        console.log('[FRONTEND] Calling /api/confirm-payment with checkoutId:', sessionStorage.getItem('checkoutId'));
+        await fetch('/api/confirm-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ checkoutId: sessionStorage.getItem('checkoutId'), tracks })
+        });
 
 
       const statusText = document.getElementById('statusText');

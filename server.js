@@ -965,6 +965,143 @@ app.get('/api/checkout-tracks', async (req, res) => {
   }
 });
 
+app.post('/api/request-cash-payment', async (req, res) => {
+  try {
+    const { checkoutId, tracks = [] } = req.body;
+    if (!checkoutId || tracks.length === 0) {
+      return res.status(400).json({ error: 'Missing checkoutId or tracks' });
+    }
+
+    // Generate 6-digit code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Save pending request
+    const session = await PaidSession.findOneAndUpdate(
+      { checkoutId },
+      {
+        checkoutId,
+        tracks: tracks.map((t, i) => normalizeTrack(t, i + 1)),
+        songsAdded: tracks.length,
+        active: false,
+        cashCode: code,
+        approved: false
+      },
+      { upsert: true, new: true }
+    );
+
+    console.log('[CASH] Pending cash payment created:', checkoutId, 'code:', code);
+    res.json({ ok: true, code });
+  } catch (err) {
+    console.error('/api/request-cash-payment error', err);
+    res.status(500).json({ error: 'Failed to request cash payment', details: err.message });
+  }
+});
+
+app.get('/api/pending-cash', async (req, res) => {
+  const pending = await PaidSession.find({ approved: false, cashCode: { $exists: true } });
+  res.json(pending);
+});
+
+app.post('/api/approve-cash', async (req, res) => {
+  const { checkoutId } = req.body;
+  const session = await PaidSession.findOne({ checkoutId });
+  if (!session) return res.status(404).json({ error: 'Not found' });
+
+  session.approved = true;
+  session.active = true;
+  await session.save();
+
+  // Start playback
+  await startPaidSession(session.sessionId, session.tracks);
+  session.playbackStartedAt = new Date();
+  await session.save();
+
+  res.json({ ok: true });
+});
+
+app.post('/api/delete-cash', async (req, res) => {
+  const { checkoutId } = req.body;
+  await PaidSession.deleteOne({ checkoutId });
+  res.json({ ok: true });
+});
+
+
+// Pause playback
+app.post('/api/pause', async (req, res) => {
+  try {
+    await refreshAccessTokenIfNeeded(); // make sure your Spotify token is valid
+    const r = await fetch('https://api.spotify.com/v1/me/player/pause', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (r.status === 204) {
+      console.log('[API] Playback paused');
+      return res.json({ ok: true });
+    } else {
+      console.warn('[API] Pause failed', r.status, await r.text());
+      return res.status(500).json({ error: 'Pause failed' });
+    }
+  } catch (err) {
+    console.error('[API] Pause error', err);
+    res.status(500).json({ error: 'Pause error', details: err.message });
+  }
+});
+
+// Skip to next track
+app.post('/api/skip', async (req, res) => {
+  try {
+    await refreshAccessTokenIfNeeded();
+    const r = await fetch('https://api.spotify.com/v1/me/player/next', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (r.status === 204) {
+      console.log('[API] Track skipped');
+      return res.json({ ok: true });
+    } else {
+      console.warn('[API] Skip failed', r.status, await r.text());
+      return res.status(500).json({ error: 'Skip failed' });
+    }
+  } catch (err) {
+    console.error('[API] Skip error', err);
+    res.status(500).json({ error: 'Skip error', details: err.message });
+  }
+});
+
+
+app.post('/api/force-playback', async (req, res) => {
+  try {
+    await refreshAccessTokenIfNeeded();
+    const r = await fetch('https://api.spotify.com/v1/me/player/play', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({}) // empty body resumes last context
+    });
+    if (r.status === 204) {
+      console.log('[FORCE] Playback forced to start');
+      return res.json({ ok: true });
+    } else {
+      console.warn('[FORCE] Spotify play failed', r.status, await r.text());
+      return res.status(500).json({ error: 'Spotify play failed' });
+    }
+  } catch (err) {
+    console.error('[FORCE] Error forcing playback', err);
+    res.status(500).json({ error: 'Force playback error', details: err.message });
+  }
+});
+
+
 app.post('/api/confirm-payment', async (req, res) => {
   try {
     const { checkoutId, tracks = [], userId } = req.body;
