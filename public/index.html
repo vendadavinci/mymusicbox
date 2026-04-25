@@ -900,14 +900,15 @@ async function requestCashPayment() {
     };
   });
 
-  const amount = tracks.length * 10; // 💰 e.g. R10 per song
-
-  if (!checkoutId || tracks.length === 0) {
+  if (!checkoutId || tracks.length === 0 || !currentPackage) {
     alert('Please select a package and at least one track.');
     return;
   }
 
-  console.log('[FRONTEND] Cash request payload:', { checkoutId, tracks, amount });
+  const amount = currentPackage.price;   // ✅ fixed package price
+  const maxSongs = currentPackage.maxSongs;
+
+  console.log('[FRONTEND] Cash request payload:', { checkoutId, tracks, amount, maxSongs });
 
   try {
     const res = await fetch('/api/request-cash-payment', {
@@ -926,6 +927,7 @@ async function requestCashPayment() {
     alert('Error requesting cash payment');
   }
 }
+
 
 
 async function startPayment() {
@@ -1503,6 +1505,8 @@ function togglePackageDropdown(){
     ? 'block' 
     : 'none';
 }
+let currentPackage = null; // global state
+
 function handlePackageSelect() {
   const select = document.getElementById('packageSelect');
   const payBtn = document.getElementById('payBtn');
@@ -1512,11 +1516,18 @@ function handlePackageSelect() {
     // disable both if no package selected
     if (payBtn) payBtn.disabled = true;
     if (cashBtn) cashBtn.disabled = true;
+    currentPackage = null;
     return;
   }
 
-  const [price, songs] = select.value.split('-');
-  selectPackage(parseInt(price, 10), parseInt(songs, 10));
+  // Format: "price-maxSongs"
+  const [price, maxSongs] = select.value.split('-').map(Number);
+
+  // Store in global state
+  currentPackage = { price, maxSongs };
+
+  // Call your existing package setup logic
+  selectPackage(price, maxSongs);
 
   // enable both payment options once a package is selected
   if (payBtn) payBtn.disabled = false;
