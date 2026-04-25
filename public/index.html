@@ -1505,12 +1505,26 @@ function togglePackageDropdown(){
     ? 'block' 
     : 'none';
 }
-function handlePackageSelect(){
+function handlePackageSelect() {
   const select = document.getElementById('packageSelect');
-  if (!select.value) return;
+  const payBtn = document.getElementById('payBtn');
+  const cashBtn = document.getElementById('cashBtn');
+
+  if (!select.value) {
+    // disable both if no package selected
+    if (payBtn) payBtn.disabled = true;
+    if (cashBtn) cashBtn.disabled = true;
+    return;
+  }
+
   const [price, songs] = select.value.split('-');
-  selectPackage(parseInt(price,10), parseInt(songs,10));
+  selectPackage(parseInt(price, 10), parseInt(songs, 10));
+
+  // enable both payment options once a package is selected
+  if (payBtn) payBtn.disabled = false;
+  if (cashBtn) cashBtn.disabled = false;
 }
+
 
 
 // Robust startPaidCheckout: idempotent, defensive, and copy-paste ready
