@@ -1,4 +1,3 @@
-// models/checkout.js
 import mongoose from 'mongoose';
 
 const PaidTrackSchema = new mongoose.Schema({
@@ -10,8 +9,7 @@ const PaidTrackSchema = new mongoose.Schema({
   addedAt: { type: Date, default: Date.now },
   played: { type: Boolean, default: false },
   orderIndex: { type: Number },
-  
-  // ✅ Explicit status field for consistency
+
   status: { 
     type: String, 
     enum: ['Added', 'Playing', 'Played', 'Paused'], 
@@ -21,8 +19,8 @@ const PaidTrackSchema = new mongoose.Schema({
 
 const CheckoutSchema = new mongoose.Schema({
   checkoutId: { type: String, unique: true, index: true },
-  amount: { type: Number, required: true },
-  currency: { type: String, required: true },
+  amount: { type: Number, required: true },          // 💰 package price
+  currency: { type: String, required: true },        // e.g. 'ZAR'
   description: { type: String },
   successUrl: { type: String },
   cancelUrl: { type: String },
@@ -30,7 +28,8 @@ const CheckoutSchema = new mongoose.Schema({
   expiresAt: { type: Date },
 
   tracks: [PaidTrackSchema],
-
+  sessionId: { type: String },             
+  songsAdded: { type: Number, default: 0 },
   sessionRef: { type: mongoose.Schema.Types.ObjectId, ref: 'PaidSession' },
 
   processedAt: { type: Date },
@@ -42,6 +41,5 @@ const CheckoutSchema = new mongoose.Schema({
 });
 
 CheckoutSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-
 
 export const Checkout = mongoose.model('Checkout', CheckoutSchema);

@@ -974,9 +974,9 @@ app.get('/api/checkout-tracks', async (req, res) => {
 
 app.post('/api/request-cash-payment', async (req, res) => {
   try {
-    const { checkoutId, tracks = [] } = req.body;
-    if (!checkoutId || tracks.length === 0) {
-      return res.status(400).json({ error: 'Missing checkoutId or tracks' });
+    const { checkoutId, tracks = [], amount } = req.body;
+    if (!checkoutId || tracks.length === 0 || !amount) {
+      return res.status(400).json({ error: 'Missing checkoutId, tracks, or amount' });
     }
 
     // Generate 6-digit code
@@ -987,19 +987,21 @@ app.post('/api/request-cash-payment', async (req, res) => {
       { checkoutId },
       {
         checkoutId,
-        amount: 10, // or dynamic package price
+        amount, 
         currency: 'ZAR',
         description: 'Cash payment request',
         tracks: tracks.map((t, i) => normalizeTrack(t, i + 1)),
+        songsAdded: tracks.length,
+        sessionId: `${checkoutId}-${Date.now()}`,
         cashCode: code,
         approved: false,
-        expiresAt: new Date(Date.now() + 1000 * 60 * 60), // 1h TTL
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60) // 1h TTL
       },
       { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
     );
 
-    console.log('[CASH] Pending cash checkout created:', checkoutId, 'code:', code);
-    res.json({ ok: true, code });
+    console.log('[CASH] Pending cash checkout created:', checkoutId, 'code:', code, 'amount:', amount);
+    res.json({ ok: true, code, amount });
   } catch (err) {
     console.error('/api/request-cash-payment error', err);
     res.status(500).json({ error: 'Failed to request cash payment', details: err.message });

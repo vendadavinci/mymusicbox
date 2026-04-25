@@ -900,22 +900,24 @@ async function requestCashPayment() {
     };
   });
 
+  const amount = tracks.length * 10; // 💰 e.g. R10 per song
+
   if (!checkoutId || tracks.length === 0) {
     alert('Please select a package and at least one track.');
     return;
   }
 
-  console.log('[FRONTEND] Cash request payload:', { checkoutId, tracks });
+  console.log('[FRONTEND] Cash request payload:', { checkoutId, tracks, amount });
 
   try {
     const res = await fetch('/api/request-cash-payment', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ checkoutId, tracks })
+      body: JSON.stringify({ checkoutId, tracks, amount })
     });
     const json = await res.json();
     if (json.code) {
-      alert(`Give this code to the manager: ${json.code}`);
+      alert(`Give this code to the manager: ${json.code}\nPrice: ${json.amount} ZAR`);
     } else {
       alert('Failed to request cash payment');
     }

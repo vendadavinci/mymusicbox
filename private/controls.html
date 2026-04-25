@@ -87,9 +87,9 @@ async function loadPendingRequests() {
     div.className = 'pending-item';
 div.innerHTML = `
   <div>
-    <strong>Code:</strong> ${req.cashCode} | 
-    <strong>Package:</strong> ${req.songsAdded} songs | 
-    <strong>Session:</strong> ${req.sessionId}
+    <strong>Code:</strong> ${req.cashCode} |
+    <strong>Package:</strong> ${req.songsAdded} songs |
+    <strong>Price:</strong> ${req.amount} ${req.currency}
   </div>
   <button onclick="approveCash('${req.checkoutId}')">Approve</button>
   <button onclick="deleteCash('${req.checkoutId}')">Delete</button>
