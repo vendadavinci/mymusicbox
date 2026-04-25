@@ -217,5 +217,75 @@ document.addEventListener('DOMContentLoaded', loadPendingRequests);
       alert('Session ended: ' + id);
     }
   </script>
+
+<script>
+async function pollStatusAndPending() {
+  try {
+    // 1. Refresh the paid queue status
+    const checkoutId = sessionStorage.getItem('checkoutId');
+    if (checkoutId) {
+      const statusRes = await fetch(`/api/status?checkoutId=${checkoutId}`);
+      const statusJson = await statusRes.json();
+
+      // Render checkout queue
+      const list = document.getElementById('checkoutQueueList');
+      list.innerHTML = '';
+      statusJson.tracks.forEach(t => {
+        const li = document.createElement('div');
+        li.className = 'queue-item';
+        li.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;">
+            <img src="${t.albumArt}" style="width:40px;height:40px;border-radius:4px;">
+            <div>
+              <div style="font-weight:600;">${t.title}</div>
+              <div class="small">${t.artist}</div>
+              <div class="small">Status: ${t.status}</div>
+            </div>
+          </div>
+        `;
+        list.appendChild(li);
+      });
+
+      document.getElementById('checkoutQueueDuration').textContent =
+        `Estimated duration: ${Math.round(statusJson.tracks.reduce((sum, t) => sum + t.duration_ms, 0) / 60000)} min`;
+      document.getElementById('queueCount').textContent =
+        `Tracks: ${statusJson.totalTracks}`;
+      document.getElementById('nextTitleEl').textContent =
+        `Next: ${statusJson.tracks.find(t => t.status === 'Added')?.title || 'None'}`;
+      document.getElementById('statusText').textContent =
+        statusJson.isPlaying ? 'Playing' : 'Paused';
+    }
+
+    // 2. Refresh pending cash requests
+    const res = await fetch('/api/pending-cash');
+    const json = await res.json();
+    const container = document.getElementById('pendingRequests');
+    container.innerHTML = '';
+    json.forEach(req => {
+      const div = document.createElement('div');
+      div.className = 'pending-item';
+      div.innerHTML = `
+        <div>
+          <strong>Code:</strong> ${req.cashCode} |
+          <strong>Package:</strong> ${req.songsAdded} songs |
+          <strong>Price:</strong> ${req.amount} ${req.currency}
+        </div>
+        <button onclick="approveCash('${req.checkoutId}')">Approve</button>
+        <button onclick="deleteCash('${req.checkoutId}')">Delete</button>
+      `;
+      container.appendChild(div);
+    });
+  } catch (err) {
+    console.error('Polling error', err);
+  }
+}
+
+// Start polling every 2 seconds
+document.addEventListener('DOMContentLoaded', () => {
+  setInterval(pollStatusAndPending, 2000);
+});
+</script>
+
+
 </body>
 </html>
