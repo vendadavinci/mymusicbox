@@ -887,7 +887,25 @@ function escapeForInline(obj){
 
 async function requestCashPayment() {
   const checkoutId = sessionStorage.getItem('checkoutId') || makeId();
-  const tracks = slots.filter(s => s.selected).map(s => s.selected);
+
+  // Map selected slots into normalized track objects
+  const tracks = slots.filter(s => s.selected).map(s => {
+    const t = s.selected;
+    return {
+      uri: t.uri,
+      title: t.title,
+      artist: t.artist,
+      duration_ms: t.duration_ms || t.durationMs || 0,
+      albumArt: t.albumArt || ''
+    };
+  });
+
+  if (!checkoutId || tracks.length === 0) {
+    alert('Please select a package and at least one track.');
+    return;
+  }
+
+  console.log('[FRONTEND] Cash request payload:', { checkoutId, tracks });
 
   try {
     const res = await fetch('/api/request-cash-payment', {
