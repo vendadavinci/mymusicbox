@@ -1009,9 +1009,19 @@ app.post('/api/request-cash-payment', async (req, res) => {
 });
 
 app.get('/api/pending-cash', async (req, res) => {
-  const pending = await PaidSession.find({ approved: false, cashCode: { $exists: true } });
-  res.json(pending);
+  try {
+    const pending = await PaidSession.find(
+      { approved: false, cashCode: { $exists: true } },
+      'sessionId checkoutId cashCode songsAdded'
+    ).lean();
+
+    res.json(pending);
+  } catch (err) {
+    console.error('/api/pending-cash error', err);
+    res.status(500).json({ error: 'Failed to fetch pending cash requests' });
+  }
 });
+
 
 app.post('/api/approve-cash', async (req, res) => {
   const { checkoutId } = req.body;
