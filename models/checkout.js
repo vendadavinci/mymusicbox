@@ -27,21 +27,21 @@ const CheckoutSchema = new mongoose.Schema({
   successUrl: { type: String },
   cancelUrl: { type: String },
   createdAt: { type: Date, default: Date.now },
-
-  // ✅ Expiry marker for TTL cleanup
   expiresAt: { type: Date },
 
   tracks: [PaidTrackSchema],
 
-  // ✅ Durable link back to the session
   sessionRef: { type: mongoose.Schema.Types.ObjectId, ref: 'PaidSession' },
 
-  // ✅ Markers for idempotency and playback
-  processedAt: { type: Date },          
-  playbackStartedAt: { type: Date }     
+  processedAt: { type: Date },
+  playbackStartedAt: { type: Date },
+
+  // 🔑 Cash-specific fields
+  cashCode: { type: String },
+  approved: { type: Boolean, default: false }
 });
 
-// ✅ TTL index: automatically remove expired checkouts
 CheckoutSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
 
 export const Checkout = mongoose.model('Checkout', CheckoutSchema);

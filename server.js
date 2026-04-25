@@ -970,6 +970,8 @@ app.get('/api/checkout-tracks', async (req, res) => {
   }
 });
 
+
+
 app.post('/api/request-cash-payment', async (req, res) => {
   try {
     const { checkoutId, tracks = [] } = req.body;
@@ -980,27 +982,23 @@ app.post('/api/request-cash-payment', async (req, res) => {
     // Generate 6-digit code
     const code = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Generate a unique sessionId using Date.now()
-    const sessionId = `${checkoutId}-${Date.now()}`;
-
-    // Save pending request
-    const session = await PaidSession.findOneAndUpdate(
+    // Save pending request in Checkout
+    const checkout = await Checkout.findOneAndUpdate(
       { checkoutId },
       {
-        sessionId, // required unique field
         checkoutId,
+        amount: 10, // or dynamic package price
+        currency: 'ZAR',
+        description: 'Cash payment request',
         tracks: tracks.map((t, i) => normalizeTrack(t, i + 1)),
-        songsAdded: tracks.length,
-        active: false,
         cashCode: code,
         approved: false,
-        isPlaying: false,
-        processed: false
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60), // 1h TTL
       },
       { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
     );
 
-    console.log('[CASH] Pending cash payment created:', checkoutId, 'sessionId:', sessionId, 'code:', code);
+    console.log('[CASH] Pending cash checkout created:', checkoutId, 'code:', code);
     res.json({ ok: true, code });
   } catch (err) {
     console.error('/api/request-cash-payment error', err);
@@ -1008,11 +1006,12 @@ app.post('/api/request-cash-payment', async (req, res) => {
   }
 });
 
+
 app.get('/api/pending-cash', async (req, res) => {
   try {
-    const pending = await PaidSession.find(
+    const pending = await Checkout.find(
       { approved: false, cashCode: { $exists: true } },
-      'sessionId checkoutId cashCode songsAdded'
+      'checkoutId cashCode tracks'
     ).lean();
 
     res.json(pending);
@@ -1023,27 +1022,33 @@ app.get('/api/pending-cash', async (req, res) => {
 });
 
 
+
+
 app.post('/api/approve-cash', async (req, res) => {
   const { checkoutId } = req.body;
-  const session = await PaidSession.findOne({ checkoutId });
-  if (!session) return res.status(404).json({ error: 'Not found' });
+  const checkout = await Checkout.findOne({ checkoutId });
+  if (!checkout) return res.status(404).json({ error: 'Not found' });
 
-  session.approved = true;
-  session.active = true;
-  await session.save();
+  checkout.approved = true;
+  await checkout.save();
 
-  console.log('[CASH] Approving cash payment, sessionId:', session.sessionId);
+  console.log('[CASH] Approving cash checkout:', checkoutId);
 
-  await startPaidSession(session.sessionId, session.tracks);
-  session.playbackStartedAt = new Date();
-  await session.save();
+  // Start playback using checkout.tracks
+  const sessionId = `${checkoutId}-${Date.now()}`;
+  await startPaidSession(sessionId, checkout.tracks);
+
+  checkout.playbackStartedAt = new Date();
+  checkout.sessionRef = sessionId; // optional link
+  await checkout.save();
 
   res.json({ ok: true });
 });
 
+
 app.post('/api/delete-cash', async (req, res) => {
   const { checkoutId } = req.body;
-  await PaidSession.deleteOne({ checkoutId });
+  await Checkout.deleteOne({ checkoutId });
   res.json({ ok: true });
 });
 
