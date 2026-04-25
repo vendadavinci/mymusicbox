@@ -987,11 +987,11 @@ app.post('/api/request-cash-payment', async (req, res) => {
       { checkoutId },
       {
         checkoutId,
-        amount, 
+        amount, // 💰 dynamic package price
         currency: 'ZAR',
         description: 'Cash payment request',
         tracks: tracks.map((t, i) => normalizeTrack(t, i + 1)),
-        songsAdded: tracks.length,
+        songsAdded: tracks.length, // ✅ ensure this is set
         sessionId: `${checkoutId}-${Date.now()}`,
         cashCode: code,
         approved: false,
@@ -1001,19 +1001,18 @@ app.post('/api/request-cash-payment', async (req, res) => {
     );
 
     console.log('[CASH] Pending cash checkout created:', checkoutId, 'code:', code, 'amount:', amount);
-    res.json({ ok: true, code, amount });
+    res.json({ ok: true, code, amount, currency: 'ZAR' });
   } catch (err) {
     console.error('/api/request-cash-payment error', err);
     res.status(500).json({ error: 'Failed to request cash payment', details: err.message });
   }
 });
 
-
 app.get('/api/pending-cash', async (req, res) => {
   try {
     const pending = await Checkout.find(
       { approved: false, cashCode: { $exists: true } },
-      'checkoutId cashCode tracks'
+      'checkoutId cashCode songsAdded amount currency sessionId'
     ).lean();
 
     res.json(pending);
@@ -1024,61 +1023,75 @@ app.get('/api/pending-cash', async (req, res) => {
 });
 
 
-
-
 app.post('/api/approve-cash', async (req, res) => {
-  const { checkoutId } = req.body;
-  const checkout = await Checkout.findOne({ checkoutId });
-  if (!checkout) return res.status(404).json({ error: 'Not found' });
+  try {
+    const { checkoutId } = req.body;
+    const checkout = await Checkout.findOne({ checkoutId });
+    if (!checkout) return res.status(404).json({ error: 'Not found' });
 
-  checkout.approved = true;
-  await checkout.save();
+    checkout.approved = true;
+    await checkout.save();
 
-  console.log('[CASH] Approving cash checkout:', checkoutId);
+    console.log('[CASH] Approving cash checkout:', checkoutId);
 
-  // Start playback using checkout.tracks
-  const sessionId = `${checkoutId}-${Date.now()}`;
-  await startPaidSession(sessionId, checkout.tracks);
+    // Create a PaidSession for playback
+    const sessionId = `${checkoutId}-${Date.now()}`;
+    const session = await PaidSession.create({
+      sessionId,
+      checkoutId,
+      tracks: checkout.tracks,
+      songsAdded: checkout.tracks.length,
+      active: true,
+      approved: true,
+      playbackStartedAt: new Date()
+    });
 
-  checkout.playbackStartedAt = new Date();
-  checkout.sessionRef = sessionId; // optional link
-  await checkout.save();
+    // Start playback using the new PaidSession
+    await startPaidSession(session.sessionId, session.tracks);
 
-  res.json({ ok: true });
+    // Link Checkout to PaidSession
+    checkout.playbackStartedAt = new Date();
+    checkout.sessionRef = session._id; // ✅ ObjectId reference
+    await checkout.save();
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('/api/approve-cash error', err);
+    res.status(500).json({ error: 'Failed to approve cash payment', details: err.message });
+  }
 });
 
 
 app.post('/api/delete-cash', async (req, res) => {
-  const { checkoutId } = req.body;
-  await Checkout.deleteOne({ checkoutId });
-  res.json({ ok: true });
-});
-
-
-// Pause playback
-app.post('/api/pause', async (req, res) => {
   try {
-    await refreshAccessTokenIfNeeded(); // make sure your Spotify token is valid
-    const r = await fetch('https://api.spotify.com/v1/me/player/pause', {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${tokens.access_token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (r.status === 204) {
-      console.log('[API] Playback paused');
-      return res.json({ ok: true });
-    } else {
-      console.warn('[API] Pause failed', r.status, await r.text());
-      return res.status(500).json({ error: 'Pause failed' });
+    const { checkoutId } = req.body;
+    if (!checkoutId) {
+      return res.status(400).json({ error: 'Missing checkoutId' });
     }
+
+    // Find the checkout first
+    const checkout = await Checkout.findOne({ checkoutId });
+    if (!checkout) {
+      return res.status(404).json({ error: 'Checkout not found' });
+    }
+
+    // If a PaidSession was created and linked, remove it
+    if (checkout.sessionRef) {
+      await PaidSession.deleteOne({ _id: checkout.sessionRef });
+      console.log('[CASH] Deleted linked PaidSession:', checkout.sessionRef);
+    }
+
+    // Delete the checkout itself
+    await Checkout.deleteOne({ checkoutId });
+    console.log('[CASH] Deleted cash checkout:', checkoutId);
+
+    res.json({ ok: true });
   } catch (err) {
-    console.error('[API] Pause error', err);
-    res.status(500).json({ error: 'Pause error', details: err.message });
+    console.error('/api/delete-cash error', err);
+    res.status(500).json({ error: 'Failed to delete cash payment', details: err.message });
   }
 });
+
 
 // Skip to next track
 app.post('/api/skip', async (req, res) => {
