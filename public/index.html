@@ -551,48 +551,50 @@ const checkoutNextTitle = document.getElementById('checkoutNextTitle');
       updateButtonsForMode(currentMode);
     }
 
-    function createSlotElement(slot){
-      const wrapper = document.createElement('div');
-      wrapper.className = 'search-slot';
-      wrapper.id = `slot-${slot.index}`;
+function createSlotElement(slot){
+  const wrapper = document.createElement('div');
+  wrapper.className = 'search-slot';
+  wrapper.id = `slot-${slot.index}`;
 
-      const header = document.createElement('div');
-      header.style.display = 'flex';
-      header.style.justifyContent = 'space-between';
-      header.style.alignItems = 'center';
-      header.innerHTML = `<div style="font-weight:700">Song ${slot.index + 1}</div>
-                          <div class="small">Top 10 results</div>`;
-      wrapper.appendChild(header);
+  const header = document.createElement('div');
+  header.style.display = 'flex';
+  header.style.justifyContent = 'space-between';
+  header.style.alignItems = 'center';
+  header.innerHTML = `<div style="font-weight:700">Song ${slot.index + 1}</div>
+                      <div class="small">Top 10 results</div>`;
+  wrapper.appendChild(header);
 
-      const searchRow = document.createElement('div');
-      searchRow.className = 'search-input';
-      searchRow.style.marginTop = '8px';
-      const input = document.createElement('input');
-      input.placeholder = 'Search Spotify (title or artist)';
-      input.id = `input-${slot.index}`;
-      input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') doSearch(slot.index); });
-      const btn = document.createElement('button');
-      btn.className = 'btn';
-      btn.textContent = 'Search';
-      btn.onclick = ()=> doSearch(slot.index);
-      searchRow.appendChild(input);
-      searchRow.appendChild(btn);
-      wrapper.appendChild(searchRow);
+  // ✅ Selected info ABOVE the search box, styled goldenrod
+  const selectedInfo = document.createElement('div');
+  selectedInfo.className = 'note';
+  selectedInfo.id = `selectedInfo-${slot.index}`;
+  selectedInfo.textContent = 'No track selected';
+  selectedInfo.style.marginTop = '8px';
+  selectedInfo.style.color = 'goldenrod';   // <-- added style
+  wrapper.appendChild(selectedInfo);
 
-      const results = document.createElement('div');
-      results.className = 'results';
-      results.id = `results-${slot.index}`;
-      wrapper.appendChild(results);
+  const searchRow = document.createElement('div');
+  searchRow.className = 'search-input';
+  searchRow.style.marginTop = '8px';
+  const input = document.createElement('input');
+  input.placeholder = 'Search Spotify (title or artist)';
+  input.id = `input-${slot.index}`;
+  input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') doSearch(slot.index); });
+  const btn = document.createElement('button');
+  btn.className = 'btn';
+  btn.textContent = 'Search';
+  btn.onclick = ()=> doSearch(slot.index);
+  searchRow.appendChild(input);
+  searchRow.appendChild(btn);
+  wrapper.appendChild(searchRow);
 
-      const selectedInfo = document.createElement('div');
-      selectedInfo.className = 'note';
-      selectedInfo.id = `selectedInfo-${slot.index}`;
-      selectedInfo.textContent = 'No track selected';
-      selectedInfo.style.marginTop = '8px';
-      wrapper.appendChild(selectedInfo);
+  const results = document.createElement('div');
+  results.className = 'results';
+  results.id = `results-${slot.index}`;
+  wrapper.appendChild(results);
 
-      return wrapper;
-    }
+  return wrapper;
+}
 
       // Idempotency + pending submission helpers
 function makeId() {
