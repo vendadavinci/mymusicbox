@@ -1022,19 +1022,18 @@ app.get('/api/pending-cash', async (req, res) => {
   }
 });
 
-
 app.post('/api/approve-cash', async (req, res) => {
   try {
     const { checkoutId } = req.body;
     const checkout = await Checkout.findOne({ checkoutId });
-    if (!checkout) return res.status(404).json({ error: 'Not found' });
+    if (!checkout) return res.status(404).json({ ok: false, error: 'Not found' });
 
     checkout.approved = true;
     await checkout.save();
 
     console.log('[CASH] Approving cash checkout:', checkoutId);
 
-    // Create a PaidSession for playback
+    // Create PaidSession
     const sessionId = `${checkoutId}-${Date.now()}`;
     const session = await PaidSession.create({
       sessionId,
@@ -1046,18 +1045,18 @@ app.post('/api/approve-cash', async (req, res) => {
       playbackStartedAt: new Date()
     });
 
-    // Start playback using the new PaidSession
+    // Start playback
     await startPaidSession(session.sessionId, session.tracks);
 
-    // Link Checkout to PaidSession
+    // Link Checkout → PaidSession
     checkout.playbackStartedAt = new Date();
-    checkout.sessionRef = session._id; // ✅ ObjectId reference
+    checkout.sessionRef = session._id;
     await checkout.save();
 
-    res.json({ ok: true });
+    res.json({ ok: true }); // ✅ consistent response
   } catch (err) {
     console.error('/api/approve-cash error', err);
-    res.status(500).json({ error: 'Failed to approve cash payment', details: err.message });
+    res.status(500).json({ ok: false, error: 'Failed to approve cash payment', details: err.message });
   }
 });
 
