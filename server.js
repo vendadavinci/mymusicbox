@@ -990,8 +990,8 @@ app.post('/webhook/payment-success', async (req, res) => {
       return res.status(404).json({ error: 'No session found for checkoutId' });
     }
 
-    // Guard: skip duplicate webhook
-    if (session.songsAdded > 0 && session.playbackStartedAt) {
+    // Guard: skip duplicate webhook if already processed
+    if (session.processed || (session.songsAdded > 0 && session.playbackStartedAt)) {
       console.log('[WEBHOOK] Duplicate webhook detected, skipping. songsAdded:', session.songsAdded, 'playbackStartedAt:', session.playbackStartedAt);
       return res.json({ ok: true, message: 'Session already processed, skipping duplicate webhook' });
     }
@@ -1004,21 +1004,29 @@ app.post('/webhook/payment-success', async (req, res) => {
       await session.save();
       console.log('[WEBHOOK] Session saved. songsAdded:', session.songsAdded);
 
-      try {
-        console.log('[WEBHOOK] Calling startPaidSession for sessionId:', session.sessionId);
-        await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
-        session.playbackStartedAt = new Date();
-        await session.save();
-        console.log('[WEBHOOK] startPaidSession completed. playbackStartedAt set:', session.playbackStartedAt);
-      } catch (err) {
-        console.error('[WEBHOOK] startPaidSession error', err);
-        return res.status(500).json({ error: 'playback failed', details: err.message });
-      }
+      // ✅ Respond immediately to YOCO to prevent retries
+      res.json({ ok: true });
+
+      // Process playback asynchronously
+      (async () => {
+        try {
+          console.log('[WEBHOOK] Calling startPaidSession for sessionId:', session.sessionId);
+          await startPaidSession(session.sessionId, tracks, estimatedTotalMs);
+          session.playbackStartedAt = new Date();
+          session.processed = true; // mark as processed
+          await session.save();
+          console.log('[WEBHOOK] startPaidSession completed. playbackStartedAt set:', session.playbackStartedAt);
+        } catch (err) {
+          console.error('[WEBHOOK] startPaidSession error', err);
+        }
+      })();
+
+      return; // important: don’t fall through
     } else {
       console.log('[WEBHOOK] No tracks provided in webhook payload');
+      return res.json({ ok: true });
     }
 
-    res.json({ ok: true });
   } catch (err) {
     console.error('/webhook/payment-success error', err);
     res.status(500).json({ error: 'webhook handling failed', details: err.message });

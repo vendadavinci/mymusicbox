@@ -2579,12 +2579,7 @@ async function loadPaidTracks() {
       console.log('[FRONTEND] Paid queue updated. Queue length:', paidQueue.length);
       renderQueue();
 
-      console.log('[FRONTEND] Calling /webhook/payment-success with checkoutId:', sessionStorage.getItem('checkoutId'));
-      await fetch('/webhook/payment-success', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ checkoutId: sessionStorage.getItem('checkoutId'), tracks })
-      });
+      // ✅ Removed frontend webhook call — backend webhook handles playback
 
       const statusText = document.getElementById('statusText');
       if (statusText) {
