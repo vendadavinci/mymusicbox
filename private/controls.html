@@ -99,46 +99,31 @@ div.innerHTML = `
   });
 }
 
-async function approveCash(checkoutId) {
+async function refreshCheckoutQueue(checkoutId) {
   try {
-    // Step 1: Approve cash
-    const res = await fetch('/api/approve-cash', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ checkoutId })
-    });
-    const json = await res.json();
-    if (!json.ok) {
-      alert('Failed to approve cash payment');
-      return;
-    }
-
-    alert('Cash payment approved');
-
-    // Step 2: Immediately fetch status for this checkout
     const statusRes = await fetch(`/api/status?checkoutId=${checkoutId}`);
     const statusJson = await statusRes.json();
 
-    // Step 3: Render the paid queue into the checkout card
     const list = document.getElementById('checkoutQueueList');
-    list.innerHTML = '';
-    statusJson.tracks.forEach(t => {
-      const li = document.createElement('div');
-      li.className = 'queue-item';
-      li.innerHTML = `
-        <div style="display:flex;align-items:center;gap:8px;">
-          <img src="${t.albumArt}" style="width:40px;height:40px;border-radius:4px;">
-          <div>
-            <div style="font-weight:600;">${t.title}</div>
-            <div class="small">${t.artist}</div>
-            <div class="small">Status: ${t.status}</div>
+    if (list) {
+      list.innerHTML = '';
+      statusJson.tracks.forEach(t => {
+        const li = document.createElement('div');
+        li.className = 'queue-item';
+        li.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;">
+            <img src="${t.albumArt}" style="width:40px;height:40px;border-radius:4px;">
+            <div>
+              <div style="font-weight:600;">${t.title}</div>
+              <div class="small">${t.artist}</div>
+              <div class="small">Status: ${t.status}</div>
+            </div>
           </div>
-        </div>
-      `;
-      list.appendChild(li);
-    });
+        `;
+        list.appendChild(li);
+      });
+    }
 
-    // Update queue info
     document.getElementById('checkoutQueueDuration').textContent =
       `Estimated duration: ${Math.round(statusJson.tracks.reduce((sum, t) => sum + t.duration_ms, 0) / 60000)} min`;
     document.getElementById('queueCount').textContent =
@@ -147,14 +132,19 @@ async function approveCash(checkoutId) {
       `Next: ${statusJson.tracks.find(t => t.status === 'Added')?.title || 'None'}`;
     document.getElementById('statusText').textContent =
       statusJson.isPlaying ? 'Playing' : 'Paused';
-
-    // Step 4: Refresh pending requests list
-    loadPendingRequests();
   } catch (err) {
-    console.error('Approve cash error', err);
-    alert('Error approving cash payment');
+    console.error('Queue refresh error', err);
   }
 }
+
+// 🔄 Poll every 2 seconds once DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  setInterval(() => {
+    const checkoutId = sessionStorage.getItem('checkoutId');
+    if (checkoutId) refreshCheckoutQueue(checkoutId);
+    loadPendingRequests();
+  }, 2000);
+});
 
 async function deleteCash(checkoutId) {
   await fetch('/api/delete-cash', {
