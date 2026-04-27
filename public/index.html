@@ -888,7 +888,6 @@ function escapeForInline(obj){
 async function requestCashPayment() {
   const checkoutId = sessionStorage.getItem('checkoutId') || makeId();
 
-  // Map selected slots into normalized track objects
   const tracks = slots.filter(s => s.selected).map(s => {
     const t = s.selected;
     return {
@@ -905,7 +904,7 @@ async function requestCashPayment() {
     return;
   }
 
-  const amount = currentPackage.price;   // ✅ fixed package price
+  const amount = currentPackage.price;
   const maxSongs = currentPackage.maxSongs;
 
   console.log('[FRONTEND] Cash request payload:', { checkoutId, tracks, amount, maxSongs });
@@ -918,7 +917,10 @@ async function requestCashPayment() {
     });
     const json = await res.json();
     if (json.code) {
+      // ✅ Show code, then reload index.html with checkoutId
       alert(`Give this code to the manager: ${json.code}\nPrice: ${json.amount} ZAR`);
+      sessionStorage.setItem('checkoutId', checkoutId);
+      window.location.reload(); // reloads index.html, which will now poll /api/status
     } else {
       alert('Failed to request cash payment');
     }
@@ -927,6 +929,7 @@ async function requestCashPayment() {
     alert('Error requesting cash payment');
   }
 }
+
 
 async function startPayment() {
   if (!currentPackage) return;
@@ -2652,6 +2655,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 <script>
 
+const urlParams = new URLSearchParams(window.location.search);
+const checkoutId = urlParams.get('checkoutId');
+
 async function refreshStatus() {
   try {
     const res = await fetch(`/api/status?checkoutId=${checkoutId}`);
@@ -2689,6 +2695,12 @@ async function refreshStatus() {
     console.warn('refreshStatus error', err);
   }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  refreshStatus();
+  setInterval(refreshStatus, 5000);
+});
+
 
 document.addEventListener('DOMContentLoaded', () => {
   refreshStatus();

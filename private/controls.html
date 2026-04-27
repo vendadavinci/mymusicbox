@@ -114,15 +114,15 @@ async function approveCash(checkoutId) {
     }
 
     alert('Cash payment approved');
-    loadPendingRequests();
+    loadPendingRequests(); // refresh pending list only
 
-    // Redirect user to index.html with checkoutId
-    window.location.href = `/index.html?checkoutId=${checkoutId}`;
+    // ✅ No redirect, no queue rendering here
   } catch (err) {
     console.error('Approve cash error', err);
     alert('Error approving cash payment');
   }
 }
+
 
 
 async function deleteCash(checkoutId) {
