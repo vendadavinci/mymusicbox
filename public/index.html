@@ -932,6 +932,7 @@ async function requestCashPayment() {
 
 
 
+
 async function startPayment() {
   if (!currentPackage) return;
   const selected = slots.filter(s => s.selected).map(s => s.selected);
@@ -1668,6 +1669,7 @@ function persistPaidQueue() {
 // Start polling after checkout init
 statusPollHandle = setInterval(pollStatus, 6000);
 pollStatus();
+
 
 
 async function pollStatus() {
