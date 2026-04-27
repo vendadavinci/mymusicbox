@@ -1675,31 +1675,35 @@ async function pollStatus() {
     const checkoutId = sessionStorage.getItem('checkoutId');
     if (!checkoutId) return;
 
-    // --- Legacy endpoint check ---
-    const resLegacy = await fetch(`/api/yoco/session-status?id=${encodeURIComponent(checkoutId)}`);
-    if (!resLegacy.ok) {
-      console.warn('session-status returned non-ok', resLegacy.status);
+    const res = await fetch(`/api/yoco/session-status?id=${encodeURIComponent(checkoutId)}`);
+    if (!res.ok) {
+      console.warn('session-status returned non-ok', res.status);
       return;
     }
-    const legacyData = await resLegacy.json();
+    const data = await res.json();
 
-    if (legacyData.status !== 'successful') return;
+    if (data.status !== 'successful') return;
 
-    // --- Pending tracks from local/session ---
     const pending = typeof getPendingSubmission === 'function' ? getPendingSubmission() : null;
     let tracksToEnqueue = Array.isArray(pending?.tracks) && pending.tracks.length
       ? pending.tracks.slice()
       : JSON.parse(sessionStorage.getItem('tracks') || '[]');
 
-    if (Array.isArray(legacyData.enaddedUris) && legacyData.enaddedUris.length) {
-      const enaddedSet = new Set(legacyData.enaddedUris);
+    if (Array.isArray(data.enaddedUris) && data.enaddedUris.length) {
+      const enaddedSet = new Set(data.enaddedUris);
       tracksToEnqueue = tracksToEnqueue.filter(t => !enaddedSet.has(t.uri));
     }
 
     const localSet = new Set((paidQueue || []).map(t => t.uri));
     tracksToEnqueue = tracksToEnqueue.filter(t => !localSet.has(t.uri));
 
-    // --- Enqueue new tracks ---
+    if (tracksToEnqueue.length === 0) {
+      if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
+      if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
+      if (typeof initPage === 'function') initPage();
+      return;
+    }
+
     for (const t of tracksToEnqueue) {
       paidQueue.push({
         uri: t.uri,
@@ -1723,29 +1727,6 @@ async function pollStatus() {
     }
 
     if (typeof clearPendingSubmission === 'function') clearPendingSubmission();
-
-    // --- New unified endpoint for full queue state ---
-    const resStatus = await fetch(`/api/status?checkoutId=${encodeURIComponent(checkoutId)}`);
-    if (resStatus.ok) {
-      const statusData = await resStatus.json();
-      if (statusData.success) {
-        // Render queue card with richer info
-        if (typeof renderQueue === 'function') {
-          renderQueue(statusData.tracks);
-        }
-        // Update playback state UI
-        document.getElementById('checkoutQueueDuration').textContent =
-          `Estimated duration: ${Math.round(statusData.tracks.reduce((sum, t) => sum + t.duration_ms, 0) / 60000)} min`;
-        document.getElementById('queueCount').textContent =
-          `Tracks: ${statusData.totalTracks}`;
-        document.getElementById('nextTitleEl').textContent =
-          `Next: ${statusData.tracks.find(t => t.status === 'Added')?.title || 'None'}`;
-        document.getElementById('statusText').textContent =
-          statusData.isPlaying ? 'Playing' : 'Paused';
-      }
-    }
-
-    // Stop polling if queue is fully loaded
     if (statusPollHandle) { clearInterval(statusPollHandle); statusPollHandle = null; }
     if (typeof initPage === 'function') initPage();
 
