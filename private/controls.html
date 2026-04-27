@@ -101,7 +101,6 @@ div.innerHTML = `
 
 async function approveCash(checkoutId) {
   try {
-    // Step 1: Approve cash
     const res = await fetch('/api/approve-cash', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -115,16 +114,16 @@ async function approveCash(checkoutId) {
     }
 
     alert('Cash payment approved');
-
-    // Step 2: Refresh pending requests list only
     loadPendingRequests();
 
-    // ✅ No queue rendering here — index.html handles that
+    // Redirect user to index.html with checkoutId
+    window.location.href = `/index.html?checkoutId=${checkoutId}`;
   } catch (err) {
     console.error('Approve cash error', err);
     alert('Error approving cash payment');
   }
 }
+
 
 async function deleteCash(checkoutId) {
   await fetch('/api/delete-cash', {

@@ -2484,7 +2484,7 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
     });
 
     const data = await res.json().catch(() => ({}));
-    console.log('/api/play response:', res.status, data);
+console.log('/api/play response:', res.status, data);
 
     if (!res.ok) {
       return { ok: false, error: 'play failed', details: data };
@@ -2496,9 +2496,6 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
     return { ok: false, error: e.message };
   }
 }
-
-
-
 
     async function backendPause(){
       try{ await fetch('/api/pause', { method:'POST' }); }catch(e){ console.warn('backendPause', e); }
@@ -2569,28 +2566,7 @@ async function pollStatusOnce(){
     pollStatusOnce();
   </script>
 
-<script>
-async function refreshStatus() {
-  const res = await fetch(`/api/status?userId=${window.currentUserId}`);
-
-  const data = await res.json();
-
-  if (data.success) {
-    const percent = data.durationMs > 0
-      ? (data.progressMs / data.durationMs) * 100
-      : 0;
-
-    const bar = document.getElementById('progress-bar');
-    const text = document.getElementById('progress-text');
-
-    if (bar) bar.style.width = percent + '%';
-    if (text) {
-      text.textContent = `${Math.floor(data.progressMs / 1000)}s / ${Math.floor(data.durationMs / 1000)}s`;
-    }
-  }
-}
-
-</script>   
+  
 <script>
 let lastPlaying = null;
 
@@ -2675,31 +2651,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 <script>
-// Read-only UI refresh. Never enqueue or post anything here.
+
 async function refreshStatus() {
   try {
-    const res = await fetch(`/api/status?userId=${window.currentUserId}`);
-
+    const res = await fetch(`/api/status?checkoutId=${checkoutId}`);
     if (!res.ok) return;
     const data = await res.json();
 
     if (data && data.success) {
-      const titleEl = document.getElementById('song-title');
-      const artistEl = document.getElementById('song-artist');
-      const artEl = document.getElementById('album-art');
-      const modeEl = document.getElementById('session-mode');
-      const progressEl = document.getElementById('progress');
+      document.getElementById('checkoutQueueList').innerHTML = '';
+      data.tracks.forEach(t => {
+        const li = document.createElement('div');
+        li.className = 'queue-item';
+        li.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;">
+            <img src="${t.albumArt}" style="width:40px;height:40px;border-radius:4px;">
+            <div>
+              <div style="font-weight:600;">${t.title}</div>
+              <div class="small">${t.artist}</div>
+              <div class="small">Status: ${t.status}</div>
+            </div>
+          </div>
+        `;
+        document.getElementById('checkoutQueueList').appendChild(li);
+      });
 
-      if (titleEl) titleEl.textContent = data.title || '';
-      if (artistEl) artistEl.textContent = data.artist || '';
-      if (artEl) artEl.src = data.albumArt || '';
-      if (modeEl) modeEl.textContent = data.mode || '';
-      if (progressEl) progressEl.textContent = `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
+      document.getElementById('checkoutQueueDuration').textContent =
+        `Estimated duration: ${Math.round(data.tracks.reduce((sum, t) => sum + t.duration_ms, 0) / 60000)} min`;
+      document.getElementById('queueCount').textContent =
+        `Tracks: ${data.totalTracks}`;
+      document.getElementById('nextTitleEl').textContent =
+        `Next: ${data.tracks.find(t => t.status === 'Added')?.title || 'None'}`;
+      document.getElementById('statusText').textContent =
+        data.isPlaying ? 'Playing' : 'Paused';
     }
   } catch (err) {
     console.warn('refreshStatus error', err);
   }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  refreshStatus();
+  setInterval(refreshStatus, 5000);
+});
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  refreshStatus();
+  setInterval(refreshStatus, 5000);
+});
+
 
 setInterval(refreshStatus, 80000);
 refreshStatus();

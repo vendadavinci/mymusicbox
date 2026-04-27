@@ -19,8 +19,8 @@ const PaidTrackSchema = new mongoose.Schema({
 
 const CheckoutSchema = new mongoose.Schema({
   checkoutId: { type: String, unique: true, index: true },
-  amount: { type: Number, required: true },          // 💰 package price
-  currency: { type: String, required: true },        // e.g. 'ZAR'
+  amount: { type: Number, required: true },         
+  currency: { type: String, required: true },        
   description: { type: String },
   successUrl: { type: String },
   cancelUrl: { type: String },
