@@ -895,6 +895,7 @@ async function requestCashPayment() {
       title: t.title,
       artist: t.artist,
       duration_ms: t.duration_ms || t.durationMs || 0,
+      albumArt: t.albumArt || ''
     };
   });
 
@@ -2606,7 +2607,7 @@ async function loadPaidTracks() {
         title: t.title || '',
         artist: t.artist || '',
         duration_ms: t.duration_ms || 0,
-        
+        albumArt: t.albumArt || '',
         addedAt: Date.now()
       })));
 
