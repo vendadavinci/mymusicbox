@@ -929,8 +929,7 @@ async function requestCashPayment() {
     alert('Error requesting cash payment');
   }
 }
-
-
+    
 async function startPayment() {
   if (!currentPackage) return;
   const selected = slots.filter(s => s.selected).map(s => s.selected);
