@@ -888,6 +888,7 @@ function escapeForInline(obj){
 async function requestCashPayment() {
   const checkoutId = sessionStorage.getItem('checkoutId') || makeId();
 
+  // Map selected slots into normalized track objects
   const tracks = slots.filter(s => s.selected).map(s => {
     const t = s.selected;
     return {
@@ -904,7 +905,7 @@ async function requestCashPayment() {
     return;
   }
 
-  const amount = currentPackage.price;
+  const amount = currentPackage.price;   // ✅ fixed package price
   const maxSongs = currentPackage.maxSongs;
 
   console.log('[FRONTEND] Cash request payload:', { checkoutId, tracks, amount, maxSongs });
@@ -917,10 +918,7 @@ async function requestCashPayment() {
     });
     const json = await res.json();
     if (json.code) {
-      // ✅ Show code, then redirect to index.html with checkoutId in URL
       alert(`Give this code to the manager: ${json.code}\nPrice: ${json.amount} ZAR`);
-      sessionStorage.setItem('checkoutId', checkoutId);
-      window.location.href = `/index.html?checkoutId=${checkoutId}`;
     } else {
       alert('Failed to request cash payment');
     }
@@ -929,9 +927,6 @@ async function requestCashPayment() {
     alert('Error requesting cash payment');
   }
 }
-
-
-
 
 async function startPayment() {
   if (!currentPackage) return;
@@ -1669,7 +1664,6 @@ function persistPaidQueue() {
 // Start polling after checkout init
 statusPollHandle = setInterval(pollStatus, 6000);
 pollStatus();
-
 
 
 async function pollStatus() {
@@ -2490,7 +2484,7 @@ async function backendPlayTracks(tracks, { sessionId, append }) {
     });
 
     const data = await res.json().catch(() => ({}));
-console.log('/api/play response:', res.status, data);
+    console.log('/api/play response:', res.status, data);
 
     if (!res.ok) {
       return { ok: false, error: 'play failed', details: data };
@@ -2502,6 +2496,9 @@ console.log('/api/play response:', res.status, data);
     return { ok: false, error: e.message };
   }
 }
+
+
+
 
     async function backendPause(){
       try{ await fetch('/api/pause', { method:'POST' }); }catch(e){ console.warn('backendPause', e); }
@@ -2572,7 +2569,28 @@ async function pollStatusOnce(){
     pollStatusOnce();
   </script>
 
-  
+<script>
+async function refreshStatus() {
+  const res = await fetch(`/api/status?userId=${window.currentUserId}`);
+
+  const data = await res.json();
+
+  if (data.success) {
+    const percent = data.durationMs > 0
+      ? (data.progressMs / data.durationMs) * 100
+      : 0;
+
+    const bar = document.getElementById('progress-bar');
+    const text = document.getElementById('progress-text');
+
+    if (bar) bar.style.width = percent + '%';
+    if (text) {
+      text.textContent = `${Math.floor(data.progressMs / 1000)}s / ${Math.floor(data.durationMs / 1000)}s`;
+    }
+  }
+}
+
+</script>   
 <script>
 let lastPlaying = null;
 
@@ -2657,65 +2675,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 <script>
-
-const urlParams = new URLSearchParams(window.location.search);
-const checkoutId = urlParams.get('checkoutId');
-
+// Read-only UI refresh. Never enqueue or post anything here.
 async function refreshStatus() {
   try {
-    const res = await fetch(`/api/status?checkoutId=${checkoutId}`);
+    const res = await fetch(`/api/status?userId=${window.currentUserId}`);
+
     if (!res.ok) return;
     const data = await res.json();
 
     if (data && data.success) {
-      document.getElementById('checkoutQueueList').innerHTML = '';
-      data.tracks.forEach(t => {
-        const li = document.createElement('div');
-        li.className = 'queue-item';
-        li.innerHTML = `
-          <div style="display:flex;align-items:center;gap:8px;">
-            <img src="${t.albumArt}" style="width:40px;height:40px;border-radius:4px;">
-            <div>
-              <div style="font-weight:600;">${t.title}</div>
-              <div class="small">${t.artist}</div>
-              <div class="small">Status: ${t.status}</div>
-            </div>
-          </div>
-        `;
-        document.getElementById('checkoutQueueList').appendChild(li);
-      });
+      const titleEl = document.getElementById('song-title');
+      const artistEl = document.getElementById('song-artist');
+      const artEl = document.getElementById('album-art');
+      const modeEl = document.getElementById('session-mode');
+      const progressEl = document.getElementById('progress');
 
-      document.getElementById('checkoutQueueDuration').textContent =
-        `Estimated duration: ${Math.round(data.tracks.reduce((sum, t) => sum + t.duration_ms, 0) / 60000)} min`;
-      document.getElementById('queueCount').textContent =
-        `Tracks: ${data.totalTracks}`;
-      document.getElementById('nextTitleEl').textContent =
-        `Next: ${data.tracks.find(t => t.status === 'Added')?.title || 'None'}`;
-      document.getElementById('statusText').textContent =
-        data.isPlaying ? 'Playing' : 'Paused';
+      if (titleEl) titleEl.textContent = data.title || '';
+      if (artistEl) artistEl.textContent = data.artist || '';
+      if (artEl) artEl.src = data.albumArt || '';
+      if (modeEl) modeEl.textContent = data.mode || '';
+      if (progressEl) progressEl.textContent = `${data.playedCount || 0} / ${data.totalTracks || 0} songs played`;
     }
   } catch (err) {
     console.warn('refreshStatus error', err);
   }
 }
-
-document.addEventListener('DOMContentLoaded', () => {
-  refreshStatus();
-  setInterval(refreshStatus, 5000);
-});
-
-
-document.addEventListener('DOMContentLoaded', () => {
-  refreshStatus();
-  setInterval(refreshStatus, 5000);
-});
-
-
-document.addEventListener('DOMContentLoaded', () => {
-  refreshStatus();
-  setInterval(refreshStatus, 5000);
-});
-
 
 setInterval(refreshStatus, 80000);
 refreshStatus();
