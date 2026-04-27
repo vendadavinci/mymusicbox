@@ -917,10 +917,10 @@ async function requestCashPayment() {
     });
     const json = await res.json();
     if (json.code) {
-      // ✅ Show code, then reload index.html with checkoutId
+      // ✅ Show code, then redirect to index.html with checkoutId in URL
       alert(`Give this code to the manager: ${json.code}\nPrice: ${json.amount} ZAR`);
       sessionStorage.setItem('checkoutId', checkoutId);
-      window.location.reload(); // reloads index.html, which will now poll /api/status
+      window.location.href = `/index.html?checkoutId=${checkoutId}`;
     } else {
       alert('Failed to request cash payment');
     }
@@ -929,6 +929,7 @@ async function requestCashPayment() {
     alert('Error requesting cash payment');
   }
 }
+
 
 
 async function startPayment() {
