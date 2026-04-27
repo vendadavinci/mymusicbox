@@ -109,47 +109,17 @@ async function approveCash(checkoutId) {
     });
     const json = await res.json();
     if (!json.ok) {
+      console.error('Approve cash failed:', json.error || json.details);
       alert('Failed to approve cash payment');
       return;
     }
 
     alert('Cash payment approved');
 
-    // Step 2: Immediately fetch status for this checkout
-    const statusRes = await fetch(`/api/status?checkoutId=${checkoutId}`);
-    const statusJson = await statusRes.json();
-
-    // Step 3: Render the paid queue into the checkout card
-    const list = document.getElementById('checkoutQueueList');
-    list.innerHTML = '';
-    statusJson.tracks.forEach(t => {
-      const li = document.createElement('div');
-      li.className = 'queue-item';
-      li.innerHTML = `
-        <div style="display:flex;align-items:center;gap:8px;">
-          <img src="${t.albumArt}" style="width:40px;height:40px;border-radius:4px;">
-          <div>
-            <div style="font-weight:600;">${t.title}</div>
-            <div class="small">${t.artist}</div>
-            <div class="small">Status: ${t.status}</div>
-          </div>
-        </div>
-      `;
-      list.appendChild(li);
-    });
-
-    // Update queue info
-    document.getElementById('checkoutQueueDuration').textContent =
-      `Estimated duration: ${Math.round(statusJson.tracks.reduce((sum, t) => sum + t.duration_ms, 0) / 60000)} min`;
-    document.getElementById('queueCount').textContent =
-      `Tracks: ${statusJson.totalTracks}`;
-    document.getElementById('nextTitleEl').textContent =
-      `Next: ${statusJson.tracks.find(t => t.status === 'Added')?.title || 'None'}`;
-    document.getElementById('statusText').textContent =
-      statusJson.isPlaying ? 'Playing' : 'Paused';
-
-    // Step 4: Refresh pending requests list
+    // Step 2: Refresh pending requests list only
     loadPendingRequests();
+
+    // ✅ No queue rendering here — index.html handles that
   } catch (err) {
     console.error('Approve cash error', err);
     alert('Error approving cash payment');
